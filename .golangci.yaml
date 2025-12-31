@@ -102,10 +102,18 @@ linters:
       check-error-free-encoding: true
     gocognit:
       min-complexity: 40
+    ireturn:
+      allow:
+        - error
+        - github.com/jackc/pgx/v5.Row
+        - github.com/jackc/pgx/v5.Rows
     tagliatelle:
       case:
         rules:
           json: snake
+    wrapcheck:
+      extra-ignore-sigs:
+        - util.WrapError
   exclusions:
     generated: lax
     presets:
@@ -117,6 +125,10 @@ linters:
       - third_party$
       - builtin$
       - examples$
+    rules:
+      - path: internal/cli
+        linters:
+          - forbidigo
 formatters:
   enable:
     - gci
