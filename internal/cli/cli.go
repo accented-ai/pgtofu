@@ -2,19 +2,27 @@ package cli
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/spf13/cobra"
 
 	"github.com/accented-ai/pgtofu/internal/util"
 )
 
-func Execute(ctx context.Context) error {
+type BuildInfo struct {
+	Version   string
+	Commit    string
+	BuildTime string
+}
+
+func Execute(ctx context.Context, info BuildInfo) error {
 	rootCmd := newRootCommand()
 	rootCmd.AddCommand(
 		newExtractCommand(ctx),
 		newDiffCommand(),
 		newGenerateCommand(),
 		newPartitionCommand(),
+		newVersionCommand(info),
 	)
 
 	return util.WrapError("execute command", rootCmd.ExecuteContext(ctx))
@@ -31,5 +39,17 @@ Define your desired schema in SQL files, and pgtofu automatically generates
 safe, versioned migration files compatible with golang-migrate.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+	}
+}
+
+func newVersionCommand(info BuildInfo) *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Print version information",
+		Run: func(_ *cobra.Command, _ []string) {
+			fmt.Printf("pgtofu %s\n", info.Version)
+			fmt.Printf("  commit:     %s\n", info.Commit)
+			fmt.Printf("  built:      %s\n", info.BuildTime)
+		},
 	}
 }
