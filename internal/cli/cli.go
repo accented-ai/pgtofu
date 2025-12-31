@@ -13,6 +13,7 @@ func Execute(ctx context.Context) error {
 	rootCmd.AddCommand(
 		newExtractCommand(ctx),
 		newDiffCommand(),
+		newGenerateCommand(),
 	)
 
 	return util.WrapError("execute command", rootCmd.ExecuteContext(ctx))
