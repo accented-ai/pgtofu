@@ -1,0 +1,205 @@
+---
+title: Installation
+description: 'Install pgtofu via Docker or from source'
+---
+
+## Docker (Recommended)
+
+Docker is the easiest way to get started with pgtofu. The official image includes both pgtofu and golang-migrate.
+
+### Pull the Image
+
+```bash
+docker pull accented/pgtofu:latest
+```
+
+### Verify Installation
+
+```bash
+docker run --rm accented/pgtofu:latest --version
+docker run --rm accented/pgtofu:latest --help
+```
+
+### Usage with Docker
+
+When using Docker, mount your local directories and pass environment variables:
+
+```bash
+docker run --rm \
+  -v "$(pwd):/workspace" \
+  -w /workspace \
+  -e DATABASE_URL="$DATABASE_URL" \
+  accented/pgtofu:latest extract --output current-schema.json
+```
+
+<Tip>
+Create a shell alias to simplify Docker usage:
+
+```bash
+alias pgtofu='docker run --rm -v "$(pwd):/workspace" -w /workspace -e DATABASE_URL="$DATABASE_URL" accented/pgtofu:latest'
+```
+</Tip>
+
+### Network Access
+
+To connect to a local database from Docker, use the host network mode on Linux or `host.docker.internal` on macOS/Windows:
+
+<Tabs>
+  <Tab title="Linux">
+    ```bash
+    docker run --rm \
+      --network host \
+      -v "$(pwd):/workspace" \
+      -w /workspace \
+      -e DATABASE_URL="postgres://user:pass@localhost:5432/mydb" \
+      accented/pgtofu:latest extract --output schema.json
+    ```
+  </Tab>
+  <Tab title="macOS / Windows">
+    ```bash
+    docker run --rm \
+      -v "$(pwd):/workspace" \
+      -w /workspace \
+      -e DATABASE_URL="postgres://user:pass@host.docker.internal:5432/mydb" \
+      accented/pgtofu:latest extract --output schema.json
+    ```
+  </Tab>
+</Tabs>
+
+## Install from Source
+
+### Prerequisites
+
+- Go 1.25 or later
+- Git
+
+### Using go install
+
+```bash
+go install github.com/accented-ai/pgtofu/cmd/pgtofu@latest
+```
+
+Ensure `$GOPATH/bin` (or `$HOME/go/bin`) is in your `PATH`:
+
+```bash
+export PATH="$PATH:$(go env GOPATH)/bin"
+```
+
+### Building from Source
+
+```bash
+# Clone the repository
+git clone https://github.com/accented-ai/pgtofu.git
+cd pgtofu
+
+# Build the binary
+go build -o pgtofu ./cmd/pgtofu
+
+# Optionally, install to your PATH
+sudo mv pgtofu /usr/local/bin/
+```
+
+### Build with Version Information
+
+```bash
+VERSION=$(git describe --tags --always)
+COMMIT=$(git rev-parse --short HEAD)
+BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+go build -ldflags "-X main.version=$VERSION -X main.commit=$COMMIT -X main.buildTime=$BUILD_TIME" \
+  -o pgtofu ./cmd/pgtofu
+```
+
+## Build Docker Image Locally
+
+If you want to customize the Docker image or build from a specific branch:
+
+```bash
+git clone https://github.com/accented-ai/pgtofu.git
+cd pgtofu
+
+# Build the image
+docker build -t pgtofu:local .
+
+# Run your local build
+docker run --rm pgtofu:local --version
+```
+
+### Multi-Architecture Build
+
+To build for multiple platforms:
+
+```bash
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  -t pgtofu:local \
+  .
+```
+
+## Verifying Installation
+
+After installation, verify pgtofu is working:
+
+```bash
+# Check version
+pgtofu --version
+
+# View available commands
+pgtofu --help
+
+# View command-specific help
+pgtofu extract --help
+pgtofu diff --help
+pgtofu generate --help
+pgtofu partition --help
+```
+
+## Installing golang-migrate
+
+pgtofu generates migration files compatible with golang-migrate. Install it to apply migrations:
+
+<Tabs>
+  <Tab title="macOS">
+    ```bash
+    brew install golang-migrate
+    ```
+  </Tab>
+  <Tab title="Linux">
+    ```bash
+    # Download the binary
+    curl -L https://github.com/golang-migrate/migrate/releases/download/v4.17.0/migrate.linux-amd64.tar.gz | tar xvz
+    sudo mv migrate /usr/local/bin/
+    ```
+  </Tab>
+  <Tab title="Go Install">
+    ```bash
+    go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+    ```
+  </Tab>
+  <Tab title="Docker">
+    golang-migrate is included in the pgtofu Docker image:
+    ```bash
+    docker run --rm accented/pgtofu:latest migrate --help
+    ```
+  </Tab>
+</Tabs>
+
+## System Requirements
+
+| Component | Requirement |
+|-----------|-------------|
+| PostgreSQL | 12 or later |
+| TimescaleDB | 2.0 or later (optional) |
+| Go | 1.25 or later (for building from source) |
+| Docker | 20.10 or later (for Docker installation) |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Follow the quickstart guide to start using pgtofu
+  </Card>
+  <Card title="CLI Reference" icon="terminal" href="/cli/overview">
+    Learn about all available commands and options
+  </Card>
+</CardGroup>

@@ -1,0 +1,248 @@
+---
+title: diff
+description: 'Compare current schema with desired schema'
+---
+
+The `diff` command compares your current database schema (JSON file from `extract`) with your desired schema (SQL files) and displays the differences. Use this to preview what changes will be made before generating migrations.
+
+## Usage
+
+```bash
+pgtofu diff [flags]
+```
+
+## Flags
+
+| Flag | Description | Required |
+|------|-------------|----------|
+| `--current` | Path to current schema JSON file (from `extract`) | Yes |
+| `--desired` | Path to desired schema SQL file or directory | Yes |
+| `--help`, `-h` | Help for diff | No |
+
+## Examples
+
+### Basic Comparison
+
+```bash
+# Compare with a directory of SQL files
+pgtofu diff --current current-schema.json --desired ./schema
+
+# Compare with a single SQL file
+pgtofu diff --current current-schema.json --desired schema.sql
+```
+
+### Docker
+
+```bash
+docker run --rm \
+  -v "$(pwd):/workspace" \
+  -w /workspace \
+  accented/pgtofu:latest diff \
+  --current current-schema.json \
+  --desired ./schema
+```
+
+## Output Format
+
+The diff command outputs a summary of detected changes grouped by severity:
+
+```
+Schema Comparison Summary
+========================
+
+Changes detected: 8
+
+SAFE Changes (5):
+  - ADD_TABLE: Add table: public.users
+  - ADD_TABLE: Add table: public.orders
+  - ADD_INDEX: Add index: idx_users_email on public.users
+  - ADD_INDEX: Add index: idx_orders_user_id on public.orders
+  - ADD_EXTENSION: Add extension: uuid-ossp
+
+POTENTIALLY_BREAKING Changes (2):
+  - DROP_INDEX: Drop index: idx_old_unused on public.legacy
+  - MODIFY_COLUMN_DEFAULT: Change default for: public.users.status
+
+BREAKING Changes (1):
+  - DROP_TABLE: Drop table: public.deprecated_table
+
+Total: 8 changes
+  Safe: 5
+  Potentially Breaking: 2
+  Breaking: 1
+```
+
+## Change Severities
+
+pgtofu classifies all detected changes by their potential impact:
+
+<CardGroup cols={2}>
+  <Card title="SAFE" icon="circle-check" color="#22c55e">
+    **Low risk** - Additions and non-destructive changes
+    - Adding tables, columns, indexes
+    - Adding constraints
+    - Creating views and functions
+  </Card>
+  <Card title="POTENTIALLY_BREAKING" icon="triangle-exclamation" color="#f59e0b">
+    **Medium risk** - May affect queries or applications
+    - Dropping unused indexes
+    - Changing defaults
+    - Renaming objects
+  </Card>
+  <Card title="BREAKING" icon="circle-xmark" color="#ef4444">
+    **High risk** - May cause data loss or downtime
+    - Dropping tables or columns
+    - Dropping constraints
+    - Removing functions used by applications
+  </Card>
+  <Card title="DATA_MIGRATION_REQUIRED" icon="database" color="#8b5cf6">
+    **Requires intervention** - Cannot be automated
+    - Changing column types incompatibly
+    - Adding NOT NULL to existing columns without defaults
+    - Complex schema transformations
+  </Card>
+</CardGroup>
+
+## Change Types
+
+pgtofu detects over 40 different types of schema changes:
+
+<AccordionGroup>
+  <Accordion title="Table Changes">
+    | Change Type | Severity | Description |
+    |------------|----------|-------------|
+    | `ADD_TABLE` | SAFE | New table created |
+    | `DROP_TABLE` | BREAKING | Table removed |
+    | `MODIFY_TABLE_COMMENT` | SAFE | Table comment changed |
+  </Accordion>
+  <Accordion title="Column Changes">
+    | Change Type | Severity | Description |
+    |------------|----------|-------------|
+    | `ADD_COLUMN` | SAFE | New column added |
+    | `DROP_COLUMN` | BREAKING | Column removed |
+    | `MODIFY_COLUMN_TYPE` | Varies | Column type changed |
+    | `MODIFY_COLUMN_NULLABILITY` | Varies | NULL/NOT NULL changed |
+    | `MODIFY_COLUMN_DEFAULT` | POTENTIALLY_BREAKING | Default value changed |
+  </Accordion>
+  <Accordion title="Constraint Changes">
+    | Change Type | Severity | Description |
+    |------------|----------|-------------|
+    | `ADD_CONSTRAINT` | SAFE | New constraint added |
+    | `DROP_CONSTRAINT` | POTENTIALLY_BREAKING | Constraint removed |
+    | `MODIFY_CONSTRAINT` | POTENTIALLY_BREAKING | Constraint modified |
+  </Accordion>
+  <Accordion title="Index Changes">
+    | Change Type | Severity | Description |
+    |------------|----------|-------------|
+    | `ADD_INDEX` | SAFE | New index created |
+    | `DROP_INDEX` | POTENTIALLY_BREAKING | Index removed |
+    | `MODIFY_INDEX` | POTENTIALLY_BREAKING | Index definition changed |
+  </Accordion>
+  <Accordion title="View Changes">
+    | Change Type | Severity | Description |
+    |------------|----------|-------------|
+    | `ADD_VIEW` | SAFE | New view created |
+    | `DROP_VIEW` | POTENTIALLY_BREAKING | View removed |
+    | `MODIFY_VIEW` | POTENTIALLY_BREAKING | View definition changed |
+  </Accordion>
+  <Accordion title="Function Changes">
+    | Change Type | Severity | Description |
+    |------------|----------|-------------|
+    | `ADD_FUNCTION` | SAFE | New function created |
+    | `DROP_FUNCTION` | POTENTIALLY_BREAKING | Function removed |
+    | `MODIFY_FUNCTION` | POTENTIALLY_BREAKING | Function body changed |
+  </Accordion>
+  <Accordion title="TimescaleDB Changes">
+    | Change Type | Severity | Description |
+    |------------|----------|-------------|
+    | `ADD_HYPERTABLE` | SAFE | Table converted to hypertable |
+    | `ADD_COMPRESSION_POLICY` | SAFE | Compression policy added |
+    | `ADD_RETENTION_POLICY` | SAFE | Retention policy added |
+    | `ADD_CONTINUOUS_AGGREGATE` | SAFE | Continuous aggregate created |
+  </Accordion>
+</AccordionGroup>
+
+## Type Compatibility
+
+When comparing column types, pgtofu understands safe type widening:
+
+### Safe Widening (No Data Loss)
+
+```
+smallint → integer → bigint
+VARCHAR(50) → VARCHAR(100)
+NUMERIC(10,2) → NUMERIC(12,2)
+```
+
+### Incompatible Changes (Data Migration Required)
+
+```
+bigint → smallint (narrowing)
+TEXT → INTEGER (type change)
+VARCHAR(100) → VARCHAR(50) (length reduction)
+```
+
+## Desired Schema Format
+
+The desired schema can be a single SQL file or a directory structure:
+
+### Single File
+
+```bash
+pgtofu diff --current current.json --desired schema.sql
+```
+
+### Directory Structure (Recommended)
+
+<Tree>
+  <Tree.Folder name="schema" defaultOpen>
+    <Tree.Folder name="extensions">
+      <Tree.File name="uuid-ossp.sql" />
+    </Tree.Folder>
+    <Tree.Folder name="types">
+      <Tree.File name="enums.sql" />
+    </Tree.Folder>
+    <Tree.Folder name="tables" defaultOpen>
+      <Tree.File name="users.sql" />
+      <Tree.File name="orders.sql" />
+    </Tree.Folder>
+    <Tree.Folder name="views">
+      <Tree.File name="reports.sql" />
+    </Tree.Folder>
+    <Tree.Folder name="functions">
+      <Tree.File name="utilities.sql" />
+    </Tree.Folder>
+    <Tree.Folder name="timescaledb">
+      <Tree.File name="policies.sql" />
+    </Tree.Folder>
+  </Tree.Folder>
+</Tree>
+
+pgtofu automatically discovers and parses all `.sql` files in the directory tree.
+
+<Tip>
+Organize SQL files by type for maintainability. pgtofu resolves dependencies automatically regardless of file organization.
+</Tip>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="No changes detected">
+    Ensure your SQL files use the same schema names as the database. By default, PostgreSQL uses the `public` schema.
+  </Accordion>
+  <Accordion title="Parser errors">
+    Check that your SQL syntax is valid. pgtofu supports standard PostgreSQL syntax including:
+    - Dollar-quoted strings
+    - Quoted identifiers
+    - Complex expressions
+  </Accordion>
+  <Accordion title="Unexpected changes">
+    View normalization may detect changes due to formatting differences. Use `--preview` with generate to see exact SQL.
+  </Accordion>
+</AccordionGroup>
+
+## See Also
+
+- [`extract`](/cli/extract) - Extract current database schema
+- [`generate`](/cli/generate) - Generate migrations from differences
+- [Dependency Resolution](/concepts/dependency-resolution) - How changes are ordered

@@ -1,0 +1,430 @@
+---
+title: TimescaleDB Features
+description: 'Time-series database features with pgtofu'
+---
+
+pgtofu provides first-class support for TimescaleDB, enabling declarative management of hypertables, compression policies, retention policies, and continuous aggregates.
+
+## Overview
+
+TimescaleDB extends PostgreSQL for time-series data with:
+
+- **Hypertables** - Automatic partitioning by time
+- **Compression** - Columnar compression for older data
+- **Retention** - Automatic data expiration
+- **Continuous Aggregates** - Pre-computed materialized views
+
+## Enabling TimescaleDB
+
+First, ensure the extension is installed:
+
+```sql
+-- schema/extensions/timescaledb.sql
+CREATE EXTENSION IF NOT EXISTS timescaledb;
+```
+
+## Hypertables
+
+### Creating Hypertables
+
+Convert a regular table to a hypertable:
+
+```sql
+-- schema/tables/metrics.sql
+CREATE TABLE metrics (
+    time TIMESTAMPTZ NOT NULL,
+    device_id TEXT NOT NULL,
+    temperature DOUBLE PRECISION,
+    humidity DOUBLE PRECISION
+);
+
+-- schema/timescaledb/hypertables.sql
+SELECT create_hypertable('metrics', 'time');
+```
+
+### Chunk Time Interval
+
+Specify the time interval for each chunk:
+
+```sql
+SELECT create_hypertable(
+    'metrics',
+    'time',
+    chunk_time_interval => INTERVAL '1 day'
+);
+```
+
+**Recommended intervals:**
+| Data Volume | Chunk Interval |
+|-------------|----------------|
+| Low (< 10GB/day) | 1 week |
+| Medium (10-100GB/day) | 1 day |
+| High (> 100GB/day) | 1-6 hours |
+
+### Space Partitioning
+
+Add an additional partitioning dimension:
+
+```sql
+SELECT create_hypertable(
+    'metrics',
+    'time',
+    partitioning_column => 'device_id',
+    number_partitions => 4,
+    chunk_time_interval => INTERVAL '1 day'
+);
+```
+
+### Indexes on Hypertables
+
+```sql
+-- Time index is created automatically
+-- Add additional indexes as needed
+CREATE INDEX idx_metrics_device ON metrics(device_id, time DESC);
+```
+
+## Compression
+
+### Enabling Compression
+
+Configure compression settings:
+
+```sql
+ALTER TABLE metrics SET (
+    timescaledb.compress,
+    timescaledb.compress_segmentby = 'device_id',
+    timescaledb.compress_orderby = 'time DESC'
+);
+```
+
+**Parameters:**
+- `compress_segmentby` - Columns to segment by (for filtering)
+- `compress_orderby` - Column ordering within segments
+
+### Compression Policies
+
+Automatically compress old data:
+
+```sql
+-- Compress chunks older than 7 days
+SELECT add_compression_policy('metrics', INTERVAL '7 days');
+```
+
+### Multiple Segment Columns
+
+```sql
+ALTER TABLE sensor_data SET (
+    timescaledb.compress,
+    timescaledb.compress_segmentby = 'sensor_id, location_id',
+    timescaledb.compress_orderby = 'time DESC, reading_type'
+);
+```
+
+### Manual Compression
+
+```sql
+-- Compress specific chunk
+SELECT compress_chunk('_timescaledb_internal._hyper_1_1_chunk');
+
+-- Compress all chunks older than interval
+SELECT compress_chunk(show_chunks('metrics', older_than => INTERVAL '7 days'));
+```
+
+## Retention Policies
+
+### Automatic Data Expiration
+
+```sql
+-- Delete data older than 2 years
+SELECT add_retention_policy('metrics', INTERVAL '2 years');
+```
+
+### Retention Policy Management
+
+```sql
+-- View policies
+SELECT * FROM timescaledb_information.jobs
+WHERE proc_name = 'policy_retention';
+
+-- Remove policy
+SELECT remove_retention_policy('metrics');
+```
+
+## Continuous Aggregates
+
+### Creating Continuous Aggregates
+
+Pre-compute aggregations that update automatically:
+
+```sql
+-- schema/timescaledb/continuous_aggregates.sql
+CREATE MATERIALIZED VIEW metrics_hourly
+WITH (timescaledb.continuous) AS
+SELECT
+    time_bucket('1 hour', time) AS bucket,
+    device_id,
+    avg(temperature) AS avg_temp,
+    max(temperature) AS max_temp,
+    min(temperature) AS min_temp,
+    count(*) AS reading_count
+FROM metrics
+GROUP BY bucket, device_id
+WITH NO DATA;
+```
+
+### Refresh Policies
+
+Automatically refresh aggregates:
+
+```sql
+SELECT add_continuous_aggregate_policy(
+    'metrics_hourly',
+    start_offset => INTERVAL '3 days',
+    end_offset => INTERVAL '1 hour',
+    schedule_interval => INTERVAL '1 hour'
+);
+```
+
+**Parameters:**
+- `start_offset` - How far back to look for updates
+- `end_offset` - Lag from real-time (prevents refreshing incomplete data)
+- `schedule_interval` - How often to run the refresh
+
+### Hierarchical Aggregates
+
+Build aggregates on top of aggregates:
+
+```sql
+-- Hourly aggregate (from raw data)
+CREATE MATERIALIZED VIEW metrics_hourly
+WITH (timescaledb.continuous) AS
+SELECT
+    time_bucket('1 hour', time) AS bucket,
+    device_id,
+    avg(temperature) AS avg_temp
+FROM metrics
+GROUP BY bucket, device_id;
+
+-- Daily aggregate (from hourly)
+CREATE MATERIALIZED VIEW metrics_daily
+WITH (timescaledb.continuous) AS
+SELECT
+    time_bucket('1 day', bucket) AS day,
+    device_id,
+    avg(avg_temp) AS avg_temp
+FROM metrics_hourly
+GROUP BY day, device_id;
+```
+
+### Querying Continuous Aggregates
+
+```sql
+-- Query like a regular view
+SELECT * FROM metrics_hourly
+WHERE bucket >= NOW() - INTERVAL '7 days'
+AND device_id = 'sensor-001';
+
+-- Real-time aggregates (includes recent unrefreshed data)
+-- Enabled by default in TimescaleDB 2.7+
+```
+
+## Complete Example
+
+Here's a complete time-series schema:
+
+```sql
+-- schema/extensions/timescaledb.sql
+CREATE EXTENSION IF NOT EXISTS timescaledb;
+
+-- schema/tables/sensor_readings.sql
+CREATE TABLE sensor_readings (
+    time TIMESTAMPTZ NOT NULL,
+    sensor_id TEXT NOT NULL,
+    location_id TEXT NOT NULL,
+    temperature DOUBLE PRECISION,
+    humidity DOUBLE PRECISION,
+    pressure DOUBLE PRECISION
+);
+
+CREATE INDEX idx_sensor_readings_sensor
+    ON sensor_readings(sensor_id, time DESC);
+
+CREATE INDEX idx_sensor_readings_location
+    ON sensor_readings(location_id, time DESC);
+
+-- schema/timescaledb/setup.sql
+
+-- Convert to hypertable
+SELECT create_hypertable(
+    'sensor_readings',
+    'time',
+    chunk_time_interval => INTERVAL '1 day'
+);
+
+-- Enable compression
+ALTER TABLE sensor_readings SET (
+    timescaledb.compress,
+    timescaledb.compress_segmentby = 'sensor_id, location_id',
+    timescaledb.compress_orderby = 'time DESC'
+);
+
+-- Add compression policy (7 days)
+SELECT add_compression_policy('sensor_readings', INTERVAL '7 days');
+
+-- Add retention policy (2 years)
+SELECT add_retention_policy('sensor_readings', INTERVAL '2 years');
+
+-- schema/timescaledb/continuous_aggregates.sql
+
+-- Hourly aggregates
+CREATE MATERIALIZED VIEW sensor_readings_hourly
+WITH (timescaledb.continuous) AS
+SELECT
+    time_bucket('1 hour', time) AS bucket,
+    sensor_id,
+    location_id,
+    avg(temperature) AS avg_temp,
+    max(temperature) AS max_temp,
+    min(temperature) AS min_temp,
+    avg(humidity) AS avg_humidity,
+    avg(pressure) AS avg_pressure,
+    count(*) AS reading_count
+FROM sensor_readings
+GROUP BY bucket, sensor_id, location_id
+WITH NO DATA;
+
+-- Refresh policy for hourly aggregates
+SELECT add_continuous_aggregate_policy(
+    'sensor_readings_hourly',
+    start_offset => INTERVAL '3 days',
+    end_offset => INTERVAL '1 hour',
+    schedule_interval => INTERVAL '1 hour'
+);
+
+-- Daily aggregates (from hourly)
+CREATE MATERIALIZED VIEW sensor_readings_daily
+WITH (timescaledb.continuous) AS
+SELECT
+    time_bucket('1 day', bucket) AS day,
+    sensor_id,
+    location_id,
+    avg(avg_temp) AS avg_temp,
+    max(max_temp) AS max_temp,
+    min(min_temp) AS min_temp,
+    sum(reading_count) AS total_readings
+FROM sensor_readings_hourly
+GROUP BY day, sensor_id, location_id
+WITH NO DATA;
+
+SELECT add_continuous_aggregate_policy(
+    'sensor_readings_daily',
+    start_offset => INTERVAL '7 days',
+    end_offset => INTERVAL '1 day',
+    schedule_interval => INTERVAL '1 day'
+);
+```
+
+## pgtofu Extraction
+
+When extracting from a TimescaleDB database, pgtofu captures:
+
+```json
+{
+  "hypertables": [{
+    "schema": "public",
+    "table_name": "sensor_readings",
+    "time_column_name": "time",
+    "time_column_type": "timestamp with time zone",
+    "chunk_time_interval": "1 day",
+    "compression_enabled": true,
+    "compression_settings": {
+      "segment_by_columns": ["sensor_id", "location_id"],
+      "order_by_columns": [{"column": "time", "desc": true}]
+    },
+    "retention_policy": {
+      "drop_after": "2 years"
+    }
+  }],
+  "continuous_aggregates": [{
+    "schema": "public",
+    "view_name": "sensor_readings_hourly",
+    "query": "SELECT time_bucket('1 hour', time) AS bucket...",
+    "refresh_policy": {
+      "start_offset": "3 days",
+      "end_offset": "1 hour",
+      "schedule_interval": "1 hour"
+    }
+  }]
+}
+```
+
+## Migration Generation
+
+pgtofu generates proper TimescaleDB DDL:
+
+```sql
+-- Create hypertable
+SELECT create_hypertable('sensor_readings', 'time', chunk_time_interval => INTERVAL '1 day');
+
+-- Enable compression
+ALTER TABLE sensor_readings SET (
+    timescaledb.compress,
+    timescaledb.compress_segmentby = 'sensor_id, location_id',
+    timescaledb.compress_orderby = 'time DESC'
+);
+
+-- Add policies
+SELECT add_compression_policy('sensor_readings', INTERVAL '7 days');
+SELECT add_retention_policy('sensor_readings', INTERVAL '2 years');
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Chunk Sizing">
+    - Target 25% of available memory per chunk
+    - Smaller chunks = faster compression, more overhead
+    - Larger chunks = better query performance, slower compression
+  </Accordion>
+  <Accordion title="Compression Settings">
+    - `segmentby`: Columns used in WHERE clauses
+    - `orderby`: Usually the time column, descending
+    - Compress after data is no longer frequently updated
+  </Accordion>
+  <Accordion title="Continuous Aggregates">
+    - Use for frequently-run aggregate queries
+    - Consider hierarchical aggregates for different time granularities
+    - Set `end_offset` to avoid refreshing incomplete data
+  </Accordion>
+  <Accordion title="Retention">
+    - Set retention before tables grow too large
+    - Consider archiving before deletion
+    - Retention only drops whole chunks
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Extension not detected">
+    Ensure TimescaleDB is installed and the extension is created:
+    ```sql
+    SELECT * FROM pg_extension WHERE extname = 'timescaledb';
+    ```
+  </Accordion>
+  <Accordion title="Hypertable not created">
+    The table must have a time column with TIMESTAMPTZ type:
+    ```sql
+    ALTER TABLE metrics ALTER COLUMN time TYPE TIMESTAMPTZ;
+    ```
+  </Accordion>
+  <Accordion title="Compression fails">
+    Check that segmentby columns have good cardinality and orderby column is appropriate.
+  </Accordion>
+</AccordionGroup>
+
+## See Also
+
+- [PostgreSQL Features](/features/postgresql) - Standard PostgreSQL support
+- [Partitioning](/features/partitioning) - Native PostgreSQL partitioning
+- [TimescaleDB Documentation](https://docs.timescale.com/) - Official docs

@@ -28,6 +28,7 @@ gomodguard
 goprintffuncname
 gosmopolitan
 govet
+Hasura
 importas
 inconshreveable
 indisprimary
@@ -36,6 +37,7 @@ ineffassign
 inhparent
 inhrelid
 jackc
+Mintlify
 nestif
 nolint
 nolintlint
@@ -49,6 +51,7 @@ pgxpool
 plpgsql
 pmezard
 PostGIS
+PostgREST
 proisstrict
 relam
 relispopulated
@@ -62,4 +65,6 @@ tgtype
 thelper
 tparallel
 trgm
+TSTZRANGE
 widenings
+xmark

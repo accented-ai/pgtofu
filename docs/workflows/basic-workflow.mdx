@@ -1,0 +1,317 @@
+---
+title: Basic Workflow
+description: 'Step-by-step guide to using pgtofu'
+---
+
+This guide walks through the complete pgtofu workflow from an existing database to a fully declarative schema management setup.
+
+## Initial Setup
+
+### 1. Extract Current Schema
+
+Start by extracting your current database schema:
+
+```bash
+export DATABASE_URL="postgres://user:pass@localhost:5432/mydb"
+
+pgtofu extract --output current-schema.json
+```
+
+This creates a JSON snapshot of your database's current state.
+
+### 2. Create Schema Directory
+
+Create a directory structure for your desired schema:
+
+```bash
+mkdir -p schema/{extensions,types,tables,views,functions,timescaledb}
+```
+
+### 3. Convert JSON to SQL Files
+
+Review the extracted JSON and create corresponding SQL files. You can either:
+
+**Option A: Start from scratch** - Write new SQL files based on the JSON
+
+**Option B: Use the JSON as reference** - The JSON shows exactly what exists:
+
+```bash
+# View tables
+jq '.tables[].name' current-schema.json
+
+# View specific table
+jq '.tables[] | select(.name == "users")' current-schema.json
+```
+
+### Example: Creating Schema Files
+
+**schema/extensions/extensions.sql:**
+```sql
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+```
+
+**schema/tables/users.sql:**
+```sql
+CREATE TABLE users (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    name VARCHAR(100),
+    status VARCHAR(20) NOT NULL DEFAULT 'active',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_users_status ON users(status);
+CREATE INDEX idx_users_created_at ON users(created_at);
+```
+
+**schema/tables/orders.sql:**
+```sql
+CREATE TABLE orders (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    total NUMERIC(12, 2) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_orders_user_id ON orders(user_id);
+CREATE INDEX idx_orders_status ON orders(status);
+CREATE INDEX idx_orders_created_at ON orders(created_at);
+```
+
+**schema/functions/triggers.sql:**
+```sql
+CREATE OR REPLACE FUNCTION update_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER update_users_updated_at
+    BEFORE UPDATE ON users
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at();
+```
+
+## Daily Workflow
+
+### Making Schema Changes
+
+When you need to modify your schema:
+
+#### 1. Update SQL Files
+
+Edit your schema files directly:
+
+```sql
+-- schema/tables/users.sql
+-- Add a new column
+CREATE TABLE users (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    name VARCHAR(100),
+    phone VARCHAR(20),          -- New column
+    status VARCHAR(20) NOT NULL DEFAULT 'active',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+#### 2. Re-extract Current Schema
+
+Get the latest database state:
+
+```bash
+pgtofu extract --output current-schema.json
+```
+
+#### 3. Preview Changes
+
+See what migrations will be generated:
+
+```bash
+pgtofu diff --current current-schema.json --desired ./schema
+```
+
+Output:
+```
+Schema Comparison Summary
+========================
+
+Changes detected: 1
+
+SAFE Changes:
+  - ADD_COLUMN: Add column: public.users.phone (VARCHAR(20))
+
+No breaking changes detected.
+```
+
+#### 4. Generate Migrations
+
+Create migration files:
+
+```bash
+pgtofu generate \
+  --current current-schema.json \
+  --desired ./schema \
+  --output-dir ./migrations
+```
+
+#### 5. Review Migrations
+
+Always review generated migrations before applying:
+
+```bash
+cat migrations/000001_add_users_phone.up.sql
+```
+
+#### 6. Apply Migrations
+
+```bash
+migrate -path ./migrations -database "$DATABASE_URL" up
+```
+
+#### 7. Commit Changes
+
+```bash
+git add schema/ migrations/
+git commit -m "Add phone column to users table"
+```
+
+## Complete Example: Adding a Feature
+
+Let's add a complete feature: user comments on orders.
+
+### Step 1: Add New Table
+
+**schema/tables/order_comments.sql:**
+```sql
+CREATE TABLE order_comments (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    order_id BIGINT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_order_comments_order_id ON order_comments(order_id);
+CREATE INDEX idx_order_comments_user_id ON order_comments(user_id);
+CREATE INDEX idx_order_comments_created_at ON order_comments(created_at);
+```
+
+### Step 2: Add Related View
+
+**schema/views/order_details.sql:**
+```sql
+CREATE VIEW order_details AS
+SELECT
+    o.id,
+    o.total,
+    o.status,
+    o.created_at,
+    u.email AS user_email,
+    u.name AS user_name,
+    (
+        SELECT count(*) FROM order_comments c WHERE c.order_id = o.id
+    ) AS comment_count
+FROM orders o
+JOIN users u ON o.user_id = u.id;
+```
+
+### Step 3: Generate and Apply
+
+```bash
+# Extract current state
+pgtofu extract --output current-schema.json
+
+# Preview
+pgtofu diff --current current-schema.json --desired ./schema
+
+# Generate
+pgtofu generate --current current-schema.json --desired ./schema
+
+# Apply
+migrate -path ./migrations -database "$DATABASE_URL" up
+```
+
+## Handling Breaking Changes
+
+### Dropping a Column
+
+When you need to remove a column:
+
+1. **Remove from SQL file** - Delete the column definition
+2. **Preview** - pgtofu will show a BREAKING change
+3. **Verify** - Ensure the column is truly unused
+4. **Generate and review** - Check the migration carefully
+
+```bash
+pgtofu diff --current current-schema.json --desired ./schema
+# Shows: DROP_COLUMN: Drop column: public.users.legacy_field (BREAKING)
+```
+
+The generated migration will include a warning:
+
+```sql
+-- !! WARNING: BREAKING CHANGE !!
+-- This operation will DROP COLUMN public.users.legacy_field
+-- Ensure this column is no longer in use.
+
+ALTER TABLE public.users DROP COLUMN IF EXISTS legacy_field;
+```
+
+### Changing Column Types
+
+For type changes that require data migration:
+
+1. **Add new column** with desired type
+2. **Migrate data** with custom script
+3. **Remove old column**
+4. **Rename new column** (optional)
+
+```sql
+-- Step 1: Migration adds new column
+ALTER TABLE users ADD COLUMN status_new VARCHAR(50);
+
+-- Step 2: Manual data migration
+UPDATE users SET status_new = status;
+
+-- Step 3: Remove old, rename new
+ALTER TABLE users DROP COLUMN status;
+ALTER TABLE users RENAME COLUMN status_new TO status;
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Version Control">
+    - Always commit schema files and migrations together
+    - Use meaningful commit messages describing the change
+    - Review migrations in pull requests
+  </Accordion>
+  <Accordion title="Schema Organization">
+    - One file per table (with its indexes)
+    - Group related views and functions
+    - Separate extensions into their own file
+  </Accordion>
+  <Accordion title="Migration Review">
+    - Always preview before generating
+    - Review generated SQL before applying
+    - Test migrations on non-production first
+  </Accordion>
+  <Accordion title="Team Coordination">
+    - Re-extract before generating new migrations
+    - Communicate breaking changes to team
+    - Consider feature flags for gradual rollouts
+  </Accordion>
+</AccordionGroup>
+
+## See Also
+
+- [CI/CD Integration](/workflows/ci-cd-integration) - Automate with pipelines
+- [CLI Reference](/cli/overview) - Complete command documentation

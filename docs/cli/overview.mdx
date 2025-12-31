@@ -1,0 +1,126 @@
+---
+title: CLI Overview
+description: 'Complete reference for pgtofu command-line interface'
+---
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| [`extract`](/cli/extract) | Extract current database schema to JSON |
+| [`diff`](/cli/diff) | Compare current schema with desired schema |
+| [`generate`](/cli/generate) | Generate migration files from schema differences |
+| [`partition`](/cli/partition) | Generate hash partition SQL statements |
+
+## Global Flags
+
+All commands support these global flags:
+
+```bash
+-h, --help    Help for any command
+--version     Display version information
+```
+
+## Environment Variables
+
+| Variable | Description | Used By |
+|----------|-------------|---------|
+| `DATABASE_URL` | PostgreSQL connection URL | `extract` |
+
+## Workflow
+
+The typical pgtofu workflow involves these steps:
+
+```bash
+# 1. Extract current database schema
+pgtofu extract --database-url "$DATABASE_URL" --output current-schema.json
+
+# 2. Preview changes (optional)
+pgtofu diff --current current-schema.json --desired ./schema
+
+# 3. Generate migrations
+pgtofu generate --current current-schema.json --desired ./schema --output-dir ./migrations
+
+# 4. Apply with golang-migrate
+migrate -path ./migrations -database "$DATABASE_URL" up
+```
+
+## Output Formats
+
+### JSON Schema
+
+The `extract` command outputs a JSON file containing the complete database schema:
+
+```json
+{
+  "version": "1.0",
+  "database_name": "mydb",
+  "extracted_at": "2024-01-15T10:30:00Z",
+  "tables": [...],
+  "views": [...],
+  "functions": [...],
+  "extensions": [...],
+  "custom_types": [...],
+  "sequences": [...],
+  "triggers": [...],
+  "hypertables": [...],
+  "continuous_aggregates": [...]
+}
+```
+
+### Migration Files
+
+The `generate` command creates golang-migrate compatible files:
+
+<Tree>
+  <Tree.Folder name="migrations" defaultOpen>
+    <Tree.File name="000001_description.up.sql" />
+    <Tree.File name="000001_description.down.sql" />
+    <Tree.File name="000002_description.up.sql" />
+    <Tree.File name="000002_description.down.sql" />
+  </Tree.Folder>
+</Tree>
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | Error (invalid arguments, connection failure, schema parsing error, etc.) |
+
+## Docker Usage
+
+When running via Docker, mount your working directory:
+
+```bash
+docker run --rm \
+  -v "$(pwd):/workspace" \
+  -w /workspace \
+  -e DATABASE_URL="$DATABASE_URL" \
+  accented/pgtofu:latest <command> [flags]
+```
+
+<Tip>
+Create an alias for easier usage:
+
+```bash
+alias pgtofu='docker run --rm -v "$(pwd):/workspace" -w /workspace -e DATABASE_URL accented/pgtofu:latest'
+```
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="extract" icon="download" href="/cli/extract">
+    Learn how to extract database schemas
+  </Card>
+  <Card title="diff" icon="code-compare" href="/cli/diff">
+    Compare schemas and preview changes
+  </Card>
+  <Card title="generate" icon="file-code" href="/cli/generate">
+    Generate migration files
+  </Card>
+  <Card title="partition" icon="table-cells" href="/cli/partition">
+    Generate hash partition statements
+  </Card>
+</CardGroup>

@@ -1,0 +1,111 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "pgtofu",
+  "logo": {
+    "dark": "/logo/dark.svg",
+    "light": "/logo/light.svg"
+  },
+  "favicon": "/favicon.svg",
+  "colors": {
+    "primary": "#336791",
+    "light": "#5A9BD5",
+    "dark": "#1A3B5C",
+    "anchors": {
+      "from": "#336791",
+      "to": "#5A9BD5"
+    }
+  },
+  "topbarLinks": [
+    {
+      "name": "GitHub",
+      "url": "https://github.com/accented-ai/pgtofu"
+    }
+  ],
+  "topbarCtaButton": {
+    "name": "Get Started",
+    "url": "/quickstart"
+  },
+  "tabs": [
+    {
+      "name": "Documentation",
+      "url": "/"
+    },
+    {
+      "name": "CLI Reference",
+      "url": "/cli"
+    }
+  ],
+  "anchors": [
+    {
+      "name": "GitHub",
+      "icon": "github",
+      "url": "https://github.com/accented-ai/pgtofu"
+    },
+    {
+      "name": "Docker Hub",
+      "icon": "docker",
+      "url": "https://hub.docker.com/r/accented/pgtofu"
+    }
+  ],
+  "navigation": [
+    {
+      "group": "Getting Started",
+      "pages": [
+        "introduction",
+        "quickstart",
+        "installation"
+      ]
+    },
+    {
+      "group": "Core Concepts",
+      "pages": [
+        "concepts/overview",
+        "concepts/how-it-works"
+      ]
+    },
+    {
+      "group": "Features",
+      "pages": [
+        "features/postgresql",
+        "features/timescaledb",
+        "features/partitioning"
+      ]
+    },
+    {
+      "group": "Workflows",
+      "pages": [
+        "workflows/basic-workflow",
+        "workflows/ci-cd-integration"
+      ]
+    },
+    {
+      "group": "CLI Reference",
+      "pages": [
+        "cli/overview",
+        "cli/extract",
+        "cli/diff",
+        "cli/generate",
+        "cli/partition"
+      ]
+    },
+    {
+      "group": "Development",
+      "pages": [
+        "development/contributing"
+      ]
+    }
+  ],
+  "footerSocials": {
+    "github": "https://github.com/accented-ai/pgtofu"
+  },
+  "feedback": {
+    "thumbsRating": true,
+    "suggestEdit": true,
+    "raiseIssue": true
+  },
+  "openapi": [],
+  "analytics": {},
+  "seo": {
+    "indexHiddenPages": false
+  }
+}

@@ -1,0 +1,210 @@
+---
+title: How It Works
+description: "Technical details of pgtofu's schema processing pipeline"
+---
+
+## Phase 1: Extract
+
+The extractor connects to your PostgreSQL database and queries the system catalogs (`pg_catalog`) to build a complete schema representation.
+
+### What Gets Extracted
+
+- **Tables** - Columns, constraints, indexes, partitioning
+- **Views** - Regular and materialized views with definitions
+- **Functions** - All languages, with full body and attributes
+- **Triggers** - Table triggers with conditions
+- **Types** - Enums, composites, domains
+- **Sequences** - With ownership information
+- **Extensions** - Installed extensions
+- **TimescaleDB** - Hypertables, compression/retention policies, continuous aggregates
+
+### Excluded Schemas
+
+System schemas are automatically excluded:
+
+| Category | Schemas |
+|----------|---------|
+| PostgreSQL | `pg_catalog`, `information_schema`, `pg_toast` |
+| TimescaleDB | `_timescaledb_*`, `timescaledb_internal` |
+| Hasura | `hdb_catalog` |
+
+Use `--exclude-schema` to exclude additional schemas (e.g., `_prisma`, `supabase_*`).
+
+## Phase 2: Parse
+
+The parser reads your SQL files and converts them to the same JSON schema format as the extractor.
+
+### Supported SQL
+
+pgtofu supports standard PostgreSQL DDL:
+
+```sql
+-- Tables with all column types, constraints, indexes
+CREATE TABLE users (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_users_email ON users(email);
+
+-- Views and materialized views
+CREATE VIEW active_users AS SELECT * FROM users WHERE status = 'active';
+
+-- Functions with dollar-quoted bodies
+CREATE OR REPLACE FUNCTION update_timestamp() RETURNS TRIGGER AS $$
+BEGIN NEW.updated_at = NOW(); RETURN NEW; END;
+$$ LANGUAGE plpgsql;
+
+-- Triggers
+CREATE TRIGGER set_timestamp BEFORE UPDATE ON users
+FOR EACH ROW EXECUTE FUNCTION update_timestamp();
+
+-- Custom types
+CREATE TYPE status AS ENUM ('active', 'inactive', 'pending');
+
+-- Extensions
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- TimescaleDB
+SELECT create_hypertable('metrics', 'time');
+```
+
+### Type Normalization
+
+Types are normalized for accurate comparison:
+
+| Input | Normalized |
+|-------|-----------|
+| `int`, `int4` | `integer` |
+| `int8` | `bigint` |
+| `varchar(n)` | `character varying(n)` |
+| `timestamptz` | `timestamp with time zone` |
+| `serial` | `integer` + identity |
+
+## Phase 3: Diff
+
+The differ compares the current schema (from extract) with the desired schema (from parse) to detect all differences.
+
+### Change Detection
+
+For each object type, the differ:
+1. Builds maps by qualified name (`schema.name`)
+2. Detects additions (in desired but not current)
+3. Detects deletions (in current but not desired)
+4. Detects modifications (in both but different)
+
+### Change Severities
+
+| Severity | Examples |
+|----------|----------|
+| **SAFE** | Add table, add column, add index, create function |
+| **POTENTIALLY_BREAKING** | Drop index, modify default, change view definition |
+| **BREAKING** | Drop table, drop column, remove extension |
+| **DATA_MIGRATION_REQUIRED** | Incompatible type change, add NOT NULL without default |
+
+### Safe Type Widening
+
+These type changes are classified as SAFE:
+
+```
+smallint  ->  integer  ->  bigint
+VARCHAR(50)  ->  VARCHAR(100)  ->  TEXT
+NUMERIC(10,2)  ->  NUMERIC(12,2)
+```
+
+### View Comparison
+
+View definitions are normalized before comparison to handle formatting differences (whitespace, case, aliases).
+
+## Phase 4: Generate
+
+The generator creates golang-migrate compatible migration files from the detected changes.
+
+### Dependency Resolution
+
+Changes are ordered using topological sort (Kahn's algorithm):
+
+1. Extensions
+2. Custom types
+3. Sequences
+4. Tables
+5. Columns, constraints
+6. Indexes
+7. Views
+8. Functions
+9. Triggers
+10. TimescaleDB features
+
+Deletions are ordered in reverse.
+
+### Generated DDL Features
+
+- **Idempotent** - Uses `IF EXISTS`/`IF NOT EXISTS` clauses
+- **Transaction-wrapped** - Grouped in `BEGIN`/`COMMIT` blocks when safe
+- **Reversible** - Both up and down migrations generated
+- **Documented** - Includes comments describing each change
+- **Safe identifiers** - All identifiers properly quoted
+
+### File Naming
+
+```
+{version}_{description}.{direction}.sql
+
+000001_add_users_table.up.sql
+000001_add_users_table.down.sql
+```
+
+### Breaking Change Warnings
+
+```sql
+-- !! WARNING: BREAKING CHANGE !!
+-- This operation will DROP TABLE public.old_users
+-- Ensure this is intentional and data has been migrated.
+
+DROP TABLE IF EXISTS public.old_users;
+```
+
+## Schema File Organization
+
+Recommended directory structure:
+
+```
+schema/
+├── extensions.sql
+├── types/
+│   └── enums.sql
+├── tables/
+│   ├── users.sql
+│   └── orders.sql
+├── views/
+│   └── reports.sql
+├── functions/
+│   └── triggers.sql
+└── timescaledb/
+    └── policies.sql
+```
+
+pgtofu discovers all `.sql` files recursively. The directory structure is for your organization only.
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="One table per file">
+    Include the table definition and its indexes in the same file for easier maintenance.
+  </Accordion>
+  <Accordion title="Explicit constraint names">
+    Use `CONSTRAINT fk_orders_user FOREIGN KEY...` instead of anonymous constraints for clearer migrations.
+  </Accordion>
+  <Accordion title="Version control your schema">
+    Commit schema files to git. They are the source of truth for your database structure.
+  </Accordion>
+  <Accordion title="Preview before generating">
+    Always run `pgtofu diff` before `pgtofu generate` to review changes.
+  </Accordion>
+</AccordionGroup>
+
+## See Also
+
+- [Quickstart](/quickstart) - Step-by-step tutorial
+- [PostgreSQL Features](/features/postgresql) - Supported features
+- [TimescaleDB Features](/features/timescaledb) - TimescaleDB support

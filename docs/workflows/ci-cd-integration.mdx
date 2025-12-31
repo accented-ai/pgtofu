@@ -1,0 +1,499 @@
+---
+title: CI/CD Integration
+description: 'Automating schema management in CI/CD pipelines'
+---
+
+## Overview
+
+A typical CI/CD workflow:
+
+```mermaid
+flowchart LR
+    subgraph PR[PR Check]
+        P1[Lint SQL]
+        P2[Validate]
+        P3[Diff]
+    end
+
+    subgraph Build
+        B1[Generate migrations]
+        B2[Test]
+    end
+
+    subgraph Deploy
+        D1[Apply migrations]
+        D2[Verify]
+    end
+
+    PR --> Build --> Deploy
+```
+
+## GitHub Actions
+
+### Schema Validation on PRs
+
+**.github/workflows/schema-check.yml:**
+
+```yaml
+name: Schema Check
+
+on:
+  pull_request:
+    paths:
+      - 'schema/**'
+      - 'migrations/**'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: testdb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply existing migrations
+        run: |
+          docker run --rm --network host \
+            -v "$(pwd)/migrations:/migrations" \
+            migrate/migrate \
+            -path=/migrations \
+            -database "postgres://test:test@localhost:5432/testdb?sslmode=disable" \
+            up
+
+      - name: Extract current schema
+        run: |
+          docker run --rm --network host \
+            -v "$(pwd):/workspace" \
+            -w /workspace \
+            accented/pgtofu:latest extract \
+            --database-url "postgres://test:test@localhost:5432/testdb?sslmode=disable" \
+            --output current-schema.json
+
+      - name: Validate schema changes
+        run: |
+          docker run --rm \
+            -v "$(pwd):/workspace" \
+            -w /workspace \
+            accented/pgtofu:latest diff \
+            --current current-schema.json \
+            --desired ./schema
+
+      - name: Check for breaking changes
+        run: |
+          OUTPUT=$(docker run --rm \
+            -v "$(pwd):/workspace" \
+            -w /workspace \
+            accented/pgtofu:latest diff \
+            --current current-schema.json \
+            --desired ./schema)
+
+          if echo "$OUTPUT" | grep -q "BREAKING"; then
+            echo "::warning::Breaking changes detected! Review carefully."
+          fi
+```
+
+### Generate Migrations on Merge
+
+**.github/workflows/generate-migrations.yml:**
+
+```yaml
+name: Generate Migrations
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'schema/**'
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: testdb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply existing migrations
+        run: |
+          docker run --rm --network host \
+            -v "$(pwd)/migrations:/migrations" \
+            migrate/migrate \
+            -path=/migrations \
+            -database "postgres://test:test@localhost:5432/testdb?sslmode=disable" \
+            up
+
+      - name: Extract current schema
+        run: |
+          docker run --rm --network host \
+            -v "$(pwd):/workspace" \
+            -w /workspace \
+            accented/pgtofu:latest extract \
+            --database-url "postgres://test:test@localhost:5432/testdb?sslmode=disable" \
+            --output current-schema.json
+
+      - name: Generate migrations
+        run: |
+          docker run --rm \
+            -v "$(pwd):/workspace" \
+            -w /workspace \
+            accented/pgtofu:latest generate \
+            --current current-schema.json \
+            --desired ./schema \
+            --output-dir ./migrations
+
+      - name: Check for new migrations
+        id: check_migrations
+        run: |
+          if git diff --quiet migrations/; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create PR for migrations
+        if: steps.check_migrations.outputs.has_changes == 'true'
+        uses: peter-evans/create-pull-request@v5
+        with:
+          commit-message: 'chore: generate migrations for schema changes'
+          title: 'Auto-generated migrations'
+          body: |
+            This PR contains auto-generated migrations for recent schema changes.
+
+            Please review the generated SQL before merging.
+          branch: auto-migrations
+          delete-branch: true
+```
+
+### Deploy Migrations
+
+**.github/workflows/deploy.yml:**
+
+```yaml
+name: Deploy Migrations
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'migrations/**'
+
+jobs:
+  deploy-staging:
+    runs-on: ubuntu-latest
+    environment: staging
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply migrations to staging
+        run: |
+          docker run --rm \
+            -v "$(pwd)/migrations:/migrations" \
+            migrate/migrate \
+            -path=/migrations \
+            -database "${{ secrets.STAGING_DATABASE_URL }}" \
+            up
+
+      - name: Verify migration
+        run: |
+          docker run --rm \
+            accented/pgtofu:latest extract \
+            --database-url "${{ secrets.STAGING_DATABASE_URL }}" \
+            --output - | jq '.tables | length'
+
+  deploy-production:
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply migrations to production
+        run: |
+          docker run --rm \
+            -v "$(pwd)/migrations:/migrations" \
+            migrate/migrate \
+            -path=/migrations \
+            -database "${{ secrets.PRODUCTION_DATABASE_URL }}" \
+            up
+```
+
+## GitLab CI
+
+**.gitlab-ci.yml:**
+
+```yaml
+stages:
+  - validate
+  - generate
+  - deploy
+
+variables:
+  POSTGRES_USER: test
+  POSTGRES_PASSWORD: test
+  POSTGRES_DB: testdb
+
+validate-schema:
+  stage: validate
+  image: docker:latest
+  services:
+    - postgres:15
+  before_script:
+    - apk add --no-cache docker-compose
+  script:
+    # Apply existing migrations
+    - docker run --rm --network host
+        -v "$CI_PROJECT_DIR/migrations:/migrations"
+        migrate/migrate
+        -path=/migrations
+        -database "postgres://test:test@postgres:5432/testdb?sslmode=disable"
+        up
+
+    # Extract and diff
+    - docker run --rm --network host
+        -v "$CI_PROJECT_DIR:/workspace"
+        -w /workspace
+        accented/pgtofu:latest extract
+        --database-url "postgres://test:test@postgres:5432/testdb?sslmode=disable"
+        --output current-schema.json
+
+    - docker run --rm
+        -v "$CI_PROJECT_DIR:/workspace"
+        -w /workspace
+        accented/pgtofu:latest diff
+        --current current-schema.json
+        --desired ./schema
+  only:
+    changes:
+      - schema/**
+
+generate-migrations:
+  stage: generate
+  image: docker:latest
+  services:
+    - postgres:15
+  script:
+    # Similar to validate, then generate
+    - docker run --rm
+        -v "$CI_PROJECT_DIR:/workspace"
+        -w /workspace
+        accented/pgtofu:latest generate
+        --current current-schema.json
+        --desired ./schema
+        --output-dir ./migrations
+  artifacts:
+    paths:
+      - migrations/
+  only:
+    refs:
+      - main
+    changes:
+      - schema/**
+
+deploy-staging:
+  stage: deploy
+  image: migrate/migrate
+  script:
+    - migrate -path ./migrations -database "$STAGING_DATABASE_URL" up
+  environment:
+    name: staging
+  only:
+    refs:
+      - main
+    changes:
+      - migrations/**
+
+deploy-production:
+  stage: deploy
+  image: migrate/migrate
+  script:
+    - migrate -path ./migrations -database "$PRODUCTION_DATABASE_URL" up
+  environment:
+    name: production
+  when: manual
+  only:
+    refs:
+      - main
+    changes:
+      - migrations/**
+```
+
+## Docker Compose for Local Development
+
+**docker-compose.yml:**
+
+```yaml
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: dev
+      POSTGRES_PASSWORD: dev
+      POSTGRES_DB: devdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  pgtofu:
+    image: accented/pgtofu:latest
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgres://dev:dev@db:5432/devdb?sslmode=disable
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+
+  migrate:
+    image: migrate/migrate
+    depends_on:
+      - db
+    volumes:
+      - ./migrations:/migrations
+    entrypoint: migrate -path=/migrations -database "postgres://dev:dev@db:5432/devdb?sslmode=disable"
+
+volumes:
+  postgres_data:
+```
+
+**Usage:**
+
+```bash
+# Start database
+docker-compose up -d db
+
+# Apply migrations
+docker-compose run migrate up
+
+# Extract schema
+docker-compose run pgtofu extract --output current-schema.json
+
+# Generate migrations
+docker-compose run pgtofu generate \
+  --current current-schema.json \
+  --desired ./schema
+```
+
+## Makefile
+
+**Makefile:**
+
+```makefile
+.PHONY: db-up db-down extract diff generate migrate
+
+DATABASE_URL ?= postgres://dev:dev@localhost:5432/devdb?sslmode=disable
+
+db-up:
+	docker-compose up -d db
+	sleep 3  # Wait for postgres to be ready
+
+db-down:
+	docker-compose down
+
+extract:
+	docker run --rm --network host \
+		-v "$$(pwd):/workspace" \
+		-w /workspace \
+		accented/pgtofu:latest extract \
+		--database-url "$(DATABASE_URL)" \
+		--output current-schema.json
+
+diff: extract
+	docker run --rm \
+		-v "$$(pwd):/workspace" \
+		-w /workspace \
+		accented/pgtofu:latest diff \
+		--current current-schema.json \
+		--desired ./schema
+
+generate: extract
+	docker run --rm \
+		-v "$$(pwd):/workspace" \
+		-w /workspace \
+		accented/pgtofu:latest generate \
+		--current current-schema.json \
+		--desired ./schema \
+		--output-dir ./migrations
+
+migrate:
+	docker run --rm --network host \
+		-v "$$(pwd)/migrations:/migrations" \
+		migrate/migrate \
+		-path=/migrations \
+		-database "$(DATABASE_URL)" \
+		up
+
+migrate-down:
+	docker run --rm --network host \
+		-v "$$(pwd)/migrations:/migrations" \
+		migrate/migrate \
+		-path=/migrations \
+		-database "$(DATABASE_URL)" \
+		down 1
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Environment Separation">
+    - Use different databases for CI testing vs. production
+    - Never expose production credentials in CI logs
+    - Use environment-specific secrets
+  </Accordion>
+  <Accordion title="Migration Safety">
+    - Test migrations against a copy of production data
+    - Use staging environments for validation
+    - Implement rollback procedures
+  </Accordion>
+  <Accordion title="Automation Balance">
+    - Automate validation and generation
+    - Require manual review for breaking changes
+    - Use approval gates for production deployments
+  </Accordion>
+  <Accordion title="Monitoring">
+    - Log migration results
+    - Alert on migration failures
+    - Track migration duration for performance monitoring
+  </Accordion>
+</AccordionGroup>
+
+## See Also
+
+- [Basic Workflow](/workflows/basic-workflow) - Manual workflow steps
+- [`generate` command](/cli/generate) - CLI reference

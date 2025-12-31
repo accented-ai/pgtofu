@@ -1,0 +1,107 @@
+---
+title: Contributing
+description: 'How to contribute to pgtofu'
+---
+
+## Quick Start
+
+```bash
+# Clone and set up
+git clone https://github.com/accented-ai/pgtofu.git
+cd pgtofu
+go mod download
+
+# Build and test
+go build -o /tmp/pgtofu ./cmd/pgtofu
+go test ./...
+golangci-lint run
+```
+
+### Prerequisites
+
+- Go 1.25 or later
+- Docker (for running PostgreSQL locally)
+- Git
+
+### Running PostgreSQL Locally
+
+```bash
+# Standard PostgreSQL
+docker run -d --name pgtofu-postgres \
+  -e POSTGRES_USER=dev -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=testdb \
+  -p 5432:5432 postgres:15
+
+# TimescaleDB (for full feature testing)
+docker run -d --name pgtofu-timescale \
+  -e POSTGRES_USER=dev -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=testdb \
+  -p 5433:5432 timescale/timescaledb:latest-pg15
+```
+
+## Development Guide
+
+For detailed development information, see **[CLAUDE.md](https://github.com/accented-ai/pgtofu/blob/main/CLAUDE.md)** in the repository. It covers:
+
+- Architecture overview and data flow
+- Package structure and core types
+- How to add new features and change types
+- Testing patterns and conventions
+- Debugging tips
+
+## Project Structure
+
+```
+pgtofu/
+├── cmd/pgtofu/main.go      # CLI entry point
+├── internal/
+│   ├── cli/                # Cobra commands
+│   ├── schema/             # Data models
+│   ├── extractor/          # PostgreSQL → JSON
+│   ├── parser/             # SQL files → JSON
+│   ├── differ/             # Schema comparison
+│   ├── generator/          # DDL generation
+│   └── graph/              # Topological sort
+└── pkg/database/           # Database connection
+```
+
+## Running Tests
+
+```bash
+go test ./...                          # All tests
+go test -short ./...                   # Skip database tests
+go test -v ./internal/parser/...       # Specific package
+go test -v -run TestTableParsing ./... # Specific test
+go test -race -coverprofile=cov.out ./...  # With coverage
+```
+
+## Pull Request Process
+
+1. **Create a branch:** `git checkout -b feature/your-feature`
+2. **Make changes** and add tests
+3. **Verify:**
+   ```bash
+   go test -race ./...
+   golangci-lint run
+   ```
+4. **Submit PR** with clear description
+
+### PR Description Template
+
+```markdown
+## What
+Summary of changes
+
+## Why
+Motivation or issue being fixed
+
+## Testing
+How you tested the changes
+```
+
+## Getting Help
+
+- [GitHub Issues](https://github.com/accented-ai/pgtofu/issues) - Bug reports and feature requests
+- [GitHub Discussions](https://github.com/accented-ai/pgtofu/discussions) - Questions and ideas
+
+## Code of Conduct
+
+Be respectful and inclusive. We follow the [Contributor Covenant](https://www.contributor-covenant.org/).

@@ -1,0 +1,241 @@
+---
+title: extract
+description: 'Extract current database schema to JSON'
+---
+
+The `extract` command connects to a PostgreSQL database and exports its complete schema to a JSON file. This JSON representation serves as the "current state" for schema comparison.
+
+## Usage
+
+```bash
+pgtofu extract [flags]
+```
+
+## Flags
+
+| Flag | Short | Description | Default |
+|------|-------|-------------|---------|
+| `--database-url` | | PostgreSQL connection URL | `$DATABASE_URL` |
+| `--output` | `-o` | Output file path (`-` for stdout) | `schema.json` |
+| `--exclude-schema` | | Additional schemas to exclude (repeatable) | |
+| `--help` | `-h` | Help for extract | |
+
+## Examples
+
+### Basic Extraction
+
+```bash
+# Using command-line flag
+pgtofu extract --database-url "postgres://user:pass@localhost:5432/mydb" \
+  --output current-schema.json
+
+# Using environment variable
+export DATABASE_URL="postgres://user:pass@localhost:5432/mydb"
+pgtofu extract --output current-schema.json
+```
+
+### Output to stdout
+
+```bash
+pgtofu extract --output - | jq '.tables | length'
+```
+
+### Exclude Additional Schemas
+
+```bash
+# Exclude Prisma and GraphQL schemas
+pgtofu extract \
+  --exclude-schema _prisma \
+  --exclude-schema graphql_public \
+  --output current-schema.json
+```
+
+### Docker
+
+```bash
+docker run --rm \
+  -v "$(pwd):/workspace" \
+  -w /workspace \
+  -e DATABASE_URL="$DATABASE_URL" \
+  accented/pgtofu:latest extract --output current-schema.json
+```
+
+## Connection URL Format
+
+The PostgreSQL connection URL follows this format:
+
+```
+postgres://[user[:password]@][host][:port][/database][?param1=value1&...]
+```
+
+### Examples
+
+```bash
+# Basic connection
+postgres://user:password@localhost:5432/mydb
+
+# With SSL mode
+postgres://user:password@host.example.com:5432/mydb?sslmode=require
+
+# With connection timeout
+postgres://user:password@localhost:5432/mydb?connect_timeout=10
+
+# Using socket connection
+postgres://user:password@/mydb?host=/var/run/postgresql
+```
+
+### SSL Modes
+
+| Mode | Description |
+|------|-------------|
+| `disable` | No SSL |
+| `allow` | Try non-SSL, fall back to SSL |
+| `prefer` | Try SSL, fall back to non-SSL (default) |
+| `require` | SSL required, no certificate verification |
+| `verify-ca` | SSL required, verify CA |
+| `verify-full` | SSL required, verify CA and hostname |
+
+## Schema Exclusion
+
+### Automatically Excluded Schemas
+
+pgtofu automatically excludes system and internal schemas:
+
+| Category | Schemas |
+|----------|---------|
+| PostgreSQL | `pg_catalog`, `information_schema`, `pg_toast` |
+| TimescaleDB | `timescaledb_information`, `timescaledb_internal`, `_timescaledb_*` |
+| Hasura | `hdb_catalog` |
+
+### Excluding Third-Party Schemas
+
+Use `--exclude-schema` to exclude schemas from third-party tools:
+
+```bash
+# Prisma
+pgtofu extract --exclude-schema _prisma --output schema.json
+
+# Supabase
+pgtofu extract \
+  --exclude-schema auth \
+  --exclude-schema storage \
+  --exclude-schema graphql_public \
+  --output schema.json
+
+# PostgREST
+pgtofu extract --exclude-schema postgrest --output schema.json
+```
+
+## Output Format
+
+The extracted schema is a JSON object containing all database objects:
+
+```json
+{
+  "version": "1.0",
+  "database_name": "mydb",
+  "extracted_at": "2024-01-15T10:30:00Z",
+  "schemas": [
+    {"name": "public", "owner": "postgres"}
+  ],
+  "extensions": [
+    {"name": "uuid-ossp", "schema": "public", "version": "1.1"}
+  ],
+  "custom_types": [
+    {"schema": "public", "name": "status_enum", "type": "enum", "values": ["pending", "active"]}
+  ],
+  "sequences": [...],
+  "tables": [
+    {
+      "schema": "public",
+      "name": "users",
+      "columns": [
+        {"name": "id", "data_type": "bigint", "is_nullable": false, ...}
+      ],
+      "constraints": [...],
+      "indexes": [...]
+    }
+  ],
+  "views": [...],
+  "materialized_views": [...],
+  "functions": [...],
+  "triggers": [...],
+  "hypertables": [...],
+  "continuous_aggregates": [...]
+}
+```
+
+## What Gets Extracted
+
+<AccordionGroup>
+  <Accordion title="Tables">
+    - Column definitions (types, nullability, defaults)
+    - Primary keys and foreign keys
+    - Unique constraints and check constraints
+    - Exclusion constraints
+    - Indexes (including partial and covering indexes)
+    - Table comments
+    - Partition information (for partitioned tables)
+  </Accordion>
+  <Accordion title="Views">
+    - Regular views with definitions
+    - Materialized views with refresh settings
+    - View indexes (for materialized views)
+    - View comments
+  </Accordion>
+  <Accordion title="Functions & Triggers">
+    - Function signatures (name, arguments, return type)
+    - Function bodies (preserving original language)
+    - Volatility settings (STABLE, VOLATILE, IMMUTABLE)
+    - Security settings (DEFINER vs INVOKER)
+    - Triggers with timing and events
+  </Accordion>
+  <Accordion title="Types & Sequences">
+    - Enum types with values
+    - Composite types with fields
+    - Domain types with constraints
+    - Sequences with start/increment values
+  </Accordion>
+  <Accordion title="TimescaleDB Objects">
+    - Hypertables with dimensions
+    - Compression policies and settings
+    - Retention policies
+    - Continuous aggregates
+    - Refresh policies
+  </Accordion>
+</AccordionGroup>
+
+## Performance Considerations
+
+- Extraction queries the PostgreSQL system catalogs directly
+- Large databases (1000+ tables) may take 30-60 seconds
+- Consider using `--output -` with streaming for very large schemas
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Connection refused">
+    Ensure the database is running and accessible:
+    ```bash
+    psql "$DATABASE_URL" -c "SELECT 1"
+    ```
+  </Accordion>
+  <Accordion title="Permission denied">
+    The user needs read access to system catalogs. Grant if needed:
+    ```sql
+    GRANT SELECT ON ALL TABLES IN SCHEMA pg_catalog TO myuser;
+    ```
+  </Accordion>
+  <Accordion title="SSL errors">
+    Try different SSL modes:
+    ```bash
+    DATABASE_URL="postgres://...?sslmode=require"
+    DATABASE_URL="postgres://...?sslmode=disable"
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## See Also
+
+- [`diff`](/cli/diff) - Compare extracted schema with desired schema
+- [`generate`](/cli/generate) - Generate migrations from schema differences
