@@ -14,6 +14,7 @@ func Execute(ctx context.Context) error {
 		newExtractCommand(ctx),
 		newDiffCommand(),
 		newGenerateCommand(),
+		newPartitionCommand(),
 	)
 
 	return util.WrapError("execute command", rootCmd.ExecuteContext(ctx))

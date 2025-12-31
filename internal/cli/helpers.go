@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 
 	"github.com/accented-ai/pgtofu/internal/parser"
 	"github.com/accented-ai/pgtofu/internal/schema"
@@ -91,7 +93,72 @@ func parseDirectory(p *parser.Parser, path string, db *schema.Database) error {
 		return util.WrapError("processing deferred partitions", err)
 	}
 
+	validatePartitions(db)
+
 	return nil
+}
+
+func validatePartitions(db *schema.Database) { //nolint:gocognit
+	for i := range db.Tables {
+		table := &db.Tables[i]
+		if table.PartitionStrategy == nil {
+			continue
+		}
+
+		if table.PartitionStrategy.Type == "HASH" { //nolint:nestif
+			expectedCount := len(table.PartitionStrategy.Partitions)
+			if expectedCount == 0 {
+				continue
+			}
+
+			remainders := make(map[int]bool)
+
+			for _, partition := range table.PartitionStrategy.Partitions {
+				if strings.Contains(strings.ToUpper(partition.Definition), "REMAINDER") {
+					remainderPattern := regexp.MustCompile(`REMAINDER\s+(\d+)`)
+					if matches := remainderPattern.FindStringSubmatch(partition.Definition); len(
+						matches,
+					) > 1 {
+						var remainder int
+						if _, err := fmt.Sscanf(matches[1], "%d", &remainder); err == nil {
+							remainders[remainder] = true
+						}
+					}
+				}
+			}
+
+			if len(remainders) != expectedCount {
+				fmt.Fprintf(
+					os.Stderr,
+					"⚠️  WARNING: Table %s.%s has %d partitions but only %d unique REMAINDER values found\n",
+					table.Schema,
+					table.Name,
+					expectedCount,
+					len(remainders),
+				)
+			}
+
+			if len(remainders) < expectedCount {
+				missing := []int{}
+
+				for i := range expectedCount {
+					if !remainders[i] {
+						missing = append(missing, i)
+					}
+				}
+
+				if len(missing) > 0 {
+					fmt.Fprintf(
+						os.Stderr,
+						"⚠️  WARNING: Table %s.%s missing partitions for REMAINDER values: %v\n",
+						table.Schema,
+						table.Name,
+						missing,
+					)
+				}
+			}
+		}
+	}
 }
 
 func checkParserErrors(p *parser.Parser) error {
