@@ -1,7 +1,9 @@
 amname
 bidichk
+cagg
 conislocal
 cyclop
+davecgh
 dupl
 enumtypid
 forbidigo
@@ -35,14 +37,19 @@ jackc
 nestif
 nolint
 nolintlint
+NotNilf
+ossp
 partstrat
 pgservicefile
 pgtofu
 pgxpool
 plpgsql
+pmezard
+PostGIS
 proisstrict
 relam
 relispopulated
+rogpeppe
 spgist
 tgfoid
 tgisinternal
@@ -51,3 +58,4 @@ tgrelid
 tgtype
 thelper
 tparallel
+trgm

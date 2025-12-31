@@ -107,6 +107,7 @@ linters:
         - error
         - github.com/jackc/pgx/v5.Row
         - github.com/jackc/pgx/v5.Rows
+        - parser.StatementParser
     tagliatelle:
       case:
         rules:
