@@ -1,0 +1,60 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# GitHub
+.github
+
+# Documentation
+README.md
+LICENSE
+*.md
+
+# Development files
+*.test
+*.out
+*.prof
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+pgtofu
+pgtofu.exe
+*.exe
+dist/
+build/
+
+# Test files
+*_test.go
+testdata/
+
+# CI/CD (but keep Dockerfile)
+*.yml
+!Dockerfile
+
+# Spell checker
+cspell.config.yaml
+cspell.dict.txt
+
+# Linter config (not needed in image)
+.golangci.yaml
+
+# Temporary files
+*.tmp
+*.log
+*.bak
+*.orig
+
+# Coverage
+coverage.out
+*.coverprofile

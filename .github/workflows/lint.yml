@@ -1,0 +1,244 @@
+name: Lint
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+    branches:
+      - '**'
+
+jobs:
+  golangci-lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Check if feature branch
+        id: check-branch
+        run: |
+          # Only push events to main branch should run normally
+          # All PRs and pushes to feature branches should check all commits
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "is_main=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_main=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get commits to check (feature branch only)
+        id: commits
+        if: steps.check-branch.outputs.is_main == 'false'
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # For PRs, get commits between base and head
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          else
+            # For pushes to feature branches, get commits not in main
+            git fetch origin main:main || true
+            BASE_SHA="origin/main"
+            HEAD_SHA="HEAD"
+          fi
+
+          # Get list of commits
+          COMMITS=$(git rev-list --reverse ${BASE_SHA}..${HEAD_SHA} 2>/dev/null || echo "")
+          if [ -z "$COMMITS" ]; then
+            # Fallback: just check HEAD if no commits found
+            COMMITS=$(git rev-parse HEAD)
+          fi
+
+          # Store commits as newline-separated list
+          echo "commits<<EOF" >> $GITHUB_OUTPUT
+          echo "$COMMITS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Install golangci-lint
+        if: steps.check-branch.outputs.is_main == 'false'
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin latest
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+          golangci-lint --version
+
+      - name: Run golangci-lint on all commits (feature branch)
+        if: steps.check-branch.outputs.is_main == 'false'
+        run: |
+          COMMITS="${{ steps.commits.outputs.commits }}"
+          FAILED_COMMITS=()
+
+          for COMMIT in $COMMITS; do
+            SHORT_SHA=$(git rev-parse --short $COMMIT)
+            COMMIT_TITLE=$(git log -1 --format="%s" $COMMIT)
+            echo "Checking commit $SHORT_SHA: $COMMIT_TITLE"
+            git checkout -q $COMMIT
+
+            # Skip if no .go files exist
+            if ! find . -name "*.go" -type f | grep -q .; then
+              echo "⏭️  Skipping golangci-lint (no .go files found)"
+              continue
+            fi
+
+            # Run golangci-lint on this commit
+            if ! golangci-lint run --timeout=10m; then
+              FAILED_COMMITS+=("$COMMIT")
+              echo "❌ Lint failed on commit $SHORT_SHA: $COMMIT_TITLE"
+            else
+              echo "✅ Lint passed on commit $SHORT_SHA: $COMMIT_TITLE"
+            fi
+          done
+
+          # Restore HEAD
+          git checkout -q ${{ github.sha }}
+
+          # Fail if any commit failed
+          if [ ${#FAILED_COMMITS[@]} -gt 0 ]; then
+            echo "The following commits failed linting:"
+            for COMMIT in "${FAILED_COMMITS[@]}"; do
+              SHORT_SHA=$(git rev-parse --short $COMMIT)
+              COMMIT_TITLE=$(git log -1 --format="%s" $COMMIT)
+              echo "  $SHORT_SHA: $COMMIT_TITLE"
+            done
+            exit 1
+          fi
+
+      - name: Run golangci-lint (main branch push only)
+        if: steps.check-branch.outputs.is_main == 'true'
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: latest
+          args: --timeout=10m
+          only-new-issues: false
+
+  cspell:
+    name: cspell
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+
+      - name: Install cspell
+        run: npm install -g cspell@latest
+
+      - name: Check if feature branch
+        id: check-branch
+        run: |
+          # Only push events to main branch should run normally
+          # All PRs and pushes to feature branches should check all commits
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "is_main=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_main=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get commits to check (feature branch only)
+        id: commits
+        if: steps.check-branch.outputs.is_main == 'false'
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # For PRs, get commits between base and head
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          else
+            # For pushes to feature branches, get commits not in main
+            git fetch origin main:main || true
+            BASE_SHA="origin/main"
+            HEAD_SHA="HEAD"
+          fi
+
+          # Get list of commits
+          COMMITS=$(git rev-list --reverse ${BASE_SHA}..${HEAD_SHA} 2>/dev/null || echo "")
+          if [ -z "$COMMITS" ]; then
+            # Fallback: just check HEAD if no commits found
+            COMMITS=$(git rev-parse HEAD)
+          fi
+
+          # Store commits as newline-separated list
+          echo "commits<<EOF" >> $GITHUB_OUTPUT
+          echo "$COMMITS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Run cspell on all commits (feature branch)
+        if: steps.check-branch.outputs.is_main == 'false'
+        run: |
+          COMMITS="${{ steps.commits.outputs.commits }}"
+          FAILED_COMMITS=()
+
+          for COMMIT in $COMMITS; do
+            SHORT_SHA=$(git rev-parse --short $COMMIT)
+            COMMIT_TITLE=$(git log -1 --format="%s" $COMMIT)
+            echo "Checking commit $SHORT_SHA: $COMMIT_TITLE"
+            git checkout -q $COMMIT
+
+            # Run cspell on this commit
+            if ! cspell --no-progress --show-suggestions .; then
+              FAILED_COMMITS+=("$COMMIT")
+              echo "❌ Spell check failed on commit $SHORT_SHA: $COMMIT_TITLE"
+            else
+              echo "✅ Spell check passed on commit $SHORT_SHA: $COMMIT_TITLE"
+            fi
+          done
+
+          # Restore HEAD
+          git checkout -q ${{ github.sha }}
+
+          # Fail if any commit failed
+          if [ ${#FAILED_COMMITS[@]} -gt 0 ]; then
+            echo "The following commits failed spell checking:"
+            for COMMIT in "${FAILED_COMMITS[@]}"; do
+              SHORT_SHA=$(git rev-parse --short $COMMIT)
+              COMMIT_TITLE=$(git log -1 --format="%s" $COMMIT)
+              echo "  $SHORT_SHA: $COMMIT_TITLE"
+            done
+            exit 1
+          fi
+
+      - name: Run cspell (main branch push only)
+        if: steps.check-branch.outputs.is_main == 'true'
+        run: |
+          cspell --version
+          cspell --no-progress --show-suggestions .
+
+  go-test:
+    name: Go unit tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Run tests
+        run: go test -v -race -coverprofile=coverage.out ./...
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: coverage.out
