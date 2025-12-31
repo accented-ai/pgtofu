@@ -1,0 +1,42 @@
+version: "0.2"
+language: en
+useGitignore: true
+ignorePaths:
+  - "*.sum"
+noConfigSearch: true
+dictionaries:
+  - aws
+  - bash
+  - cpp
+  - data-science
+  - docker
+  - filetypes
+  - fonts
+  - fullstack
+  - git
+  - golang
+  - google
+  - html
+  - html-symbol-entities
+  - java
+  - kotlin
+  - latex
+  - lorem-ipsum
+  - pgtofu
+  - makefile
+  - markdown
+  - node
+  - npm
+  - python
+  - python-common
+  - redis
+  - rust
+  - sql
+  - swift
+  - typescript
+  - vim
+dictionaryDefinitions:
+  - name: pgtofu
+    path: cspell.dict.txt
+    addWords: true
+allowCompoundWords: true
