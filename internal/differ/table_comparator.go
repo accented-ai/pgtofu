@@ -92,7 +92,77 @@ func (tc *TableComparator) detectModifiedTables(
 		tc.columnComp.Compare(result, key, current, current, desired)
 		tc.constraintComp.Compare(result, current, desired)
 		tc.compareTableComments(result, key, current, desired)
+		tc.comparePartitions(result, key, current, desired)
 	}
+}
+
+func (tc *TableComparator) comparePartitions(
+	result *DiffResult,
+	tableKey string,
+	current, desired *schema.Table,
+) {
+	currentPartitions := tc.buildPartitionMap(current)
+	desiredPartitions := tc.buildPartitionMap(desired)
+
+	for name, partition := range desiredPartitions {
+		if _, exists := currentPartitions[name]; !exists {
+			result.Changes = append(result.Changes, Change{
+				Type:     ChangeTypeAddPartition,
+				Severity: SeveritySafe,
+				Description: fmt.Sprintf(
+					"Add partition %s to table %s",
+					partition.Name,
+					desired.QualifiedName(),
+				),
+				ObjectType: "partition",
+				ObjectName: PartitionKey(desired.Schema, desired.Name, partition.Name),
+				Details: map[string]any{
+					"table":      desired.QualifiedName(),
+					"partition":  partition,
+					"definition": partition.Definition,
+				},
+				DependsOn: []string{tableKey},
+			})
+		}
+	}
+
+	for name, partition := range currentPartitions {
+		if _, exists := desiredPartitions[name]; !exists {
+			result.Changes = append(result.Changes, Change{
+				Type:     ChangeTypeDropPartition,
+				Severity: SeverityBreaking,
+				Description: fmt.Sprintf(
+					"Drop partition %s from table %s",
+					partition.Name,
+					current.QualifiedName(),
+				),
+				ObjectType: "partition",
+				ObjectName: PartitionKey(current.Schema, current.Name, partition.Name),
+				Details: map[string]any{
+					"table":      current.QualifiedName(),
+					"partition":  partition,
+					"definition": partition.Definition,
+				},
+			})
+		}
+	}
+}
+
+func (tc *TableComparator) buildPartitionMap(
+	table *schema.Table,
+) map[string]*schema.Partition {
+	if table.PartitionStrategy == nil {
+		return nil
+	}
+
+	m := make(map[string]*schema.Partition, len(table.PartitionStrategy.Partitions))
+	for i := range table.PartitionStrategy.Partitions {
+		p := &table.PartitionStrategy.Partitions[i]
+		key := schema.NormalizeIdentifier(p.Name)
+		m[key] = p
+	}
+
+	return m
 }
 
 func (tc *TableComparator) addTableCommentChange(

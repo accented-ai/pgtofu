@@ -31,6 +31,7 @@ const (
 	DetailKeyNewComment    DetailKey = "new_comment"
 	DetailKeyConstraint    DetailKey = "constraint"
 	DetailKeyIndex         DetailKey = "index"
+	DetailKeyPartition     DetailKey = "partition"
 	DetailKeyView          DetailKey = "view"
 	DetailKeyMaterialized  DetailKey = "materialized_view"
 	DetailKeyFunction      DetailKey = "function"

@@ -154,6 +154,10 @@ func getDetailIndex(details map[string]any) (*schema.Index, error) {
 	return requireDetail[*schema.Index](details, DetailKeyIndex)
 }
 
+func getDetailPartition(details map[string]any) (*schema.Partition, error) {
+	return requireDetail[*schema.Partition](details, DetailKeyPartition)
+}
+
 func getOptionalTable(details map[string]any) (*schema.Table, bool, error) {
 	return optionalDetail[*schema.Table](details, DetailKeyTable)
 }

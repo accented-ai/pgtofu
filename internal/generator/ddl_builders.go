@@ -228,6 +228,30 @@ func (b *indexBuilder) BuildDown(
 	return ddlBuilder.buildAddIndex(change)
 }
 
+type partitionBuilder struct{}
+
+func (b *partitionBuilder) BuildUp(
+	change differ.Change,
+	ddlBuilder *DDLBuilder,
+) (DDLStatement, error) {
+	if change.Type == differ.ChangeTypeAddPartition {
+		return ddlBuilder.buildAddPartition(change)
+	}
+
+	return ddlBuilder.buildDropPartition(change)
+}
+
+func (b *partitionBuilder) BuildDown(
+	change differ.Change,
+	ddlBuilder *DDLBuilder,
+) (DDLStatement, error) {
+	if change.Type == differ.ChangeTypeAddPartition {
+		return ddlBuilder.buildDropPartition(change)
+	}
+
+	return ddlBuilder.buildAddPartition(change)
+}
+
 type viewBuilder struct{}
 
 func (b *viewBuilder) BuildUp(change differ.Change, ddlBuilder *DDLBuilder) (DDLStatement, error) {

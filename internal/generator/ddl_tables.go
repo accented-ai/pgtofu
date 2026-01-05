@@ -574,3 +574,61 @@ func (b *DDLBuilder) buildDropIndex(change differ.Change) (DDLStatement, error) 
 		RequiresTx:  true,
 	}, nil
 }
+
+func (b *DDLBuilder) buildAddPartition(change differ.Change) (DDLStatement, error) {
+	tableName, err := getDetailString(change.Details, DetailKeyTable)
+	if err != nil {
+		return DDLStatement{}, newGeneratorError("buildAddPartition", &change, err)
+	}
+
+	partition, err := getDetailPartition(change.Details)
+	if err != nil {
+		return DDLStatement{}, newGeneratorError("buildAddPartition", &change, err)
+	}
+
+	tableSchema, _ := parseSchemaAndName(tableName)
+	if tableSchema == "" {
+		tableSchema = schema.DefaultSchema
+	}
+
+	sql := fmt.Sprintf(
+		"CREATE TABLE %s%s PARTITION OF %s\n%s;",
+		b.ifNotExists(),
+		QualifiedName(tableSchema, partition.Name),
+		tableName,
+		partition.Definition,
+	)
+
+	return DDLStatement{
+		SQL:         sql,
+		Description: fmt.Sprintf("Add partition %s to %s", partition.Name, tableName),
+		RequiresTx:  true,
+	}, nil
+}
+
+func (b *DDLBuilder) buildDropPartition(change differ.Change) (DDLStatement, error) {
+	tableName, err := getDetailString(change.Details, DetailKeyTable)
+	if err != nil {
+		return DDLStatement{}, newGeneratorError("buildDropPartition", &change, err)
+	}
+
+	partition, err := getDetailPartition(change.Details)
+	if err != nil {
+		return DDLStatement{}, newGeneratorError("buildDropPartition", &change, err)
+	}
+
+	tableSchema, _ := parseSchemaAndName(tableName)
+	if tableSchema == "" {
+		tableSchema = schema.DefaultSchema
+	}
+
+	sql := fmt.Sprintf("DROP TABLE %s%s;",
+		b.ifExists(), QualifiedName(tableSchema, partition.Name))
+
+	return DDLStatement{
+		SQL:         sql,
+		Description: fmt.Sprintf("Drop partition %s from %s", partition.Name, tableName),
+		IsUnsafe:    true,
+		RequiresTx:  true,
+	}, nil
+}

@@ -58,6 +58,8 @@ const (
 	ChangeTypeAddIndex                  ChangeType = "ADD_INDEX"
 	ChangeTypeDropIndex                 ChangeType = "DROP_INDEX"
 	ChangeTypeModifyIndex               ChangeType = "MODIFY_INDEX"
+	ChangeTypeAddPartition              ChangeType = "ADD_PARTITION"
+	ChangeTypeDropPartition             ChangeType = "DROP_PARTITION"
 	ChangeTypeAddHypertable             ChangeType = "ADD_HYPERTABLE"
 	ChangeTypeDropHypertable            ChangeType = "DROP_HYPERTABLE"
 	ChangeTypeModifyHypertable          ChangeType = "MODIFY_HYPERTABLE"
@@ -232,6 +234,13 @@ func FunctionKey(schema, name string, argTypes []string) string {
 
 func IndexKey(schema, name string) string {
 	return fmt.Sprintf("%s.%s", normalizeSchema(schema), strings.ToLower(name))
+}
+
+func PartitionKey(tableSchema, tableName, partitionName string) string {
+	return fmt.Sprintf("%s.%s.%s",
+		normalizeSchema(tableSchema),
+		strings.ToLower(tableName),
+		strings.ToLower(partitionName))
 }
 
 func normalizeSchema(s string) string {
