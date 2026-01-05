@@ -416,3 +416,50 @@ func TestDDLBuilder_AddTriggerWithQualifiedObjectName(t *testing.T) {
 	assert.Contains(t, stmt.SQL, "set_updated_at")
 	assert.Contains(t, stmt.SQL, "ON app.users")
 }
+
+func TestDDLBuilder_DropTriggerDownMigration(t *testing.T) {
+	t.Parallel()
+
+	trigger := &schema.Trigger{
+		Schema:         "app",
+		Name:           "set_updated_at",
+		TableName:      "records",
+		Timing:         "BEFORE",
+		Events:         []string{"UPDATE"},
+		ForEachRow:     true,
+		FunctionSchema: schema.DefaultSchema,
+		FunctionName:   "update_updated_at_column",
+	}
+
+	current := &schema.Database{Triggers: []schema.Trigger{*trigger}}
+	desired := &schema.Database{}
+
+	result := &differ.DiffResult{
+		Current: current,
+		Desired: desired,
+		Changes: []differ.Change{
+			{
+				Type:       differ.ChangeTypeDropTrigger,
+				ObjectName: "app.records.set_updated_at",
+			},
+		},
+	}
+
+	builder := generator.NewDDLBuilder(result, true)
+
+	upStmt, err := builder.BuildUpStatement(result.Changes[0])
+	require.NoError(t, err)
+	assert.Contains(t, upStmt.SQL, "DROP TRIGGER")
+	assert.Contains(t, upStmt.SQL, "set_updated_at")
+	assert.Contains(t, upStmt.SQL, "app.records")
+	assert.True(t, upStmt.IsUnsafe)
+
+	downStmt, err := builder.BuildDownStatement(result.Changes[0])
+	require.NoError(t, err)
+	assert.Contains(t, downStmt.SQL, "CREATE TRIGGER")
+	assert.Contains(t, downStmt.SQL, "set_updated_at")
+	assert.Contains(t, downStmt.SQL, "BEFORE UPDATE")
+	assert.Contains(t, downStmt.SQL, "FOR EACH ROW")
+	assert.Contains(t, downStmt.SQL, "ON app.records")
+	assert.Contains(t, downStmt.SQL, "EXECUTE FUNCTION")
+}

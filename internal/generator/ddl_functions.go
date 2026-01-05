@@ -224,6 +224,28 @@ func (b *DDLBuilder) buildAddTrigger(change differ.Change) (DDLStatement, error)
 	}, nil
 }
 
+func (b *DDLBuilder) buildAddTriggerForDown(change differ.Change) (DDLStatement, error) {
+	trigger := b.getTrigger(change.ObjectName, b.result.Current)
+	if trigger == nil {
+		return DDLStatement{}, newGeneratorError(
+			"buildAddTriggerForDown",
+			&change,
+			wrapObjectNotFoundError(ErrTriggerNotFound, "trigger", change.ObjectName),
+		)
+	}
+
+	definition, err := formatTriggerDefinition(trigger)
+	if err != nil {
+		return DDLStatement{}, newGeneratorError("buildAddTriggerForDown", &change, err)
+	}
+
+	return DDLStatement{
+		SQL:         ensureStatementTerminated(definition),
+		Description: "Add trigger " + trigger.Name,
+		RequiresTx:  true,
+	}, nil
+}
+
 func (b *DDLBuilder) buildDropTrigger(change differ.Change) (DDLStatement, error) {
 	trigger := b.getTrigger(change.ObjectName, b.result.Current)
 	if trigger == nil {

@@ -63,6 +63,48 @@ func (b *DDLBuilder) buildDropTableForDown(change differ.Change) (DDLStatement, 
 	}, nil
 }
 
+func (b *DDLBuilder) buildAddTableForDown(change differ.Change) (DDLStatement, error) {
+	table := b.getTable(change.ObjectName, b.result.Current)
+	if table == nil {
+		return DDLStatement{}, newGeneratorError(
+			"buildAddTableForDown",
+			&change,
+			wrapObjectNotFoundError(ErrTableNotFound, "table", change.ObjectName),
+		)
+	}
+
+	tableSQL, err := buildCreateTableSQL(table)
+	if err != nil {
+		return DDLStatement{}, newGeneratorError("buildAddTableForDown", &change, err)
+	}
+
+	var sb strings.Builder
+	appendStatement(&sb, tableSQL)
+
+	if table.PartitionStrategy != nil && len(table.PartitionStrategy.Partitions) > 0 {
+		for _, partition := range table.PartitionStrategy.Partitions {
+			if partition.Definition == "" {
+				continue
+			}
+
+			statement := fmt.Sprintf(
+				"CREATE TABLE IF NOT EXISTS %s PARTITION OF %s\n%s",
+				QualifiedName(table.Schema, partition.Name),
+				QualifiedName(table.Schema, table.Name),
+				partition.Definition,
+			)
+
+			appendStatement(&sb, statement)
+		}
+	}
+
+	return DDLStatement{
+		SQL:         sb.String(),
+		Description: "Add table " + table.Name,
+		RequiresTx:  true,
+	}, nil
+}
+
 func (b *DDLBuilder) getSchema(name string, db *schema.Database) *schema.Schema {
 	for i := range db.Schemas {
 		if db.Schemas[i].Name == name {

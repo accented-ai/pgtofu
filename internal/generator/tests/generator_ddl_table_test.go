@@ -988,3 +988,55 @@ func TestDDLBuilder_AddTableWithArrayDefault(t *testing.T) {
 
 	assert.Contains(t, stmt.SQL, "tags TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[]")
 }
+
+func TestDDLBuilder_DropTableDownMigration(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: "app",
+				Name:   "favorites",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "uuid", IsNullable: false, Position: 1},
+					{Name: "user_id", DataType: "uuid", IsNullable: false, Position: 2},
+					{Name: "item_id", DataType: "uuid", IsNullable: false, Position: 3},
+					{
+						Name: "status", DataType: "text", IsNullable: false,
+						Default: "'active'", Position: 4,
+					},
+				},
+				Constraints: []schema.Constraint{
+					{Name: "favorites_pkey", Type: "PRIMARY KEY", Columns: []string{"id"}},
+				},
+			},
+		},
+	}
+	desired := &schema.Database{}
+
+	result := &differ.DiffResult{
+		Current: current,
+		Desired: desired,
+		Changes: []differ.Change{
+			{Type: differ.ChangeTypeDropTable, ObjectName: "app.favorites"},
+		},
+	}
+
+	builder := generator.NewDDLBuilder(result, true)
+
+	upStmt, err := builder.BuildUpStatement(result.Changes[0])
+	require.NoError(t, err)
+	assert.Contains(t, upStmt.SQL, "DROP TABLE")
+	assert.Contains(t, upStmt.SQL, "app.favorites")
+	assert.True(t, upStmt.IsUnsafe)
+
+	downStmt, err := builder.BuildDownStatement(result.Changes[0])
+	require.NoError(t, err)
+	assert.Contains(t, downStmt.SQL, "CREATE TABLE")
+	assert.Contains(t, downStmt.SQL, "app.favorites")
+	assert.Contains(t, downStmt.SQL, "id UUID NOT NULL")
+	assert.Contains(t, downStmt.SQL, "user_id UUID NOT NULL")
+	assert.Contains(t, downStmt.SQL, "item_id UUID NOT NULL")
+	assert.Contains(t, downStmt.SQL, "status TEXT NOT NULL DEFAULT 'active'")
+	assert.Contains(t, downStmt.SQL, "PRIMARY KEY")
+}

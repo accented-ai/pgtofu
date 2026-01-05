@@ -164,8 +164,13 @@ func (r *DDLBuilderRegistry) BuildDown(
 	}
 
 	if inverse, ok := inverseMap[change.Type]; ok {
-		if change.Type == differ.ChangeTypeAddTable {
+		switch change.Type {
+		case differ.ChangeTypeAddTable:
 			return ddlBuilder.buildDropTableForDown(change)
+		case differ.ChangeTypeDropTable:
+			return ddlBuilder.buildAddTableForDown(change)
+		case differ.ChangeTypeDropTrigger:
+			return ddlBuilder.buildAddTriggerForDown(change)
 		}
 
 		inverseChange := change
