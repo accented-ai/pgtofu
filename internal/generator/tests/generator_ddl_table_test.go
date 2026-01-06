@@ -1040,3 +1040,64 @@ func TestDDLBuilder_DropTableDownMigration(t *testing.T) {
 	assert.Contains(t, downStmt.SQL, "status TEXT NOT NULL DEFAULT 'active'")
 	assert.Contains(t, downStmt.SQL, "PRIMARY KEY")
 }
+
+func TestDDLBuilder_DropTableDownMigration_NormalizesExtractedSchema(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "records",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "uuid", IsNullable: false, Position: 1},
+					{
+						Name: "status", DataType: "text", IsNullable: false,
+						Default: "'pending'::text", Position: 2,
+					},
+					{
+						Name: "is_active", DataType: "boolean", IsNullable: false,
+						Default: "false", Position: 3,
+					},
+					{
+						Name: "created_at", DataType: "timestamp with time zone",
+						IsNullable: false, Default: "CURRENT_TIMESTAMP", Position: 4,
+					},
+					{
+						Name: "labels", DataType: "text", IsNullable: false,
+						IsArray: true, Default: "'{}'::text[]", Position: 5,
+					},
+				},
+				Constraints: []schema.Constraint{
+					{Name: "records_pkey", Type: "PRIMARY KEY", Columns: []string{"id"}},
+				},
+			},
+		},
+	}
+	desired := &schema.Database{}
+
+	result := &differ.DiffResult{
+		Current: current,
+		Desired: desired,
+		Changes: []differ.Change{
+			{Type: differ.ChangeTypeDropTable, ObjectName: "public.records"},
+		},
+	}
+
+	builder := generator.NewDDLBuilder(result, true)
+	downStmt, err := builder.BuildDownStatement(result.Changes[0])
+
+	require.NoError(t, err)
+
+	assert.Contains(t, downStmt.SQL, "status TEXT NOT NULL DEFAULT 'pending'")
+	assert.NotContains(t, downStmt.SQL, "'pending'::text")
+
+	assert.Contains(t, downStmt.SQL, "DEFAULT FALSE")
+	assert.NotContains(t, downStmt.SQL, "DEFAULT false")
+
+	assert.Contains(t, downStmt.SQL, "TIMESTAMPTZ")
+	assert.NotContains(t, downStmt.SQL, "TIMESTAMP WITH TIME ZONE")
+
+	assert.Contains(t, downStmt.SQL, "DEFAULT '{}'")
+	assert.NotContains(t, downStmt.SQL, "'{}'::text[]")
+}

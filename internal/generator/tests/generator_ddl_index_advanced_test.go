@@ -168,7 +168,7 @@ func TestDDLBuilder_AdvancedIndexOperations(t *testing.T) { //nolint:maintidx
 				"idx_active_users",
 				"ON public.users",
 				"(created_at)",
-				"WHERE active = true",
+				"WHERE active = TRUE",
 			},
 		},
 		{
@@ -228,7 +228,7 @@ func TestDDLBuilder_AdvancedIndexOperations(t *testing.T) { //nolint:maintidx
 				"ON public.users",
 				"USING gin",
 				"(tags)",
-				"WHERE active = true",
+				"WHERE active = TRUE",
 			},
 		},
 		{

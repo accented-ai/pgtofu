@@ -77,18 +77,18 @@ func formatColumnDefinition(col *schema.Column) (string, error) {
 		return "", errors.New("column data type cannot be empty")
 	}
 
-	dataType := strings.ToUpper(col.FullDataType())
-	defaultValue := col.Default
+	dataType := NormalizeDataType(col.FullDataType())
+	defaultValue := NormalizeDefaultValue(col.Default)
 
 	if dataType == "" {
 		return "", errors.New("column data type cannot be empty")
 	}
 
-	if defaultValue != "" && strings.Contains(defaultValue, "nextval(") {
+	if defaultValue != "" && strings.Contains(strings.ToLower(defaultValue), "nextval(") {
 		escapedColName := regexp.QuoteMeta(col.Name)
 
 		serialPattern := regexp.MustCompile(
-			`nextval\('(?:[^']+_)?` + escapedColName + `_seq'::regclass\)`,
+			`(?i)nextval\('(?:[^']+_)?` + escapedColName + `_seq'(?:::regclass)?\)`,
 		)
 		if serialPattern.MatchString(defaultValue) {
 			switch strings.ToLower(col.DataType) {
@@ -195,6 +195,8 @@ func formatConstraintDefinition( //nolint:cyclop,gocognit,gocyclo
 		if def == "" {
 			return "", errors.New("check constraint requires a definition")
 		}
+
+		def = NormalizeCheckConstraint(def)
 
 		if strings.HasPrefix(strings.ToUpper(def), "CHECK") { //nolint:nestif
 			lines := strings.Split(def, "\n")
@@ -347,7 +349,7 @@ func formatIndexDefinition(idx *schema.Index) (string, error) {
 
 	if idx.Where != "" {
 		buf.Write("WHERE")
-		buf.Write(idx.Where)
+		buf.Write(NormalizeWhereClause(idx.Where))
 	}
 
 	return buf.String(), nil
