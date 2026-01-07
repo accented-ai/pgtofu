@@ -587,11 +587,7 @@ func (n *sqlNormalizer) parseExpression(stopAtComma bool) map[string]any {
 			}
 		}
 
-		literal := tok.Literal
-		if tok.Type == parser.TokenIdentifier || tok.Type == parser.TokenKeyword {
-			literal = strings.ToLower(literal)
-		}
-
+		literal := n.normalizeTokenLiteral(tok)
 		parts = append(parts, literal)
 
 		n.advance()
@@ -604,6 +600,17 @@ func (n *sqlNormalizer) parseExpression(stopAtComma bool) map[string]any {
 	}
 
 	return expr
+}
+
+func (n *sqlNormalizer) normalizeTokenLiteral(tok parser.Token) string {
+	switch tok.Type {
+	case parser.TokenIdentifier, parser.TokenKeyword:
+		return strings.ToLower(tok.Literal)
+	case parser.TokenQuotedIdentifier:
+		return strings.ToLower(strings.Trim(tok.Literal, `"`))
+	default:
+		return tok.Literal
+	}
 }
 
 func (n *sqlNormalizer) normalizeParentheses(s string) string {
@@ -882,15 +889,21 @@ func (n *sqlNormalizer) stripQualifiersFromStmt(stmt map[string]any, fromTable s
 	tableNames := make(map[string]bool)
 
 	if len(tableParts) > 1 {
+		tableNames[tableParts[0]] = true
 		tableNames[tableParts[len(tableParts)-1]] = true
 	}
 
 	tableNames[fromTable] = true
 
 	if fromClause, ok := stmt["from"].([]map[string]any); ok {
-		for _, table := range fromClause {
+		for i, table := range fromClause {
 			if name, ok := table["name"].(string); ok {
 				parts := strings.Split(name, ".")
+				if len(parts) > 1 {
+					tableNames[parts[0]] = true
+					fromClause[i]["name"] = parts[len(parts)-1]
+				}
+
 				tableNames[parts[len(parts)-1]] = true
 				tableNames[name] = true
 			}
@@ -927,18 +940,58 @@ func (n *sqlNormalizer) stripQualifiers(node any, tableNames map[string]bool) {
 
 func (n *sqlNormalizer) stripQualifierFromString(s string, tableNames map[string]bool) string {
 	words := strings.Fields(s)
-	for i, word := range words {
-		if strings.Contains(word, ".") {
-			parts := strings.Split(word, ".")
-			if len(parts) == 2 {
-				if tableNames[parts[0]] {
-					words[i] = parts[1]
-				}
+	collapsed := n.collapseQualifiedNames(words, tableNames)
+	collapsed = n.stripRemainingQualifiers(collapsed, tableNames)
+
+	return strings.Join(collapsed, " ")
+}
+
+func (n *sqlNormalizer) collapseQualifiedNames(
+	words []string,
+	tableNames map[string]bool,
+) []string {
+	var collapsed []string
+
+	for i := 0; i < len(words); i++ {
+		if !n.isDotPattern(words, i) {
+			collapsed = append(collapsed, words[i])
+			continue
+		}
+
+		if tableNames[words[i]] {
+			i += 2
+			if i < len(words) {
+				collapsed = append(collapsed, words[i])
 			}
+		} else {
+			collapsed = append(collapsed, words[i]+"."+words[i+2])
+			i += 2
 		}
 	}
 
-	return strings.Join(words, " ")
+	return collapsed
+}
+
+func (n *sqlNormalizer) isDotPattern(words []string, i int) bool {
+	return i+2 < len(words) && words[i+1] == "."
+}
+
+func (n *sqlNormalizer) stripRemainingQualifiers(
+	words []string,
+	tableNames map[string]bool,
+) []string {
+	for i, word := range words {
+		if !strings.Contains(word, ".") {
+			continue
+		}
+
+		parts := strings.Split(word, ".")
+		if len(parts) == 2 && tableNames[parts[0]] {
+			words[i] = parts[1]
+		}
+	}
+
+	return words
 }
 
 func (n *sqlNormalizer) current() parser.Token {

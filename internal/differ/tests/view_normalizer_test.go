@@ -195,3 +195,55 @@ ORDER BY team, actor, gap_start_id;
 
 	assertNormalizedEqual(t, source, formatted)
 }
+
+func TestNormalizeViewDefinitionHandlesSchemaQualifiedFunctions(t *testing.T) {
+	t.Parallel()
+
+	source := `
+SELECT
+    category,
+    time_bucket('1 hour', created_at) AS bucket,
+    COUNT(*) AS total_count,
+    COUNT(*) FILTER (WHERE is_active) AS active_count
+FROM metrics
+GROUP BY category, bucket;
+`
+
+	formatted := `
+ SELECT metrics.category,
+    public.time_bucket('01:00:00'::interval, metrics.created_at) AS bucket,
+    count(*) AS total_count,
+    count(*) FILTER (WHERE metrics.is_active) AS active_count
+   FROM public.metrics
+  GROUP BY metrics.category, (public.time_bucket('01:00:00'::interval, metrics.created_at));
+`
+
+	assertNormalizedEqual(t, source, formatted)
+}
+
+func TestNormalizeViewDefinitionHandlesQuotedIdentifiers(t *testing.T) {
+	t.Parallel()
+
+	pgQuery := ` SELECT metrics.category,
+    time_bucket('01:00:00'::interval, metrics.created_at) AS bucket,
+    count(*) AS total_count,
+    count(*) FILTER (WHERE metrics.is_active) AS active_count,
+    count(*) FILTER (WHERE (metrics."position" = 1)) AS first_position,
+    count(*) FILTER (WHERE (metrics."order" = 0)) AS zero_order,
+    avg(metrics.value) AS avg_value
+   FROM metrics
+  GROUP BY metrics.category, (time_bucket('01:00:00'::interval, metrics.created_at))`
+
+	parsedQuery := `SELECT
+    category,
+    time_bucket('1 hour', created_at) AS bucket,
+    COUNT(*) AS total_count,
+    COUNT(*) FILTER (WHERE is_active) AS active_count,
+    COUNT(*) FILTER (WHERE position = 1) AS first_position,
+    COUNT(*) FILTER (WHERE "order" = 0) AS zero_order,
+    AVG(value) AS avg_value
+FROM metrics
+GROUP BY category, bucket`
+
+	assertNormalizedEqual(t, parsedQuery, pgQuery)
+}

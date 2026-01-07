@@ -246,3 +246,81 @@ GROUP BY team, actor, bucket`,
 		t.Fatalf("expected no changes, got %d: %+v", len(result.Changes), result.Changes)
 	}
 }
+
+func TestContinuousAggregateWithFilterClause(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{
+		Hypertables: []schema.Hypertable{
+			{Schema: schema.DefaultSchema, TableName: "metrics"},
+		},
+		ContinuousAggregates: []schema.ContinuousAggregate{
+			{
+				Schema:           schema.DefaultSchema,
+				ViewName:         "metrics_hourly",
+				HypertableSchema: schema.DefaultSchema,
+				HypertableName:   "metrics",
+				Query: `SELECT metrics.category,
+    public.time_bucket('01:00:00'::interval, metrics.created_at) AS bucket,
+    count(*) AS total_count,
+    count(*) FILTER (WHERE metrics.is_active) AS active_count,
+    count(*) FILTER (WHERE (metrics.status = 2)) AS status_two,
+    count(*) FILTER (WHERE (metrics.status = 0)) AS status_zero,
+    avg(metrics.value) AS avg_value,
+    avg(metrics.latency) AS avg_latency,
+    max(metrics.latency) AS max_latency
+   FROM public.metrics
+  GROUP BY metrics.category, (public.time_bucket('01:00:00'::interval, metrics.created_at))`,
+				RefreshPolicy: &schema.RefreshPolicy{
+					StartOffset:      "3 hours",
+					EndOffset:        "1 hour",
+					ScheduleInterval: "1 hour",
+				},
+				WithData:     true,
+				Materialized: true,
+			},
+		},
+	}
+
+	desired := &schema.Database{
+		Hypertables: []schema.Hypertable{
+			{Schema: schema.DefaultSchema, TableName: "metrics"},
+		},
+		ContinuousAggregates: []schema.ContinuousAggregate{
+			{
+				Schema:           schema.DefaultSchema,
+				ViewName:         "metrics_hourly",
+				HypertableSchema: schema.DefaultSchema,
+				HypertableName:   "metrics",
+				Query: `SELECT
+    category,
+    time_bucket('1 hour', created_at) AS bucket,
+    COUNT(*) AS total_count,
+    COUNT(*) FILTER (WHERE is_active) AS active_count,
+    COUNT(*) FILTER (WHERE status = 2) AS status_two,
+    COUNT(*) FILTER (WHERE status = 0) AS status_zero,
+    AVG(value) AS avg_value,
+    AVG(latency) AS avg_latency,
+    MAX(latency) AS max_latency
+FROM metrics
+GROUP BY category, bucket`,
+				RefreshPolicy: &schema.RefreshPolicy{
+					StartOffset:      "3 hours",
+					EndOffset:        "1 hour",
+					ScheduleInterval: "1 hour",
+				},
+			},
+		},
+	}
+
+	d := differ.New(differ.DefaultOptions())
+
+	result, err := d.Compare(current, desired)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result.Changes) != 0 {
+		t.Fatalf("expected no changes, got %d: %+v", len(result.Changes), result.Changes)
+	}
+}
