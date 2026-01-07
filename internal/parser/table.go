@@ -657,22 +657,27 @@ func (p *Parser) parseColumn( //nolint:cyclop,gocyclo
 	upperWords := constraintWords(constraintTokens)
 	defaultVal := extractDefault(rest)
 
+	isSerialType := false
+
 	baseTypeUpper := strings.ToUpper(baseType)
 	switch baseTypeUpper {
 	case "SERIAL":
 		baseType = "INTEGER"
+		isSerialType = true
 
 		if defaultVal == "" {
 			defaultVal = "__SERIAL__"
 		}
 	case "BIGSERIAL":
 		baseType = "BIGINT"
+		isSerialType = true
 
 		if defaultVal == "" {
 			defaultVal = "__BIGSERIAL__"
 		}
 	case "SMALLSERIAL":
 		baseType = "SMALLINT"
+		isSerialType = true
 
 		if defaultVal == "" {
 			defaultVal = "__SMALLSERIAL__"
@@ -684,7 +689,7 @@ func (p *Parser) parseColumn( //nolint:cyclop,gocyclo
 	column := schema.Column{
 		Name:       columnName,
 		DataType:   baseType,
-		IsNullable: isColumnNullable(upperWords),
+		IsNullable: isColumnNullable(upperWords) && !isSerialType,
 		Default:    defaultVal,
 		Position:   position,
 		Precision:  precision,
