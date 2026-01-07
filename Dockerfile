@@ -1,5 +1,7 @@
 FROM golang:1.25.5-alpine AS builder
 
+ARG MIGRATE_VERSION=v4.19.1
+
 RUN apk add --no-cache git ca-certificates tzdata
 
 WORKDIR /build
@@ -19,7 +21,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -o pgtofu \
     ./cmd/pgtofu
 
-RUN go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.0
+RUN go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@${MIGRATE_VERSION}
 
 FROM alpine:3.20
 
