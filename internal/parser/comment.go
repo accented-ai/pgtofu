@@ -112,6 +112,11 @@ func (p *Parser) parseComment(stmt string, db *schema.Database) error { //nolint
 			}
 		}
 
+		if cagg := db.GetContinuousAggregate(parsed.schemaName, parsed.objectName); cagg != nil {
+			cagg.Comment = commentValue
+			return nil
+		}
+
 		p.addWarning(
 			0,
 			fmt.Sprintf(
