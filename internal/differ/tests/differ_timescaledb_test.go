@@ -247,6 +247,138 @@ GROUP BY team, actor, bucket`,
 	}
 }
 
+func TestContinuousAggregateIntervalNormalization(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name              string
+		viewName          string
+		extractedInterval string // HH:MM:SS format from PostgreSQL
+		parsedInterval    string // Human-readable format from SQL file
+		extractedStartOff string
+		extractedEndOff   string
+		extractedSchedInt string
+		parsedStartOff    string
+		parsedEndOff      string
+		parsedSchedInt    string
+	}{
+		{
+			name:              "10 second bucket",
+			viewName:          "sensor_readings_10s",
+			extractedInterval: "00:00:10",
+			parsedInterval:    "10 seconds",
+			extractedStartOff: "01:00:00",
+			extractedEndOff:   "00:00:10",
+			extractedSchedInt: "00:00:10",
+			parsedStartOff:    "1 hour",
+			parsedEndOff:      "10 seconds",
+			parsedSchedInt:    "10 seconds",
+		},
+		{
+			name:              "1 minute bucket",
+			viewName:          "sensor_readings_1m",
+			extractedInterval: "00:01:00",
+			parsedInterval:    "1 minute",
+			extractedStartOff: "03:00:00",
+			extractedEndOff:   "00:01:00",
+			extractedSchedInt: "00:01:00",
+			parsedStartOff:    "3 hours",
+			parsedEndOff:      "1 minute",
+			parsedSchedInt:    "1 minute",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			extracted := buildContinuousAggTestDB(
+				tt.viewName,
+				tt.extractedInterval,
+				tt.extractedStartOff,
+				tt.extractedEndOff,
+				tt.extractedSchedInt,
+				true,
+			)
+
+			parsed := buildContinuousAggTestDB(
+				tt.viewName,
+				tt.parsedInterval,
+				tt.parsedStartOff,
+				tt.parsedEndOff,
+				tt.parsedSchedInt,
+				false,
+			)
+
+			d := differ.New(differ.DefaultOptions())
+
+			result, err := d.Compare(extracted, parsed)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if len(result.Changes) != 0 {
+				t.Errorf(
+					"expected no changes (schemas should be equivalent), got %d changes",
+					len(result.Changes),
+				)
+
+				for _, c := range result.Changes {
+					t.Logf("Change: %s - %s", c.Type, c.Description)
+				}
+			}
+		})
+	}
+}
+
+func buildContinuousAggTestDB(
+	viewName, interval, startOff, endOff, schedInt string,
+	fromPostgres bool,
+) *schema.Database {
+	var query string
+
+	if fromPostgres {
+		query = `SELECT sensor_readings.device_id,
+    public.time_bucket('` + interval + `'::interval, sensor_readings.recorded_at) AS bucket,
+    sum(sensor_readings.value) AS total_value
+   FROM public.sensor_readings
+  WHERE sensor_readings.granularity = 'second'::character varying AND sensor_readings.multiplier = 1
+  GROUP BY sensor_readings.device_id, (public.time_bucket('` + interval + `'::interval, sensor_readings.recorded_at))`
+	} else {
+		query = `SELECT
+    device_id,
+    time_bucket('` + interval + `', recorded_at) AS bucket,
+    sum(value) AS total_value
+FROM public.sensor_readings
+WHERE granularity = 'second' AND multiplier = 1
+GROUP BY device_id, time_bucket('` + interval + `', recorded_at)`
+	}
+
+	db := &schema.Database{
+		Hypertables: []schema.Hypertable{
+			{Schema: schema.DefaultSchema, TableName: "sensor_readings"},
+		},
+		ContinuousAggregates: []schema.ContinuousAggregate{
+			{
+				Schema:           schema.DefaultSchema,
+				ViewName:         viewName,
+				HypertableSchema: schema.DefaultSchema,
+				HypertableName:   "sensor_readings",
+				Query:            query,
+				RefreshPolicy: &schema.RefreshPolicy{
+					StartOffset:      startOff,
+					EndOffset:        endOff,
+					ScheduleInterval: schedInt,
+				},
+				WithData:     fromPostgres,
+				Materialized: fromPostgres,
+			},
+		},
+	}
+
+	return db
+}
+
 func TestContinuousAggregateWithFilterClause(t *testing.T) {
 	t.Parallel()
 
