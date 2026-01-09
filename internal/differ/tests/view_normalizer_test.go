@@ -221,6 +221,89 @@ GROUP BY category, bucket;
 	assertNormalizedEqual(t, source, formatted)
 }
 
+func TestNormalizeViewDefinitionHandles10SecondInterval(t *testing.T) {
+	t.Parallel()
+
+	source := `
+SELECT
+    device_id,
+    time_bucket('10 seconds', recorded_at) AS bucket,
+    first(value, recorded_at) AS first_value,
+    max(value) AS max_value,
+    min(value) AS min_value,
+    last(value, recorded_at) AS last_value,
+    sum(count) AS total_count,
+    sum(weighted_value * count) / NULLIF(sum(count), 0) AS avg_weighted,
+    sum(sample_count) AS samples
+FROM public.sensor_readings
+WHERE granularity = 'second' AND multiplier = 1
+GROUP BY device_id, time_bucket('10 seconds', recorded_at);
+`
+
+	formatted := `
+ SELECT sensor_readings.device_id,
+    public.time_bucket('00:00:10'::interval, sensor_readings.recorded_at) AS bucket,
+    first(sensor_readings.value, sensor_readings.recorded_at) AS first_value,
+    max(sensor_readings.value) AS max_value,
+    min(sensor_readings.value) AS min_value,
+    last(sensor_readings.value, sensor_readings.recorded_at) AS last_value,
+    sum(sensor_readings.count) AS total_count,
+    sum(sensor_readings.weighted_value * sensor_readings.count) / NULLIF(sum(sensor_readings.count), 0) AS avg_weighted,
+    sum(sensor_readings.sample_count) AS samples
+   FROM public.sensor_readings
+  WHERE sensor_readings.granularity = 'second'::character varying AND sensor_readings.multiplier = 1
+  GROUP BY sensor_readings.device_id, (public.time_bucket('00:00:10'::interval, sensor_readings.recorded_at));
+`
+
+	assertNormalizedEqual(t, source, formatted)
+}
+
+func TestNormalizeViewDefinitionHandles1MinuteInterval(t *testing.T) {
+	t.Parallel()
+
+	source := `
+SELECT
+    device_id,
+    time_bucket('1 minute', recorded_at) AS bucket,
+    sum(value) AS total_value
+FROM sensor_readings
+GROUP BY device_id, time_bucket('1 minute', recorded_at);
+`
+
+	formatted := `
+ SELECT sensor_readings.device_id,
+    time_bucket('00:01:00'::interval, sensor_readings.recorded_at) AS bucket,
+    sum(sensor_readings.value) AS total_value
+   FROM sensor_readings
+  GROUP BY sensor_readings.device_id, (time_bucket('00:01:00'::interval, sensor_readings.recorded_at));
+`
+
+	assertNormalizedEqual(t, source, formatted)
+}
+
+func TestNormalizeViewDefinitionHandles3HourInterval(t *testing.T) {
+	t.Parallel()
+
+	source := `
+SELECT
+    device_id,
+    time_bucket('3 hours', recorded_at) AS bucket,
+    sum(value) AS total_value
+FROM sensor_readings
+GROUP BY device_id, time_bucket('3 hours', recorded_at);
+`
+
+	formatted := `
+ SELECT sensor_readings.device_id,
+    time_bucket('03:00:00'::interval, sensor_readings.recorded_at) AS bucket,
+    sum(sensor_readings.value) AS total_value
+   FROM sensor_readings
+  GROUP BY sensor_readings.device_id, (time_bucket('03:00:00'::interval, sensor_readings.recorded_at));
+`
+
+	assertNormalizedEqual(t, source, formatted)
+}
+
 func TestNormalizeViewDefinitionHandlesQuotedIdentifiers(t *testing.T) {
 	t.Parallel()
 

@@ -68,35 +68,6 @@ func (vn *viewNormalizer) normalizeBooleans(s string) string {
 }
 
 func (vn *viewNormalizer) normalizeIntervals(s string) string {
-	intervals := map[string]string{
-		"interval '1 hour'":     "'01:00:00'",
-		"interval '2 hours'":    "'02:00:00'",
-		"interval '3 hours'":    "'03:00:00'",
-		"interval '6 hours'":    "'06:00:00'",
-		"interval '12 hours'":   "'12:00:00'",
-		"interval '24 hours'":   "'24:00:00'",
-		"interval '1 minute'":   "'00:01:00'",
-		"interval '5 minutes'":  "'00:05:00'",
-		"interval '10 minutes'": "'00:10:00'",
-		"interval '15 minutes'": "'00:15:00'",
-		"interval '30 minutes'": "'00:30:00'",
-		"interval '1 second'":   "'00:00:01'",
-		"interval '30 seconds'": "'00:00:30'",
-		"'1 hour'":              "'01:00:00'",
-		"'2 hours'":             "'02:00:00'",
-		"'3 hours'":             "'03:00:00'",
-		"'6 hours'":             "'06:00:00'",
-		"'12 hours'":            "'12:00:00'",
-		"'24 hours'":            "'24:00:00'",
-		"'1 minute'":            "'00:01:00'",
-		"'5 minutes'":           "'00:05:00'",
-		"'10 minutes'":          "'00:10:00'",
-		"'15 minutes'":          "'00:15:00'",
-		"'30 minutes'":          "'00:30:00'",
-		"'1 second'":            "'00:00:01'",
-		"'30 seconds'":          "'00:00:30'",
-	}
-
 	dayIntervals := map[string]string{
 		"interval '1 day'":   "'1 day'",
 		"interval '2 days'":  "'2 days'",
@@ -106,15 +77,85 @@ func (vn *viewNormalizer) normalizeIntervals(s string) string {
 		"interval '1 year'":  "'1 year'",
 	}
 
-	for pattern, replacement := range intervals {
-		s = strings.ReplaceAll(s, pattern, replacement)
-	}
-
 	for pattern, replacement := range dayIntervals {
 		s = strings.ReplaceAll(s, pattern, replacement)
 	}
 
-	return vn.intervalPattern.ReplaceAllString(s, "$1")
+	intervalLiteralPattern := regexp.MustCompile(
+		`(?:interval\s+)?'([^']+)'`,
+	)
+
+	s = intervalLiteralPattern.ReplaceAllStringFunc(s, func(match string) string {
+		start := strings.Index(match, "'")
+
+		end := strings.LastIndex(match, "'")
+		if start == -1 || end == -1 || start == end {
+			return match
+		}
+
+		content := match[start+1 : end]
+
+		normalized := normalizeIntervalValue(content)
+		if normalized != "" {
+			return "'" + normalized + "'"
+		}
+
+		return match
+	})
+
+	return s
+}
+
+func normalizeIntervalValue(value string) string {
+	value = strings.TrimSpace(strings.ToLower(value))
+
+	if isHHMMSSFormat(value) {
+		return value
+	}
+
+	parts := strings.Fields(value)
+	if len(parts) != 2 {
+		return ""
+	}
+
+	var num int
+	if _, err := fmt.Sscanf(parts[0], "%d", &num); err != nil {
+		return ""
+	}
+
+	unit := strings.TrimSuffix(parts[1], "s")
+
+	switch unit {
+	case "second":
+		return fmt.Sprintf("%02d:%02d:%02d", 0, 0, num)
+	case "minute":
+		return fmt.Sprintf("%02d:%02d:%02d", 0, num, 0)
+	case "hour":
+		return fmt.Sprintf("%02d:%02d:%02d", num, 0, 0)
+	default:
+		return ""
+	}
+}
+
+func isHHMMSSFormat(s string) bool {
+	parts := strings.Split(s, ":")
+	if len(parts) != 3 {
+		return false
+	}
+
+	for _, part := range parts {
+		if len(part) != 2 {
+			return false
+		}
+
+		for _, c := range part {
+			if c < '0' || c > '9' {
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 func (vn *viewNormalizer) removeRedundantParens(s string) string {

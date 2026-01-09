@@ -311,16 +311,12 @@ func areRefreshPoliciesEqual(p1, p2 *schema.RefreshPolicy) bool {
 func normalizeInterval(interval string) string {
 	s := strings.ToLower(strings.TrimSpace(interval))
 
-	if strings.Contains(s, ":") {
-		parts := strings.Split(s, ":")
-		if len(parts) == 3 && parts[0] != "" && parts[1] == "00" && parts[2] == "00" {
-			hours := strings.TrimLeft(parts[0], "0")
-			if hours == "" {
-				hours = "0"
-			}
+	if isIntervalHHMMSSFormat(s) {
+		return s
+	}
 
-			s = hours + " hour"
-		}
+	if normalized := convertToHHMMSS(s); normalized != "" {
+		return normalized
 	}
 
 	replacements := map[string]string{
@@ -338,6 +334,54 @@ func normalizeInterval(interval string) string {
 	}
 
 	return strings.Join(strings.Fields(s), " ")
+}
+
+func isIntervalHHMMSSFormat(s string) bool {
+	parts := strings.Split(s, ":")
+	if len(parts) != 3 {
+		return false
+	}
+
+	for _, part := range parts {
+		if len(part) != 2 {
+			return false
+		}
+
+		for _, c := range part {
+			if c < '0' || c > '9' {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+func convertToHHMMSS(s string) string {
+	s = strings.ReplaceAll(s, "hours", "hour")
+	s = strings.ReplaceAll(s, "minutes", "minute")
+	s = strings.ReplaceAll(s, "seconds", "second")
+
+	parts := strings.Fields(s)
+	if len(parts) != 2 {
+		return ""
+	}
+
+	var num int
+	if _, err := fmt.Sscanf(parts[0], "%d", &num); err != nil {
+		return ""
+	}
+
+	switch parts[1] {
+	case "second":
+		return fmt.Sprintf("%02d:%02d:%02d", 0, 0, num)
+	case "minute":
+		return fmt.Sprintf("%02d:%02d:%02d", 0, num, 0)
+	case "hour":
+		return fmt.Sprintf("%02d:%02d:%02d", num, 0, 0)
+	default:
+		return ""
+	}
 }
 
 func isRetentionShorter(interval1, interval2 string) bool {
