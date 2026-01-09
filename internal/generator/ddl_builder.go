@@ -98,11 +98,73 @@ func (b *DDLBuilder) buildAddTableForDown(change differ.Change) (DDLStatement, e
 		}
 	}
 
+	ht := b.getHypertable(change.ObjectName, b.result.Current)
+	if err := b.appendHypertableSQL(&sb, ht); err != nil {
+		return DDLStatement{}, newGeneratorError("buildAddTableForDown", &change, err)
+	}
+
+	if table.Comment != "" {
+		commentSQL := buildCommentStatement(
+			"TABLE",
+			QualifiedName(table.Schema, table.Name),
+			table.Comment,
+			false,
+		)
+		appendStatement(&sb, commentSQL)
+	}
+
+	for _, col := range table.Columns {
+		if col.Comment != "" {
+			target := fmt.Sprintf("%s.%s",
+				QualifiedName(table.Schema, table.Name),
+				QuoteIdentifier(col.Name))
+			commentSQL := buildCommentStatement("COLUMN", target, col.Comment, false)
+			appendStatement(&sb, commentSQL)
+		}
+	}
+
 	return DDLStatement{
 		SQL:         sb.String(),
 		Description: "Add table " + table.Name,
 		RequiresTx:  true,
 	}, nil
+}
+
+func (b *DDLBuilder) appendHypertableSQL(sb *strings.Builder, ht *schema.Hypertable) error {
+	if ht == nil {
+		return nil
+	}
+
+	hypertableSQL, err := formatCreateHypertable(ht)
+	if err != nil {
+		return err
+	}
+
+	appendStatement(sb, hypertableSQL)
+
+	if ht.CompressionEnabled && ht.CompressionSettings != nil {
+		compressionSQL, err := formatCompressionPolicy(ht)
+		if err != nil {
+			return err
+		}
+
+		if compressionSQL != "" {
+			appendStatement(sb, compressionSQL)
+		}
+	}
+
+	if ht.RetentionPolicy != nil && ht.RetentionPolicy.DropAfter != "" {
+		retentionSQL, err := formatRetentionPolicy(ht)
+		if err != nil {
+			return err
+		}
+
+		if retentionSQL != "" {
+			appendStatement(sb, retentionSQL)
+		}
+	}
+
+	return nil
 }
 
 func (b *DDLBuilder) getSchema(name string, db *schema.Database) *schema.Schema {

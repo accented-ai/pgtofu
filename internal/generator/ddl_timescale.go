@@ -10,7 +10,18 @@ import (
 )
 
 func (b *DDLBuilder) buildAddHypertable(change differ.Change) (DDLStatement, error) {
-	ht := b.getHypertable(change.ObjectName, b.result.Desired)
+	var ht *schema.Hypertable
+
+	if htAny, ok := change.Details["hypertable"]; ok {
+		if htPtr, ok := htAny.(*schema.Hypertable); ok {
+			ht = htPtr
+		}
+	}
+
+	if ht == nil {
+		ht = b.findHypertable(change.ObjectName)
+	}
+
 	if ht == nil {
 		return DDLStatement{}, newGeneratorError(
 			"buildAddHypertable",
@@ -19,13 +30,39 @@ func (b *DDLBuilder) buildAddHypertable(change differ.Change) (DDLStatement, err
 		)
 	}
 
+	var sb strings.Builder
+
 	sql, err := formatCreateHypertable(ht)
 	if err != nil {
 		return DDLStatement{}, newGeneratorError("buildAddHypertable", &change, err)
 	}
 
+	appendStatement(&sb, sql)
+
+	if ht.CompressionEnabled && ht.CompressionSettings != nil {
+		compressionSQL, err := formatCompressionPolicy(ht)
+		if err != nil {
+			return DDLStatement{}, newGeneratorError("buildAddHypertable", &change, err)
+		}
+
+		if compressionSQL != "" {
+			appendStatement(&sb, compressionSQL)
+		}
+	}
+
+	if ht.RetentionPolicy != nil && ht.RetentionPolicy.DropAfter != "" {
+		retentionSQL, err := formatRetentionPolicy(ht)
+		if err != nil {
+			return DDLStatement{}, newGeneratorError("buildAddHypertable", &change, err)
+		}
+
+		if retentionSQL != "" {
+			appendStatement(&sb, retentionSQL)
+		}
+	}
+
 	return DDLStatement{
-		SQL:         ensureStatementTerminated(sql),
+		SQL:         sb.String(),
 		Description: fmt.Sprintf("Convert table %s to hypertable", ht.TableName),
 		RequiresTx:  false,
 	}, nil
@@ -45,7 +82,18 @@ func (b *DDLBuilder) buildDropHypertable(change differ.Change) (DDLStatement, er
 }
 
 func (b *DDLBuilder) buildAddCompressionPolicy(change differ.Change) (DDLStatement, error) {
-	ht := b.getHypertable(change.ObjectName, b.result.Desired)
+	var ht *schema.Hypertable
+
+	if htAny, ok := change.Details["hypertable"]; ok {
+		if htPtr, ok := htAny.(*schema.Hypertable); ok {
+			ht = htPtr
+		}
+	}
+
+	if ht == nil {
+		ht = b.findHypertable(change.ObjectName)
+	}
+
 	if ht == nil {
 		return DDLStatement{}, newGeneratorError(
 			"buildAddCompressionPolicy",
@@ -157,7 +205,8 @@ func (b *DDLBuilder) buildReverseModifyCompressionPolicy(
 }
 
 func (b *DDLBuilder) buildAddRetentionPolicy(change differ.Change) (DDLStatement, error) {
-	ht := b.getHypertable(change.ObjectName, b.result.Desired)
+	ht := b.getHypertableForRetentionPolicy(change)
+
 	if ht == nil {
 		return DDLStatement{}, newGeneratorError(
 			"buildAddRetentionPolicy",
@@ -204,7 +253,18 @@ func (b *DDLBuilder) buildDropRetentionPolicy(change differ.Change) (DDLStatemen
 }
 
 func (b *DDLBuilder) buildAddContinuousAggregate(change differ.Change) (DDLStatement, error) {
-	ca := b.getContinuousAggregate(change.ObjectName, b.result.Desired)
+	var ca *schema.ContinuousAggregate
+
+	if caAny, ok := change.Details["aggregate"]; ok {
+		if caPtr, ok := caAny.(*schema.ContinuousAggregate); ok {
+			ca = caPtr
+		}
+	}
+
+	if ca == nil {
+		ca = b.findContinuousAggregate(change.ObjectName)
+	}
+
 	if ca == nil {
 		return DDLStatement{}, newGeneratorError(
 			"buildAddContinuousAggregate",
@@ -298,4 +358,41 @@ func (b *DDLBuilder) buildContinuousAggregateRecreate(
 		IsUnsafe:    true,
 		RequiresTx:  false,
 	}, nil
+}
+
+func (b *DDLBuilder) getHypertableForRetentionPolicy(change differ.Change) *schema.Hypertable {
+	if htAny, ok := change.Details["hypertable"]; ok {
+		if htPtr, ok := htAny.(*schema.Hypertable); ok {
+			return htPtr
+		}
+	}
+
+	if policyAny, ok := change.Details["policy"]; ok {
+		if policy, ok := policyAny.(*schema.RetentionPolicy); ok {
+			return b.buildHypertableWithPolicy(change.ObjectName, policy)
+		}
+	}
+
+	return b.findHypertable(change.ObjectName)
+}
+
+func (b *DDLBuilder) buildHypertableWithPolicy(
+	objectName string,
+	policy *schema.RetentionPolicy,
+) *schema.Hypertable {
+	foundHT := b.findHypertable(objectName)
+	if foundHT != nil {
+		htCopy := *foundHT
+		htCopy.RetentionPolicy = policy
+
+		return &htCopy
+	}
+
+	htSchema, htTable := parseSchemaAndName(objectName)
+
+	return &schema.Hypertable{
+		Schema:          htSchema,
+		TableName:       htTable,
+		RetentionPolicy: policy,
+	}
 }

@@ -586,7 +586,7 @@ func formatCompressionPolicy(ht *schema.Hypertable) (string, error) {
 
 	segmentColumns := dedupeCompressionColumns(ht.CompressionSettings.SegmentByColumns)
 	if len(segmentColumns) > 0 {
-		options = append(options, fmt.Sprintf("timescaledb.compress_segmentby='%s'",
+		options = append(options, fmt.Sprintf("timescaledb.compress_segmentby = '%s'",
 			strings.Join(segmentColumns, ",")))
 	}
 
@@ -599,7 +599,7 @@ func formatCompressionPolicy(ht *schema.Hypertable) (string, error) {
 
 		options = append(
 			options,
-			fmt.Sprintf("timescaledb.compress_orderby='%s'", strings.Join(orderBy, ",")),
+			fmt.Sprintf("timescaledb.compress_orderby = '%s'", strings.Join(orderBy, ",")),
 		)
 	}
 
