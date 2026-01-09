@@ -501,7 +501,13 @@ func (g *Generator) buildUpStatements(
 		warnings   []string
 	)
 
+	droppedTables := g.identifyDroppedTables(changes)
+
 	for _, change := range changes {
+		if g.shouldSkipHypertableChange(change, droppedTables) {
+			continue
+		}
+
 		stmt, err := builder.BuildUpStatement(change)
 		if err != nil {
 			warnings = append(
@@ -532,11 +538,16 @@ func (g *Generator) buildDownStatements(
 	)
 
 	dropTargets := g.identifyDropTargets(changes)
+	droppedTables := g.identifyDroppedTables(changes)
 
 	for i := len(changes) - 1; i >= 0; i-- {
 		change := changes[i]
 
 		if g.shouldSkipCommentOnlyChange(change, dropTargets) {
+			continue
+		}
+
+		if g.shouldSkipHypertableChange(change, droppedTables) {
 			continue
 		}
 
@@ -584,6 +595,36 @@ func (g *Generator) identifyDropTargets(changes []differ.Change) map[string]bool
 	}
 
 	return dropTargets
+}
+
+func (g *Generator) identifyDroppedTables(changes []differ.Change) map[string]bool {
+	droppedTables := make(map[string]bool)
+
+	for _, ch := range changes {
+		if ch.Type == differ.ChangeTypeDropTable {
+			droppedTables[ch.ObjectName] = true
+		}
+	}
+
+	return droppedTables
+}
+
+func (g *Generator) shouldSkipHypertableChange(
+	change differ.Change,
+	droppedTables map[string]bool,
+) bool {
+	if !droppedTables[change.ObjectName] {
+		return false
+	}
+
+	switch change.Type {
+	case differ.ChangeTypeDropHypertable,
+		differ.ChangeTypeDropCompressionPolicy,
+		differ.ChangeTypeDropRetentionPolicy:
+		return true
+	}
+
+	return false
 }
 
 func (g *Generator) shouldSkipCommentOnlyChange(
