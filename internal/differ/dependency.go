@@ -148,6 +148,69 @@ func tableMatchesDependency(tableName string, dependencies []string) bool {
 	return false
 }
 
+func indexUsesColumn(indexChange *Change, tableName, columnName string) bool {
+	idx, ok := indexChange.Details["index"].(*schema.Index)
+	if !ok {
+		return false
+	}
+
+	if !strings.EqualFold(idx.QualifiedTableName(), tableName) {
+		return false
+	}
+
+	columnLower := strings.ToLower(columnName)
+
+	for _, col := range idx.Columns {
+		if strings.EqualFold(col, columnLower) {
+			return true
+		}
+	}
+
+	for _, col := range idx.IncludeColumns {
+		if strings.EqualFold(col, columnLower) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func constraintUsesColumn(constraintChange *Change, tableName, columnName string) bool {
+	constraint, ok := constraintChange.Details["constraint"].(*schema.Constraint)
+	if !ok {
+		return false
+	}
+
+	changeTableName, _ := constraintChange.Details["table"].(string)
+	if !strings.EqualFold(changeTableName, tableName) {
+		return false
+	}
+
+	columnLower := strings.ToLower(columnName)
+
+	for _, col := range constraint.Columns {
+		if strings.EqualFold(col, columnLower) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func getColumnFromChange(change *Change) (tableName, columnName string, ok bool) {
+	tableName, _ = change.Details["table"].(string)
+	if tableName == "" {
+		return "", "", false
+	}
+
+	col, ok := change.Details["column"].(*schema.Column)
+	if !ok || col == nil {
+		return "", "", false
+	}
+
+	return tableName, col.Name, true
+}
+
 func (d *Differ) implicitlyDependsOn( //nolint:cyclop,gocognit,gocyclo,maintidx
 	change *Change,
 	otherChange *Change,
@@ -311,6 +374,38 @@ func (d *Differ) implicitlyDependsOn( //nolint:cyclop,gocognit,gocyclo,maintidx
 		(otherChange.Type == ChangeTypeDropView || otherChange.Type == ChangeTypeDropMaterializedView) &&
 		tableMatchesDependency(change.ObjectName, otherChange.DependsOn) {
 		return true
+	}
+
+	if (change.Type == ChangeTypeAddIndex || change.Type == ChangeTypeModifyIndex) &&
+		otherChange.Type == ChangeTypeAddColumn {
+		tableName, columnName, ok := getColumnFromChange(otherChange)
+		if ok && indexUsesColumn(change, tableName, columnName) {
+			return true
+		}
+	}
+
+	if (change.Type == ChangeTypeAddConstraint || change.Type == ChangeTypeModifyConstraint) &&
+		otherChange.Type == ChangeTypeAddColumn {
+		tableName, columnName, ok := getColumnFromChange(otherChange)
+		if ok && constraintUsesColumn(change, tableName, columnName) {
+			return true
+		}
+	}
+
+	if change.Type == ChangeTypeDropColumn &&
+		otherChange.Type == ChangeTypeDropIndex {
+		tableName, columnName, ok := getColumnFromChange(change)
+		if ok && indexUsesColumn(otherChange, tableName, columnName) {
+			return true
+		}
+	}
+
+	if change.Type == ChangeTypeDropColumn &&
+		otherChange.Type == ChangeTypeDropConstraint {
+		tableName, columnName, ok := getColumnFromChange(change)
+		if ok && constraintUsesColumn(otherChange, tableName, columnName) {
+			return true
+		}
 	}
 
 	return false

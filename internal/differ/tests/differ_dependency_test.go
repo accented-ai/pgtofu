@@ -1323,3 +1323,433 @@ func TestSchemaQualifiedTableNamesInViewDependencies(t *testing.T) {
 		)
 	}
 }
+
+func TestAddIndexDependsOnAddColumn(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "products",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+				},
+			},
+		},
+	}
+
+	desired := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "products",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+					{Name: "category", DataType: "varchar(50)", IsNullable: false, Position: 2},
+				},
+				Indexes: []schema.Index{
+					{
+						Schema:    schema.DefaultSchema,
+						TableName: "products",
+						Name:      "idx_products_category",
+						Columns:   []string{"category"},
+						Type:      "btree",
+					},
+				},
+			},
+		},
+	}
+
+	d := differ.New(differ.DefaultOptions())
+
+	result, err := d.Compare(current, desired)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	addColumnIndex, addIndexIndex := -1, -1
+
+	for i, change := range result.Changes {
+		switch change.Type {
+		case differ.ChangeTypeAddColumn:
+			addColumnIndex = i
+		case differ.ChangeTypeAddIndex:
+			addIndexIndex = i
+		}
+	}
+
+	if addColumnIndex == -1 {
+		t.Fatal("ADD_COLUMN change not found")
+	}
+
+	if addIndexIndex == -1 {
+		t.Fatal("ADD_INDEX change not found")
+	}
+
+	if addColumnIndex >= addIndexIndex {
+		t.Errorf(
+			"ADD_COLUMN (index %d) should come before ADD_INDEX (index %d)",
+			addColumnIndex,
+			addIndexIndex,
+		)
+	}
+}
+
+func TestAddIndexDependsOnAddColumnCompositeIndex(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "products",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+					{Name: "status", DataType: "varchar(50)", IsNullable: false, Position: 2},
+				},
+			},
+		},
+	}
+
+	desired := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "products",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+					{Name: "status", DataType: "varchar(50)", IsNullable: false, Position: 2},
+					{Name: "category", DataType: "varchar(50)", IsNullable: false, Position: 3},
+				},
+				Indexes: []schema.Index{
+					{
+						Schema:    schema.DefaultSchema,
+						TableName: "products",
+						Name:      "idx_products_category_status",
+						Columns:   []string{"category", "status"},
+						Type:      "btree",
+					},
+				},
+			},
+		},
+	}
+
+	d := differ.New(differ.DefaultOptions())
+
+	result, err := d.Compare(current, desired)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	addColumnIndex, addIndexIndex := -1, -1
+
+	for i, change := range result.Changes {
+		switch change.Type {
+		case differ.ChangeTypeAddColumn:
+			addColumnIndex = i
+		case differ.ChangeTypeAddIndex:
+			addIndexIndex = i
+		}
+	}
+
+	if addColumnIndex == -1 {
+		t.Fatal("ADD_COLUMN change not found")
+	}
+
+	if addIndexIndex == -1 {
+		t.Fatal("ADD_INDEX change not found")
+	}
+
+	if addColumnIndex >= addIndexIndex {
+		t.Errorf(
+			"ADD_COLUMN (index %d) should come before ADD_INDEX (index %d)",
+			addColumnIndex,
+			addIndexIndex,
+		)
+	}
+}
+
+func TestAddConstraintDependsOnAddColumn(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "products",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+				},
+				Constraints: []schema.Constraint{
+					{Name: "products_pkey_old", Type: "PRIMARY KEY", Columns: []string{"id"}},
+				},
+			},
+		},
+	}
+
+	desired := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "products",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+					{Name: "tenant_id", DataType: "varchar(50)", IsNullable: false, Position: 2},
+				},
+				Constraints: []schema.Constraint{
+					{
+						Name:    "products_pkey",
+						Type:    "PRIMARY KEY",
+						Columns: []string{"tenant_id", "id"},
+					},
+				},
+			},
+		},
+	}
+
+	d := differ.New(differ.DefaultOptions())
+
+	result, err := d.Compare(current, desired)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	addColumnIndex, addConstraintIndex := -1, -1
+
+	for i, change := range result.Changes {
+		switch change.Type {
+		case differ.ChangeTypeAddColumn:
+			addColumnIndex = i
+		case differ.ChangeTypeAddConstraint:
+			addConstraintIndex = i
+		}
+	}
+
+	if addColumnIndex == -1 {
+		t.Fatal("ADD_COLUMN change not found")
+	}
+
+	if addConstraintIndex == -1 {
+		t.Fatal("ADD_CONSTRAINT change not found")
+	}
+
+	if addColumnIndex >= addConstraintIndex {
+		t.Errorf(
+			"ADD_COLUMN (index %d) should come before ADD_CONSTRAINT (index %d)",
+			addColumnIndex,
+			addConstraintIndex,
+		)
+	}
+}
+
+func TestDropIndexBeforeDropColumn(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "products",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+					{Name: "category", DataType: "varchar(50)", IsNullable: false, Position: 2},
+				},
+				Indexes: []schema.Index{
+					{
+						Schema:    schema.DefaultSchema,
+						TableName: "products",
+						Name:      "idx_products_category",
+						Columns:   []string{"category"},
+						Type:      "btree",
+					},
+				},
+			},
+		},
+	}
+
+	desired := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "products",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+				},
+			},
+		},
+	}
+
+	d := differ.New(differ.DefaultOptions())
+
+	result, err := d.Compare(current, desired)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	dropColumnIndex, dropIndexIndex := -1, -1
+
+	for i, change := range result.Changes {
+		switch change.Type {
+		case differ.ChangeTypeDropColumn:
+			dropColumnIndex = i
+		case differ.ChangeTypeDropIndex:
+			dropIndexIndex = i
+		}
+	}
+
+	if dropColumnIndex == -1 {
+		t.Fatal("DROP_COLUMN change not found")
+	}
+
+	if dropIndexIndex == -1 {
+		t.Fatal("DROP_INDEX change not found")
+	}
+
+	if dropIndexIndex >= dropColumnIndex {
+		t.Errorf(
+			"DROP_INDEX (index %d) should come before DROP_COLUMN (index %d)",
+			dropIndexIndex,
+			dropColumnIndex,
+		)
+	}
+}
+
+func TestDropConstraintBeforeDropColumn(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "products",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+					{Name: "sku", DataType: "varchar(50)", IsNullable: false, Position: 2},
+				},
+				Constraints: []schema.Constraint{
+					{Name: "products_sku_key", Type: "UNIQUE", Columns: []string{"sku"}},
+				},
+			},
+		},
+	}
+
+	desired := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "products",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+				},
+			},
+		},
+	}
+
+	d := differ.New(differ.DefaultOptions())
+
+	result, err := d.Compare(current, desired)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	dropColumnIndex, dropConstraintIndex := -1, -1
+
+	for i, change := range result.Changes {
+		switch change.Type {
+		case differ.ChangeTypeDropColumn:
+			dropColumnIndex = i
+		case differ.ChangeTypeDropConstraint:
+			dropConstraintIndex = i
+		}
+	}
+
+	if dropColumnIndex == -1 {
+		t.Fatal("DROP_COLUMN change not found")
+	}
+
+	if dropConstraintIndex == -1 {
+		t.Fatal("DROP_CONSTRAINT change not found")
+	}
+
+	if dropConstraintIndex >= dropColumnIndex {
+		t.Errorf(
+			"DROP_CONSTRAINT (index %d) should come before DROP_COLUMN (index %d)",
+			dropConstraintIndex,
+			dropColumnIndex,
+		)
+	}
+}
+
+func TestAddCoveringIndexDependsOnAddColumn(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "products",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+				},
+			},
+		},
+	}
+
+	desired := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "products",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+					{Name: "description", DataType: "text", IsNullable: true, Position: 2},
+				},
+				Indexes: []schema.Index{
+					{
+						Schema:         schema.DefaultSchema,
+						TableName:      "products",
+						Name:           "idx_products_id_include_desc",
+						Columns:        []string{"id"},
+						IncludeColumns: []string{"description"},
+						Type:           "btree",
+					},
+				},
+			},
+		},
+	}
+
+	d := differ.New(differ.DefaultOptions())
+
+	result, err := d.Compare(current, desired)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	addColumnIndex, addIndexIndex := -1, -1
+
+	for i, change := range result.Changes {
+		switch change.Type {
+		case differ.ChangeTypeAddColumn:
+			addColumnIndex = i
+		case differ.ChangeTypeAddIndex:
+			addIndexIndex = i
+		}
+	}
+
+	if addColumnIndex == -1 {
+		t.Fatal("ADD_COLUMN change not found")
+	}
+
+	if addIndexIndex == -1 {
+		t.Fatal("ADD_INDEX change not found")
+	}
+
+	if addColumnIndex >= addIndexIndex {
+		t.Errorf(
+			"ADD_COLUMN (index %d) should come before ADD_INDEX (index %d)",
+			addColumnIndex,
+			addIndexIndex,
+		)
+	}
+}
