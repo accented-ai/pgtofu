@@ -408,6 +408,24 @@ func (d *Differ) implicitlyDependsOn( //nolint:cyclop,gocognit,gocyclo,maintidx
 		}
 	}
 
+	if change.Type == ChangeTypeModifyColumnType &&
+		(otherChange.Type == ChangeTypeDropView || otherChange.Type == ChangeTypeDropMaterializedView) {
+		tableName, _ := change.Details["table"].(string)
+		if tableName != "" && tableMatchesDependency(tableName, otherChange.DependsOn) {
+			return true
+		}
+	}
+
+	if (change.Type == ChangeTypeAddView || change.Type == ChangeTypeAddMaterializedView) &&
+		otherChange.Type == ChangeTypeModifyColumnType {
+		if isRecreation, _ := change.Details["is_recreation"].(bool); isRecreation {
+			tableName, _ := otherChange.Details["table"].(string)
+			if tableName != "" && tableMatchesDependency(tableName, change.DependsOn) {
+				return true
+			}
+		}
+	}
+
 	return false
 }
 
