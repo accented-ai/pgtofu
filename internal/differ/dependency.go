@@ -426,7 +426,38 @@ func (d *Differ) implicitlyDependsOn( //nolint:cyclop,gocognit,gocyclo,maintidx
 		}
 	}
 
+	if change.Type == ChangeTypeAddConstraint && otherChange.Type == ChangeTypeDropConstraint {
+		if isPrimaryKeyConstraintOnSameTable(change, otherChange) {
+			return true
+		}
+	}
+
 	return false
+}
+
+func isPrimaryKeyConstraintOnSameTable(addChange, dropChange *Change) bool {
+	addConstraint, ok := addChange.Details["constraint"].(*schema.Constraint)
+	if !ok || addConstraint == nil {
+		return false
+	}
+
+	dropConstraint, ok := dropChange.Details["constraint"].(*schema.Constraint)
+	if !ok || dropConstraint == nil {
+		return false
+	}
+
+	if addConstraint.Type != "PRIMARY KEY" || dropConstraint.Type != "PRIMARY KEY" {
+		return false
+	}
+
+	addTable, _ := addChange.Details["table"].(string)
+	dropTable, _ := dropChange.Details["table"].(string)
+
+	if addTable == "" || dropTable == "" {
+		return false
+	}
+
+	return strings.EqualFold(addTable, dropTable)
 }
 
 type dependencyGraph struct {

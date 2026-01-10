@@ -103,9 +103,9 @@ func getChangePriorityForTable(changeType differ.ChangeType) int {
 		return 6
 	case differ.ChangeTypeModifyColumnDefault:
 		return 7
-	case differ.ChangeTypeAddConstraint:
+	case differ.ChangeTypeAddConstraint, differ.ChangeTypeDropConstraint:
 		return 8
-	case differ.ChangeTypeAddIndex:
+	case differ.ChangeTypeAddIndex, differ.ChangeTypeDropIndex:
 		return 9
 	default:
 		return 100
