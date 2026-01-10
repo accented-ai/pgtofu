@@ -175,6 +175,12 @@ func (r *DDLBuilderRegistry) BuildDown(
 			return ddlBuilder.buildAddTableForDown(change)
 		case differ.ChangeTypeDropTrigger:
 			return ddlBuilder.buildAddTriggerForDown(change)
+		case differ.ChangeTypeDropView:
+			return ddlBuilder.buildAddViewForDown(change)
+		case differ.ChangeTypeDropMaterializedView:
+			return ddlBuilder.buildAddMaterializedViewForDown(change)
+		case differ.ChangeTypeDropFunction:
+			return ddlBuilder.buildAddFunctionForDown(change)
 		}
 
 		inverseChange := change

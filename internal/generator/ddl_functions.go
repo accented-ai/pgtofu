@@ -18,7 +18,7 @@ func (b *DDLBuilder) buildAddFunction(change differ.Change) (DDLStatement, error
 		)
 	}
 
-	definition, err := formatFunctionDefinition(fn, true)
+	definition, err := formatFunctionDefinition(fn)
 	if err != nil {
 		return DDLStatement{}, newGeneratorError("buildAddFunction", &change, err)
 	}
@@ -53,6 +53,28 @@ func (b *DDLBuilder) buildDropFunction(change differ.Change) (DDLStatement, erro
 		SQL:         sql,
 		Description: "Drop function " + fn.Name,
 		IsUnsafe:    true,
+		RequiresTx:  true,
+	}, nil
+}
+
+func (b *DDLBuilder) buildAddFunctionForDown(change differ.Change) (DDLStatement, error) {
+	fn := b.getFunction(change.ObjectName, b.result.Current)
+	if fn == nil {
+		return DDLStatement{}, newGeneratorError(
+			"buildAddFunctionForDown",
+			&change,
+			wrapObjectNotFoundError(ErrFunctionNotFound, "function", change.ObjectName),
+		)
+	}
+
+	definition, err := formatFunctionDefinition(fn)
+	if err != nil {
+		return DDLStatement{}, newGeneratorError("buildAddFunctionForDown", &change, err)
+	}
+
+	return DDLStatement{
+		SQL:         ensureStatementTerminated(definition),
+		Description: "Add function " + fn.Name,
 		RequiresTx:  true,
 	}, nil
 }
@@ -98,7 +120,7 @@ func (b *DDLBuilder) buildModifyFunction(change differ.Change) (DDLStatement, er
 		)
 	}
 
-	definition, err := formatFunctionDefinition(fn, true)
+	definition, err := formatFunctionDefinition(fn)
 	if err != nil {
 		return DDLStatement{}, newGeneratorError("buildModifyFunction", &change, err)
 	}
@@ -174,7 +196,7 @@ func (b *DDLBuilder) buildRevertModifyFunction(change differ.Change) (DDLStateme
 		)
 	}
 
-	definition, err := formatFunctionDefinition(fn, true)
+	definition, err := formatFunctionDefinition(fn)
 	if err != nil {
 		return DDLStatement{}, newGeneratorError("buildRevertModifyFunction", &change, err)
 	}
