@@ -847,3 +847,479 @@ func contains(s, substr string) bool {
 
 	return false
 }
+
+func TestModifyViewDependsOnAddColumn(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   users,
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+				},
+			},
+		},
+		Views: []schema.View{
+			{
+				Schema:     schema.DefaultSchema,
+				Name:       "user_view",
+				Definition: "SELECT id FROM users",
+			},
+		},
+	}
+
+	desired := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   users,
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+					{Name: columnEmail, DataType: "text", IsNullable: true, Position: 2},
+				},
+			},
+		},
+		Views: []schema.View{
+			{
+				Schema:     schema.DefaultSchema,
+				Name:       "user_view",
+				Definition: "SELECT id, email FROM users",
+			},
+		},
+	}
+
+	d := differ.New(differ.DefaultOptions())
+
+	result, err := d.Compare(current, desired)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	addColumnIndex, modifyViewIndex := -1, -1
+
+	for i, change := range result.Changes {
+		switch change.Type {
+		case differ.ChangeTypeAddColumn:
+			addColumnIndex = i
+		case differ.ChangeTypeModifyView:
+			modifyViewIndex = i
+		}
+	}
+
+	if addColumnIndex == -1 {
+		t.Fatal("ADD_COLUMN change not found")
+	}
+
+	if modifyViewIndex == -1 {
+		t.Fatal("MODIFY_VIEW change not found")
+	}
+
+	if addColumnIndex >= modifyViewIndex {
+		t.Errorf(
+			"ADD_COLUMN (index %d) should come before MODIFY_VIEW (index %d)",
+			addColumnIndex,
+			modifyViewIndex,
+		)
+	}
+}
+
+func TestModifyMaterializedViewDependsOnAddColumn(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "events",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+				},
+			},
+		},
+		MaterializedViews: []schema.MaterializedView{
+			{
+				Schema:     schema.DefaultSchema,
+				Name:       "event_stats",
+				Definition: "SELECT COUNT(*) FROM events",
+			},
+		},
+	}
+
+	desired := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "events",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+					{Name: "event_type", DataType: "text", IsNullable: true, Position: 2},
+				},
+			},
+		},
+		MaterializedViews: []schema.MaterializedView{
+			{
+				Schema:     schema.DefaultSchema,
+				Name:       "event_stats",
+				Definition: "SELECT event_type, COUNT(*) FROM events GROUP BY event_type",
+			},
+		},
+	}
+
+	d := differ.New(differ.DefaultOptions())
+
+	result, err := d.Compare(current, desired)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	addColumnIndex, modifyMVIndex := -1, -1
+
+	for i, change := range result.Changes {
+		switch change.Type {
+		case differ.ChangeTypeAddColumn:
+			addColumnIndex = i
+		case differ.ChangeTypeModifyMaterializedView:
+			modifyMVIndex = i
+		}
+	}
+
+	if addColumnIndex == -1 {
+		t.Fatal("ADD_COLUMN change not found")
+	}
+
+	if modifyMVIndex == -1 {
+		t.Fatal("MODIFY_MATERIALIZED_VIEW change not found")
+	}
+
+	if addColumnIndex >= modifyMVIndex {
+		t.Errorf(
+			"ADD_COLUMN (index %d) should come before MODIFY_MATERIALIZED_VIEW (index %d)",
+			addColumnIndex,
+			modifyMVIndex,
+		)
+	}
+}
+
+func TestModifyViewDependsOnAddColumnMultipleTables(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "orders",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+					{Name: "user_id", DataType: "bigint", IsNullable: false, Position: 2},
+				},
+			},
+			{
+				Schema: schema.DefaultSchema,
+				Name:   users,
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+				},
+			},
+		},
+		Views: []schema.View{
+			{
+				Schema:     schema.DefaultSchema,
+				Name:       "order_summary",
+				Definition: "SELECT o.id FROM orders o JOIN users u ON o.user_id = u.id",
+			},
+		},
+	}
+
+	desired := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "orders",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+					{Name: "user_id", DataType: "bigint", IsNullable: false, Position: 2},
+				},
+			},
+			{
+				Schema: schema.DefaultSchema,
+				Name:   users,
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+					{Name: "name", DataType: "text", IsNullable: true, Position: 2},
+				},
+			},
+		},
+		Views: []schema.View{
+			{
+				Schema:     schema.DefaultSchema,
+				Name:       "order_summary",
+				Definition: "SELECT o.id, u.name FROM orders o JOIN users u ON o.user_id = u.id",
+			},
+		},
+	}
+
+	d := differ.New(differ.DefaultOptions())
+
+	result, err := d.Compare(current, desired)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	addColumnIndex, modifyViewIndex := -1, -1
+
+	for i, change := range result.Changes {
+		switch change.Type {
+		case differ.ChangeTypeAddColumn:
+			addColumnIndex = i
+		case differ.ChangeTypeModifyView:
+			modifyViewIndex = i
+		}
+	}
+
+	if addColumnIndex == -1 {
+		t.Fatal("ADD_COLUMN change not found")
+	}
+
+	if modifyViewIndex == -1 {
+		t.Fatal("MODIFY_VIEW change not found")
+	}
+
+	if addColumnIndex >= modifyViewIndex {
+		t.Errorf(
+			"ADD_COLUMN (index %d) should come before MODIFY_VIEW (index %d)",
+			addColumnIndex,
+			modifyViewIndex,
+		)
+	}
+}
+
+func TestModifyViewComesBeforeDropColumn(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   users,
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+					{Name: columnEmail, DataType: "text", IsNullable: true, Position: 2},
+					{Name: "legacy_field", DataType: "text", IsNullable: true, Position: 3},
+				},
+			},
+		},
+		Views: []schema.View{
+			{
+				Schema:     schema.DefaultSchema,
+				Name:       "user_view",
+				Definition: "SELECT id, email, legacy_field FROM users",
+			},
+		},
+	}
+
+	desired := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   users,
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+					{Name: columnEmail, DataType: "text", IsNullable: true, Position: 2},
+				},
+			},
+		},
+		Views: []schema.View{
+			{
+				Schema:     schema.DefaultSchema,
+				Name:       "user_view",
+				Definition: "SELECT id, email FROM users",
+			},
+		},
+	}
+
+	d := differ.New(differ.DefaultOptions())
+
+	result, err := d.Compare(current, desired)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	dropColumnIndex, modifyViewIndex := -1, -1
+
+	for i, change := range result.Changes {
+		switch change.Type {
+		case differ.ChangeTypeDropColumn:
+			dropColumnIndex = i
+		case differ.ChangeTypeModifyView:
+			modifyViewIndex = i
+		}
+	}
+
+	if dropColumnIndex == -1 {
+		t.Fatal("DROP_COLUMN change not found")
+	}
+
+	if modifyViewIndex == -1 {
+		t.Fatal("MODIFY_VIEW change not found")
+	}
+
+	if modifyViewIndex >= dropColumnIndex {
+		t.Errorf(
+			"MODIFY_VIEW (index %d) should come before DROP_COLUMN (index %d)",
+			modifyViewIndex,
+			dropColumnIndex,
+		)
+	}
+}
+
+func TestDropViewBeforeDropColumn(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   users,
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+					{Name: columnEmail, DataType: "text", IsNullable: true, Position: 2},
+				},
+			},
+		},
+		Views: []schema.View{
+			{
+				Schema:     schema.DefaultSchema,
+				Name:       "user_emails",
+				Definition: "SELECT id, email FROM users",
+			},
+		},
+	}
+
+	desired := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   users,
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+				},
+			},
+		},
+		Views: []schema.View{},
+	}
+
+	d := differ.New(differ.DefaultOptions())
+
+	result, err := d.Compare(current, desired)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	dropColumnIndex, dropViewIndex := -1, -1
+
+	for i, change := range result.Changes {
+		switch change.Type {
+		case differ.ChangeTypeDropColumn:
+			dropColumnIndex = i
+		case differ.ChangeTypeDropView:
+			dropViewIndex = i
+		}
+	}
+
+	if dropColumnIndex == -1 {
+		t.Fatal("DROP_COLUMN change not found")
+	}
+
+	if dropViewIndex == -1 {
+		t.Fatal("DROP_VIEW change not found")
+	}
+
+	if dropViewIndex >= dropColumnIndex {
+		t.Errorf(
+			"DROP_VIEW (index %d) should come before DROP_COLUMN (index %d)",
+			dropViewIndex,
+			dropColumnIndex,
+		)
+	}
+}
+
+func TestSchemaQualifiedTableNamesInViewDependencies(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{
+		Schemas: []schema.Schema{{Name: "app"}},
+		Tables: []schema.Table{
+			{
+				Schema: "app",
+				Name:   users,
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+				},
+			},
+		},
+		Views: []schema.View{
+			{
+				Schema:     "app",
+				Name:       "user_view",
+				Definition: "SELECT id FROM app.users",
+			},
+		},
+	}
+
+	desired := &schema.Database{
+		Schemas: []schema.Schema{{Name: "app"}},
+		Tables: []schema.Table{
+			{
+				Schema: "app",
+				Name:   users,
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+					{Name: columnEmail, DataType: "text", IsNullable: true, Position: 2},
+				},
+			},
+		},
+		Views: []schema.View{
+			{
+				Schema:     "app",
+				Name:       "user_view",
+				Definition: "SELECT id, email FROM app.users",
+			},
+		},
+	}
+
+	d := differ.New(differ.DefaultOptions())
+
+	result, err := d.Compare(current, desired)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	addColumnIndex, modifyViewIndex := -1, -1
+
+	for i, change := range result.Changes {
+		switch change.Type {
+		case differ.ChangeTypeAddColumn:
+			addColumnIndex = i
+		case differ.ChangeTypeModifyView:
+			modifyViewIndex = i
+		}
+	}
+
+	if addColumnIndex == -1 {
+		t.Fatal("ADD_COLUMN change not found")
+	}
+
+	if modifyViewIndex == -1 {
+		t.Fatal("MODIFY_VIEW change not found")
+	}
+
+	if addColumnIndex >= modifyViewIndex {
+		t.Errorf(
+			"ADD_COLUMN (index %d) should come before MODIFY_VIEW (index %d)",
+			addColumnIndex,
+			modifyViewIndex,
+		)
+	}
+}
