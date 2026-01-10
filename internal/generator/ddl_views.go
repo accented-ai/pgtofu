@@ -22,8 +22,21 @@ func (b *DDLBuilder) buildAddView(change differ.Change) (DDLStatement, error) {
 		return DDLStatement{}, newGeneratorError("buildAddView", &change, err)
 	}
 
+	var sb strings.Builder
+	appendStatement(&sb, definition)
+
+	if view.Comment != "" {
+		commentSQL := buildCommentStatement(
+			"VIEW",
+			QualifiedName(view.Schema, view.Name),
+			view.Comment,
+			false,
+		)
+		appendStatement(&sb, commentSQL)
+	}
+
 	return DDLStatement{
-		SQL:         ensureStatementTerminated(definition),
+		SQL:         sb.String(),
 		Description: "Add view " + view.Name,
 		RequiresTx:  true,
 	}, nil
@@ -151,8 +164,21 @@ func (b *DDLBuilder) buildAddMaterializedView(change differ.Change) (DDLStatemen
 		return DDLStatement{}, newGeneratorError("buildAddMaterializedView", &change, err)
 	}
 
+	var sb strings.Builder
+	appendStatement(&sb, definition)
+
+	if mv.Comment != "" {
+		commentSQL := buildCommentStatement(
+			"MATERIALIZED VIEW",
+			QualifiedName(mv.Schema, mv.Name),
+			mv.Comment,
+			false,
+		)
+		appendStatement(&sb, commentSQL)
+	}
+
 	return DDLStatement{
-		SQL:         ensureStatementTerminated(definition),
+		SQL:         sb.String(),
 		Description: "Add materialized view " + mv.Name,
 		RequiresTx:  true,
 	}, nil
