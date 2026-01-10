@@ -18,7 +18,7 @@ type viewNormalizer struct {
 func NewViewNormalizer() *viewNormalizer {
 	return &viewNormalizer{
 		typeCastPattern: regexp.MustCompile(
-			`::(?:numeric|text|bigint|integer|smallint|real|double precision|character varying|varchar|timestamp|timestamptz|interval|boolean|jsonb|json)`, //nolint:lll
+			`::(?:numeric|text|bigint|integer|smallint|real|double precision|character varying|varchar|timestamp|timestamptz|interval|boolean|jsonb|json)(?:\[\])?`, //nolint:lll
 		),
 		intervalPattern: regexp.MustCompile(`\binterval\s+('[0-9:]+')`),
 	}
@@ -43,6 +43,7 @@ func (vn *viewNormalizer) NormalizeText(definition string) string {
 	def = vn.removeTypeCasts(def)
 	def = vn.normalizeBooleans(def)
 	def = vn.normalizeIntervals(def)
+	def = vn.normalizeAnyArray(def)
 	def = vn.removeRedundantParens(def)
 
 	return def
@@ -156,6 +157,21 @@ func isHHMMSSFormat(s string) bool {
 	}
 
 	return true
+}
+
+func (vn *viewNormalizer) normalizeAnyArray(s string) string {
+	anyArrayPattern := regexp.MustCompile(`=\s*any\s*\(\s*\(?\s*array\s*\[([^\]]*)\]\s*\)?\s*\)`)
+
+	return anyArrayPattern.ReplaceAllStringFunc(s, func(match string) string {
+		submatch := anyArrayPattern.FindStringSubmatch(match)
+		if len(submatch) < 2 {
+			return match
+		}
+
+		elements := strings.TrimSpace(submatch[1])
+
+		return "in ( " + elements + " )"
+	})
 }
 
 func (vn *viewNormalizer) removeRedundantParens(s string) string {
