@@ -2140,6 +2140,85 @@ func TestMultipleViewsWithColumnTypeChange(t *testing.T) {
 	}
 }
 
+func TestNewViewDependsOnColumnTypeChange(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "records",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+					{Name: "record_type", DataType: "varchar(50)", IsNullable: true, Position: 2},
+				},
+			},
+		},
+	}
+
+	desired := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "records",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+					{Name: "record_type", DataType: "varchar(20)", IsNullable: true, Position: 2},
+				},
+			},
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "entities",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+				},
+			},
+		},
+		Views: []schema.View{
+			{
+				Schema:     schema.DefaultSchema,
+				Name:       "entity_records",
+				Definition: "SELECT e.id, r.record_type FROM entities e JOIN records r ON e.id = r.id",
+			},
+		},
+	}
+
+	d := differ.New(differ.DefaultOptions())
+
+	result, err := d.Compare(current, desired)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	modifyColumnTypeIndex, addViewIndex := -1, -1
+
+	for i, change := range result.Changes {
+		switch change.Type {
+		case differ.ChangeTypeModifyColumnType:
+			modifyColumnTypeIndex = i
+		case differ.ChangeTypeAddView:
+			addViewIndex = i
+		}
+	}
+
+	if modifyColumnTypeIndex == -1 {
+		t.Fatal("MODIFY_COLUMN_TYPE change not found")
+	}
+
+	if addViewIndex == -1 {
+		t.Fatal("ADD_VIEW change not found")
+	}
+
+	if modifyColumnTypeIndex >= addViewIndex {
+		t.Errorf(
+			"MODIFY_COLUMN_TYPE (index %d) should come before ADD_VIEW (index %d) "+
+				"because PostgreSQL cannot alter column type when a view references it",
+			modifyColumnTypeIndex,
+			addViewIndex,
+		)
+	}
+}
+
 func TestViewNotAffectedByUnrelatedColumnTypeChange(t *testing.T) {
 	t.Parallel()
 
