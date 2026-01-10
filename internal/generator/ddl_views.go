@@ -126,6 +126,29 @@ func (b *DDLBuilder) buildModifyView(change differ.Change) (DDLStatement, error)
 func (b *DDLBuilder) buildRevertModifyView(change differ.Change) (DDLStatement, error) {
 	view := b.getView(change.ObjectName, b.result.Current)
 	if view == nil {
+		comment, err := extractCommentDetails(change)
+		if err != nil {
+			return DDLStatement{}, newGeneratorError("buildRevertModifyView", &change, err)
+		}
+
+		if comment.HasOld && comment.HasNew && comment.Old == "" {
+			desiredView := b.getView(change.ObjectName, b.result.Desired)
+			if desiredView != nil {
+				sql := buildCommentStatement(
+					"VIEW",
+					QualifiedName(desiredView.Schema, desiredView.Name),
+					"",
+					false,
+				)
+
+				return DDLStatement{
+					SQL:         sql,
+					Description: "Revert view comment " + desiredView.Name,
+					RequiresTx:  true,
+				}, nil
+			}
+		}
+
 		return DDLStatement{}, newGeneratorError(
 			"buildRevertModifyView",
 			&change,
@@ -285,6 +308,31 @@ func (b *DDLBuilder) buildModifyMaterializedView(change differ.Change) (DDLState
 func (b *DDLBuilder) buildRevertModifyMaterializedView(change differ.Change) (DDLStatement, error) {
 	mv := b.getMaterializedView(change.ObjectName, b.result.Current)
 	if mv == nil {
+		comment, err := extractCommentDetails(change)
+		if err != nil {
+			return DDLStatement{}, newGeneratorError(
+				"buildRevertModifyMaterializedView", &change, err,
+			)
+		}
+
+		if comment.HasOld && comment.HasNew && comment.Old == "" {
+			desiredMV := b.getMaterializedView(change.ObjectName, b.result.Desired)
+			if desiredMV != nil {
+				sql := buildCommentStatement(
+					"MATERIALIZED VIEW",
+					QualifiedName(desiredMV.Schema, desiredMV.Name),
+					"",
+					false,
+				)
+
+				return DDLStatement{
+					SQL:         sql,
+					Description: "Revert materialized view comment " + desiredMV.Name,
+					RequiresTx:  true,
+				}, nil
+			}
+		}
+
 		return DDLStatement{}, newGeneratorError(
 			"buildRevertModifyMaterializedView",
 			&change,

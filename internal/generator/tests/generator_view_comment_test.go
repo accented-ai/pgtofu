@@ -175,6 +175,242 @@ func TestFullMigrationIncludesViewComment(t *testing.T) {
 	assert.Contains(t, upContent, "Shows only active users for monitoring")
 }
 
+func TestNewViewCommentDownMigrationNoWarning(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{}
+	desired := &schema.Database{
+		Views: []schema.View{{
+			Schema:     schema.DefaultSchema,
+			Name:       "health_status",
+			Definition: "SELECT * FROM items WHERE active = true",
+			Comment:    "Health monitoring view for active items",
+		}},
+	}
+
+	d := differ.New(differ.DefaultOptions())
+	diffResult, err := d.Compare(current, desired)
+	require.NoError(t, err)
+
+	opts := testOptions()
+	opts.GenerateDownMigrations = true
+	gen := generator.New(opts)
+
+	genResult, err := gen.Generate(diffResult)
+	require.NoError(t, err)
+	require.NotEmpty(t, genResult.Migrations)
+
+	for _, warning := range genResult.Warnings {
+		assert.NotContains(t, warning, "Failed to build DOWN statement",
+			"should not have warnings about failed DOWN statements for new view comments")
+		assert.NotContains(t, warning, "view not found",
+			"should not have 'view not found' warnings for new view comments")
+	}
+
+	require.NotNil(t, genResult.Migrations[0].DownFile,
+		"down migration should be generated")
+	downContent := genResult.Migrations[0].DownFile.Content
+	assert.Contains(t, downContent, "DROP VIEW",
+		"down migration should drop the view")
+	assert.NotContains(t, downContent, "Manual rollback required",
+		"down migration should not require manual rollback for new view comment")
+}
+
+func TestNewViewWithDependenciesCommentDownMigrationNoWarning(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{
+		Tables: []schema.Table{{
+			Schema: schema.DefaultSchema,
+			Name:   "records",
+			Columns: []schema.Column{
+				{Name: "id", DataType: "BIGINT", Position: 1},
+				{Name: "source", DataType: "VARCHAR(50)", Position: 2},
+			},
+		}},
+	}
+
+	desired := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "records",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "BIGINT", Position: 1},
+					{Name: "source", DataType: "VARCHAR(50)", Position: 2},
+				},
+			},
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "entities",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "BIGINT", Position: 1},
+					{Name: "source", DataType: "VARCHAR(50)", Position: 2},
+					{Name: "is_active", DataType: "BOOLEAN", Position: 3},
+				},
+			},
+		},
+		Views: []schema.View{{
+			Schema: schema.DefaultSchema,
+			Name:   "active_entity_status",
+			Definition: `SELECT e.source, e.is_active, r.id as record_id
+FROM entities e
+LEFT JOIN records r ON e.source = r.source
+WHERE e.is_active = TRUE`,
+			Comment: "Health monitoring view for active entities",
+		}},
+	}
+
+	d := differ.New(differ.DefaultOptions())
+	diffResult, err := d.Compare(current, desired)
+	require.NoError(t, err)
+
+	opts := testOptions()
+	opts.GenerateDownMigrations = true
+	gen := generator.New(opts)
+
+	genResult, err := gen.Generate(diffResult)
+	require.NoError(t, err)
+	require.NotEmpty(t, genResult.Migrations)
+
+	for _, warning := range genResult.Warnings {
+		assert.NotContains(t, warning, "Failed to build DOWN statement",
+			"should not have warnings about failed DOWN statements for new view comments")
+		assert.NotContains(t, warning, "view not found",
+			"should not have 'view not found' warnings for new view comments")
+	}
+}
+
+func TestBuildDownStatementForNewViewCommentChange(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{}
+	desired := &schema.Database{
+		Views: []schema.View{{
+			Schema:     schema.DefaultSchema,
+			Name:       "health_status",
+			Definition: "SELECT * FROM items WHERE active = true",
+			Comment:    "Health monitoring view",
+		}},
+	}
+
+	result := &differ.DiffResult{
+		Current: current,
+		Desired: desired,
+		Changes: []differ.Change{{
+			Type:        differ.ChangeTypeModifyView,
+			ObjectName:  "public.health_status",
+			Description: "Modify view comment: public.health_status",
+			Details: map[string]any{
+				"view": &schema.View{
+					Schema:     schema.DefaultSchema,
+					Name:       "health_status",
+					Definition: "SELECT * FROM items WHERE active = true",
+					Comment:    "Health monitoring view",
+				},
+				"old_comment": "",
+				"new_comment": "Health monitoring view",
+			},
+		}},
+	}
+
+	builder := generator.NewDDLBuilder(result, true)
+	stmt, err := builder.BuildDownStatement(result.Changes[0])
+
+	require.NoError(t, err,
+		"BuildDownStatement should not error for comment-only change on new view")
+	assert.NotContains(t, stmt.SQL, "Manual rollback required",
+		"should not require manual rollback for comment-only change on new view")
+}
+
+func TestNewViewCommentInSeparateBatchNoWarning(t *testing.T) {
+	t.Parallel()
+
+	currentColumns := []schema.Column{
+		{Name: "id", DataType: "BIGINT", Position: 1},
+		{Name: "source", DataType: "VARCHAR(50)", Position: 2},
+		{Name: "item_type", DataType: "VARCHAR(50)", Position: 3},
+	}
+
+	for i := 4; i <= 15; i++ {
+		currentColumns = append(currentColumns, schema.Column{
+			Name: "field" + string(rune('a'+i-4)), DataType: "TEXT", Position: i,
+		})
+	}
+
+	current := &schema.Database{
+		Tables: []schema.Table{{
+			Schema:  schema.DefaultSchema,
+			Name:    "records",
+			Columns: currentColumns,
+		}},
+	}
+
+	desiredColumns := []schema.Column{
+		{Name: "id", DataType: "BIGINT", Position: 1},
+		{Name: "source", DataType: "VARCHAR(50)", Position: 2},
+		{Name: "item_type", DataType: "VARCHAR(20)", Position: 3},
+	}
+
+	for i := 4; i <= 15; i++ {
+		desiredColumns = append(desiredColumns, schema.Column{
+			Name: "field" + string(rune('a'+i-4)), DataType: "TEXT", Position: i,
+		})
+	}
+
+	desiredColumns = append(desiredColumns, schema.Column{
+		Name: "new_field", DataType: "TEXT", Position: 16,
+	})
+
+	desired := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema:  schema.DefaultSchema,
+				Name:    "records",
+				Columns: desiredColumns,
+			},
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "entities",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "BIGINT", Position: 1},
+					{Name: "source", DataType: "VARCHAR(50)", Position: 2},
+					{Name: "is_active", DataType: "BOOLEAN", Position: 3},
+				},
+			},
+		},
+		Views: []schema.View{{
+			Schema: schema.DefaultSchema,
+			Name:   "active_entity_status",
+			Definition: `SELECT e.source, e.is_active, r.id
+FROM entities e
+LEFT JOIN records r ON e.source = r.source
+WHERE e.is_active = TRUE`,
+			Comment: "Health monitoring view for active entities",
+		}},
+	}
+
+	d := differ.New(differ.DefaultOptions())
+	diffResult, err := d.Compare(current, desired)
+	require.NoError(t, err)
+
+	opts := testOptions()
+	opts.GenerateDownMigrations = true
+	opts.MaxOperationsPerFile = 10
+	gen := generator.New(opts)
+
+	genResult, err := gen.Generate(diffResult)
+	require.NoError(t, err)
+	require.NotEmpty(t, genResult.Migrations)
+
+	for _, warning := range genResult.Warnings {
+		assert.NotContains(t, warning, "Failed to build DOWN statement",
+			"should not have warnings about failed DOWN statements for new view comments")
+		assert.NotContains(t, warning, "view not found",
+			"should not have 'view not found' warnings for new view comments")
+	}
+}
+
 func TestViewCommentOnlyChangeDoesNotDuplicateCreateView(t *testing.T) {
 	t.Parallel()
 
