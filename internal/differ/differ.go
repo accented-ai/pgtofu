@@ -122,6 +122,7 @@ func (d *Differ) Compare(current, desired *schema.Database) (*DiffResult, error)
 	d.triggerComp.Compare(result)
 	d.compareHypertables(result)
 	d.compareContinuousAggregates(result)
+	d.processViewRecreationForColumnTypeChanges(result)
 
 	if err := d.resolveDependencies(result); err != nil {
 		return nil, util.WrapError("resolving dependencies", err)

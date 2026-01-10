@@ -1753,3 +1753,474 @@ func TestAddCoveringIndexDependsOnAddColumn(t *testing.T) {
 		)
 	}
 }
+
+func TestDropViewBeforeModifyColumnType(t *testing.T) { //nolint:dupl
+	t.Parallel()
+
+	current := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "products",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+					{Name: "category", DataType: "varchar(50)", IsNullable: true, Position: 2},
+				},
+			},
+		},
+		Views: []schema.View{
+			{
+				Schema:     schema.DefaultSchema,
+				Name:       "product_categories",
+				Definition: "SELECT id, category FROM products",
+			},
+		},
+	}
+
+	desired := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "products",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+					{Name: "category", DataType: "text", IsNullable: true, Position: 2},
+				},
+			},
+		},
+		Views: []schema.View{
+			{
+				Schema:     schema.DefaultSchema,
+				Name:       "product_categories",
+				Definition: "SELECT id, category FROM products",
+			},
+		},
+	}
+
+	d := differ.New(differ.DefaultOptions())
+
+	result, err := d.Compare(current, desired)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	dropViewIndex, modifyColumnTypeIndex, addViewIndex := -1, -1, -1
+
+	for i, change := range result.Changes {
+		switch change.Type {
+		case differ.ChangeTypeDropView:
+			dropViewIndex = i
+		case differ.ChangeTypeModifyColumnType:
+			modifyColumnTypeIndex = i
+		case differ.ChangeTypeAddView:
+			addViewIndex = i
+		}
+	}
+
+	if dropViewIndex == -1 {
+		t.Fatal(
+			"DROP_VIEW change not found - view should be split into DROP+ADD for column type change",
+		)
+	}
+
+	if modifyColumnTypeIndex == -1 {
+		t.Fatal("MODIFY_COLUMN_TYPE change not found")
+	}
+
+	if addViewIndex == -1 {
+		t.Fatal("ADD_VIEW change not found - view should be recreated after column type change")
+	}
+
+	if dropViewIndex >= modifyColumnTypeIndex {
+		t.Errorf(
+			"DROP_VIEW (index %d) should come before MODIFY_COLUMN_TYPE (index %d)",
+			dropViewIndex,
+			modifyColumnTypeIndex,
+		)
+	}
+
+	if modifyColumnTypeIndex >= addViewIndex {
+		t.Errorf(
+			"MODIFY_COLUMN_TYPE (index %d) should come before ADD_VIEW (index %d)",
+			modifyColumnTypeIndex,
+			addViewIndex,
+		)
+	}
+}
+
+func TestDropMaterializedViewBeforeModifyColumnType(t *testing.T) { //nolint:dupl
+	t.Parallel()
+
+	current := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "events",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+					{Name: "event_type", DataType: "varchar(50)", IsNullable: true, Position: 2},
+				},
+			},
+		},
+		MaterializedViews: []schema.MaterializedView{
+			{
+				Schema:     schema.DefaultSchema,
+				Name:       "event_summary",
+				Definition: "SELECT event_type, COUNT(*) FROM events GROUP BY event_type",
+			},
+		},
+	}
+
+	desired := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "events",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+					{Name: "event_type", DataType: "text", IsNullable: true, Position: 2},
+				},
+			},
+		},
+		MaterializedViews: []schema.MaterializedView{
+			{
+				Schema:     schema.DefaultSchema,
+				Name:       "event_summary",
+				Definition: "SELECT event_type, COUNT(*) FROM events GROUP BY event_type",
+			},
+		},
+	}
+
+	d := differ.New(differ.DefaultOptions())
+
+	result, err := d.Compare(current, desired)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	dropMVIndex, modifyColumnTypeIndex, addMVIndex := -1, -1, -1
+
+	for i, change := range result.Changes {
+		switch change.Type {
+		case differ.ChangeTypeDropMaterializedView:
+			dropMVIndex = i
+		case differ.ChangeTypeModifyColumnType:
+			modifyColumnTypeIndex = i
+		case differ.ChangeTypeAddMaterializedView:
+			addMVIndex = i
+		}
+	}
+
+	if dropMVIndex == -1 {
+		t.Fatal("DROP_MATERIALIZED_VIEW change not found")
+	}
+
+	if modifyColumnTypeIndex == -1 {
+		t.Fatal("MODIFY_COLUMN_TYPE change not found")
+	}
+
+	if addMVIndex == -1 {
+		t.Fatal("ADD_MATERIALIZED_VIEW change not found")
+	}
+
+	if dropMVIndex >= modifyColumnTypeIndex {
+		t.Errorf(
+			"DROP_MATERIALIZED_VIEW (index %d) should come before MODIFY_COLUMN_TYPE (index %d)",
+			dropMVIndex,
+			modifyColumnTypeIndex,
+		)
+	}
+
+	if modifyColumnTypeIndex >= addMVIndex {
+		t.Errorf(
+			"MODIFY_COLUMN_TYPE (index %d) should come before ADD_MATERIALIZED_VIEW (index %d)",
+			modifyColumnTypeIndex,
+			addMVIndex,
+		)
+	}
+}
+
+func TestViewRecreationWithDefinitionChange(t *testing.T) { //nolint:dupl
+	t.Parallel()
+
+	current := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "orders",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+					{Name: "status", DataType: "varchar(20)", IsNullable: true, Position: 2},
+				},
+			},
+		},
+		Views: []schema.View{
+			{
+				Schema:     schema.DefaultSchema,
+				Name:       "order_status",
+				Definition: "SELECT id, status FROM orders",
+			},
+		},
+	}
+
+	desired := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "orders",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+					{Name: "status", DataType: "text", IsNullable: true, Position: 2},
+				},
+			},
+		},
+		Views: []schema.View{
+			{
+				Schema:     schema.DefaultSchema,
+				Name:       "order_status",
+				Definition: "SELECT id, status, 'processed' AS processing_status FROM orders",
+			},
+		},
+	}
+
+	d := differ.New(differ.DefaultOptions())
+
+	result, err := d.Compare(current, desired)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	dropViewIndex, modifyColumnTypeIndex, addViewIndex := -1, -1, -1
+
+	for i, change := range result.Changes {
+		switch change.Type {
+		case differ.ChangeTypeDropView:
+			dropViewIndex = i
+		case differ.ChangeTypeModifyColumnType:
+			modifyColumnTypeIndex = i
+		case differ.ChangeTypeAddView:
+			addViewIndex = i
+		}
+	}
+
+	if dropViewIndex == -1 {
+		t.Fatal("DROP_VIEW change not found - MODIFY_VIEW should be converted to DROP+ADD")
+	}
+
+	if modifyColumnTypeIndex == -1 {
+		t.Fatal("MODIFY_COLUMN_TYPE change not found")
+	}
+
+	if addViewIndex == -1 {
+		t.Fatal("ADD_VIEW change not found")
+	}
+
+	if dropViewIndex >= modifyColumnTypeIndex {
+		t.Errorf(
+			"DROP_VIEW (index %d) should come before MODIFY_COLUMN_TYPE (index %d)",
+			dropViewIndex,
+			modifyColumnTypeIndex,
+		)
+	}
+
+	if modifyColumnTypeIndex >= addViewIndex {
+		t.Errorf(
+			"MODIFY_COLUMN_TYPE (index %d) should come before ADD_VIEW (index %d)",
+			modifyColumnTypeIndex,
+			addViewIndex,
+		)
+	}
+}
+
+func TestMultipleViewsWithColumnTypeChange(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "products",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+					{Name: "name", DataType: "varchar(100)", IsNullable: true, Position: 2},
+				},
+			},
+		},
+		Views: []schema.View{
+			{
+				Schema:     schema.DefaultSchema,
+				Name:       "product_names",
+				Definition: "SELECT id, name FROM products",
+			},
+			{
+				Schema:     schema.DefaultSchema,
+				Name:       "product_list",
+				Definition: "SELECT name FROM products ORDER BY name",
+			},
+		},
+	}
+
+	desired := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "products",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+					{Name: "name", DataType: "text", IsNullable: true, Position: 2},
+				},
+			},
+		},
+		Views: []schema.View{
+			{
+				Schema:     schema.DefaultSchema,
+				Name:       "product_names",
+				Definition: "SELECT id, name FROM products",
+			},
+			{
+				Schema:     schema.DefaultSchema,
+				Name:       "product_list",
+				Definition: "SELECT name FROM products ORDER BY name",
+			},
+		},
+	}
+
+	d := differ.New(differ.DefaultOptions())
+
+	result, err := d.Compare(current, desired)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var dropViewIndices, addViewIndices []int
+
+	modifyColumnTypeIndex := -1
+
+	for i, change := range result.Changes {
+		switch change.Type {
+		case differ.ChangeTypeDropView:
+			dropViewIndices = append(dropViewIndices, i)
+		case differ.ChangeTypeModifyColumnType:
+			modifyColumnTypeIndex = i
+		case differ.ChangeTypeAddView:
+			addViewIndices = append(addViewIndices, i)
+		}
+	}
+
+	if len(dropViewIndices) != 2 {
+		t.Fatalf("expected 2 DROP_VIEW changes, got %d", len(dropViewIndices))
+	}
+
+	if modifyColumnTypeIndex == -1 {
+		t.Fatal("MODIFY_COLUMN_TYPE change not found")
+	}
+
+	if len(addViewIndices) != 2 {
+		t.Fatalf("expected 2 ADD_VIEW changes, got %d", len(addViewIndices))
+	}
+
+	for _, dropIdx := range dropViewIndices {
+		if dropIdx >= modifyColumnTypeIndex {
+			t.Errorf(
+				"DROP_VIEW (index %d) should come before MODIFY_COLUMN_TYPE (index %d)",
+				dropIdx,
+				modifyColumnTypeIndex,
+			)
+		}
+	}
+
+	for _, addIdx := range addViewIndices {
+		if modifyColumnTypeIndex >= addIdx {
+			t.Errorf(
+				"MODIFY_COLUMN_TYPE (index %d) should come before ADD_VIEW (index %d)",
+				modifyColumnTypeIndex,
+				addIdx,
+			)
+		}
+	}
+}
+
+func TestViewNotAffectedByUnrelatedColumnTypeChange(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "products",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+					{Name: "category", DataType: "varchar(50)", IsNullable: true, Position: 2},
+				},
+			},
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "orders",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+					{Name: "status", DataType: "varchar(20)", IsNullable: true, Position: 2},
+				},
+			},
+		},
+		Views: []schema.View{
+			{
+				Schema:     schema.DefaultSchema,
+				Name:       "order_status",
+				Definition: "SELECT id, status FROM orders",
+			},
+		},
+	}
+
+	desired := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "products",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+					{Name: "category", DataType: "text", IsNullable: true, Position: 2},
+				},
+			},
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "orders",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+					{Name: "status", DataType: "varchar(20)", IsNullable: true, Position: 2},
+				},
+			},
+		},
+		Views: []schema.View{
+			{
+				Schema:     schema.DefaultSchema,
+				Name:       "order_status",
+				Definition: "SELECT id, status FROM orders",
+			},
+		},
+	}
+
+	d := differ.New(differ.DefaultOptions())
+
+	result, err := d.Compare(current, desired)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	hasDropView := false
+	hasAddView := false
+
+	for _, change := range result.Changes {
+		switch change.Type {
+		case differ.ChangeTypeDropView:
+			hasDropView = true
+		case differ.ChangeTypeAddView:
+			hasAddView = true
+		}
+	}
+
+	if hasDropView || hasAddView {
+		t.Error(
+			"view referencing orders table should not be affected by column type change in products table",
+		)
+	}
+}
