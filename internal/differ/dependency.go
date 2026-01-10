@@ -376,6 +376,15 @@ func (d *Differ) implicitlyDependsOn( //nolint:cyclop,gocognit,gocyclo,maintidx
 		return true
 	}
 
+	if change.Type == ChangeTypeDropColumn &&
+		(otherChange.Type == ChangeTypeDropContinuousAggregate ||
+			otherChange.Type == ChangeTypeModifyContinuousAggregate) {
+		tableName, _, ok := getColumnFromChange(change)
+		if ok && caChangeMatchesTable(otherChange, tableName) {
+			return true
+		}
+	}
+
 	if (change.Type == ChangeTypeAddIndex || change.Type == ChangeTypeModifyIndex) &&
 		otherChange.Type == ChangeTypeAddColumn {
 		tableName, columnName, ok := getColumnFromChange(otherChange)
@@ -471,7 +480,10 @@ func (d *Differ) implicitlyDependsOn( //nolint:cyclop,gocognit,gocyclo,maintidx
 func caChangeMatchesTable(caChange *Change, tableName string) bool {
 	agg, ok := caChange.Details["aggregate"].(*schema.ContinuousAggregate)
 	if !ok {
-		return false
+		agg, ok = caChange.Details["current"].(*schema.ContinuousAggregate)
+		if !ok {
+			return false
+		}
 	}
 
 	hypertableName := agg.QualifiedHypertableName()
