@@ -2303,3 +2303,109 @@ func TestViewNotAffectedByUnrelatedColumnTypeChange(t *testing.T) {
 		)
 	}
 }
+
+func TestModifyCompressionPolicyComesAfterTableChanges(t *testing.T) {
+	t.Parallel()
+
+	currentHT := schema.Hypertable{
+		Schema:             schema.DefaultSchema,
+		TableName:          "metrics",
+		TimeColumnName:     "recorded_at",
+		PartitionInterval:  "1 day",
+		CompressionEnabled: true,
+		CompressionSettings: &schema.CompressionSettings{
+			SegmentByColumns: []string{"old_col"},
+			OrderByColumns:   []schema.OrderByColumn{{Column: "recorded_at", Direction: "DESC"}},
+		},
+	}
+
+	desiredHT := schema.Hypertable{
+		Schema:             schema.DefaultSchema,
+		TableName:          "metrics",
+		TimeColumnName:     "recorded_at",
+		PartitionInterval:  "1 day",
+		CompressionEnabled: true,
+		CompressionSettings: &schema.CompressionSettings{
+			SegmentByColumns: []string{"new_col"},
+			OrderByColumns:   []schema.OrderByColumn{{Column: "recorded_at", Direction: "DESC"}},
+		},
+	}
+
+	current := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "metrics",
+				Columns: []schema.Column{
+					{Name: "old_col", DataType: "text", IsNullable: false, Position: 1},
+					{Name: "recorded_at", DataType: "timestamptz", IsNullable: false, Position: 2},
+				},
+			},
+		},
+		Hypertables: []schema.Hypertable{currentHT},
+	}
+
+	desired := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "metrics",
+				Columns: []schema.Column{
+					{Name: "new_col", DataType: "text", IsNullable: false, Position: 1},
+					{Name: "recorded_at", DataType: "timestamptz", IsNullable: false, Position: 2},
+				},
+			},
+		},
+		Hypertables: []schema.Hypertable{desiredHT},
+	}
+
+	d := differ.New(differ.DefaultOptions())
+
+	result, err := d.Compare(current, desired)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	modifyCompressionIndex, dropColumnIndex, addColumnIndex := -1, -1, -1
+
+	for i, change := range result.Changes {
+		switch change.Type {
+		case differ.ChangeTypeModifyCompressionPolicy:
+			modifyCompressionIndex = i
+		case differ.ChangeTypeDropColumn:
+			dropColumnIndex = i
+		case differ.ChangeTypeAddColumn:
+			addColumnIndex = i
+		}
+	}
+
+	if modifyCompressionIndex == -1 {
+		t.Fatal("MODIFY_COMPRESSION_POLICY change not found")
+	}
+
+	if dropColumnIndex == -1 {
+		t.Fatal("DROP_COLUMN change not found")
+	}
+
+	if addColumnIndex == -1 {
+		t.Fatal("ADD_COLUMN change not found")
+	}
+
+	if addColumnIndex >= modifyCompressionIndex {
+		t.Errorf(
+			"ADD_COLUMN should come before MODIFY_COMPRESSION_POLICY. "+
+				"ADD_COLUMN at %d, MODIFY_COMPRESSION_POLICY at %d",
+			addColumnIndex,
+			modifyCompressionIndex,
+		)
+	}
+
+	if dropColumnIndex >= modifyCompressionIndex {
+		t.Errorf(
+			"DROP_COLUMN should come before MODIFY_COMPRESSION_POLICY. "+
+				"DROP_COLUMN at %d, MODIFY_COMPRESSION_POLICY at %d",
+			dropColumnIndex,
+			modifyCompressionIndex,
+		)
+	}
+}
