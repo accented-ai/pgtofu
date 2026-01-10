@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/accented-ai/pgtofu/internal/differ"
 	"github.com/accented-ai/pgtofu/internal/generator"
 	"github.com/accented-ai/pgtofu/internal/schema"
@@ -222,6 +224,83 @@ func TestMaterializedViewRecreationOrderingWithNewColumns(t *testing.T) {
 			"ADD COLUMN (pos %d) should come before CREATE MATERIALIZED VIEW (pos %d)",
 			addColumnIdx,
 			createMVIdx,
+		)
+	}
+}
+
+func TestPrimaryKeyChangeOrderingDropBeforeAdd(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: "public",
+				Name:   "orders",
+				Columns: []schema.Column{
+					{Name: "region", DataType: "varchar(50)", IsNullable: false, Position: 1},
+					{Name: "product", DataType: "varchar(50)", IsNullable: false, Position: 2},
+					{Name: "status", DataType: "varchar(50)", IsNullable: false, Position: 3},
+				},
+				Constraints: []schema.Constraint{
+					{
+						Name:    "orders_pkey_old",
+						Type:    "PRIMARY KEY",
+						Columns: []string{"region", "product", "status"},
+					},
+				},
+			},
+		},
+	}
+
+	desired := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: "public",
+				Name:   "orders",
+				Columns: []schema.Column{
+					{Name: "category", DataType: "varchar(50)", IsNullable: false, Position: 1},
+					{Name: "product", DataType: "varchar(50)", IsNullable: false, Position: 2},
+					{Name: "status", DataType: "varchar(50)", IsNullable: false, Position: 3},
+				},
+				Constraints: []schema.Constraint{
+					{
+						Name:    "orders_pkey",
+						Type:    "PRIMARY KEY",
+						Columns: []string{"category", "product", "status"},
+					},
+				},
+			},
+		},
+	}
+
+	d := differ.New(differ.DefaultOptions())
+
+	result, err := d.Compare(current, desired)
+	require.NoError(t, err)
+
+	opts := generator.DefaultOptions()
+	opts.PreviewMode = true
+	opts.GenerateDownMigrations = false
+	gen := generator.New(opts)
+
+	genResult, err := gen.Generate(result)
+	require.NoError(t, err)
+	require.NotEmpty(t, genResult.Migrations)
+
+	content := genResult.Migrations[0].UpFile.Content
+
+	dropConstraintIdx := strings.Index(content, "DROP CONSTRAINT")
+	addConstraintIdx := strings.Index(content, "ADD CONSTRAINT")
+
+	require.NotEqual(t, -1, dropConstraintIdx, "DROP CONSTRAINT not found in migration")
+	require.NotEqual(t, -1, addConstraintIdx, "ADD CONSTRAINT not found in migration")
+
+	if dropConstraintIdx >= addConstraintIdx {
+		t.Errorf(
+			"DROP CONSTRAINT (pos %d) should come before ADD CONSTRAINT (pos %d) "+
+				"because PostgreSQL only allows one PRIMARY KEY per table",
+			dropConstraintIdx,
+			addConstraintIdx,
 		)
 	}
 }
