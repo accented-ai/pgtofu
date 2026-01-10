@@ -2409,3 +2409,184 @@ func TestModifyCompressionPolicyComesAfterTableChanges(t *testing.T) {
 		)
 	}
 }
+
+func TestDropColumnDependsOnDropContinuousAggregate(t *testing.T) {
+	t.Parallel()
+
+	hypertable := schema.Hypertable{
+		Schema:            schema.DefaultSchema,
+		TableName:         "metrics",
+		TimeColumnName:    "recorded_at",
+		PartitionInterval: "1 day",
+	}
+
+	ca := schema.ContinuousAggregate{
+		Schema:           schema.DefaultSchema,
+		ViewName:         "metrics_hourly",
+		HypertableSchema: schema.DefaultSchema,
+		HypertableName:   "metrics",
+		Query:            "SELECT device_id, time_bucket('1 hour', recorded_at) AS bucket FROM metrics",
+	}
+
+	droppedColumn := schema.Column{
+		Name:       "device_id",
+		DataType:   "text",
+		IsNullable: false,
+		Position:   1,
+	}
+
+	current := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "metrics",
+				Columns: []schema.Column{
+					droppedColumn,
+					{Name: "recorded_at", DataType: "timestamptz", IsNullable: false, Position: 2},
+					{Name: "value", DataType: "numeric", IsNullable: false, Position: 3},
+				},
+			},
+		},
+		Hypertables:          []schema.Hypertable{hypertable},
+		ContinuousAggregates: []schema.ContinuousAggregate{ca},
+	}
+
+	desired := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "metrics",
+				Columns: []schema.Column{
+					{Name: "recorded_at", DataType: "timestamptz", IsNullable: false, Position: 1},
+					{Name: "value", DataType: "numeric", IsNullable: false, Position: 2},
+				},
+			},
+		},
+		Hypertables: []schema.Hypertable{hypertable},
+	}
+
+	d := differ.New(differ.DefaultOptions())
+
+	result, err := d.Compare(current, desired)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	dropCAIndex, dropColumnIndex := -1, -1
+
+	for i, change := range result.Changes {
+		switch change.Type {
+		case differ.ChangeTypeDropContinuousAggregate:
+			dropCAIndex = i
+		case differ.ChangeTypeDropColumn:
+			dropColumnIndex = i
+		}
+	}
+
+	if dropCAIndex == -1 {
+		t.Fatal("DROP_CONTINUOUS_AGGREGATE change not found")
+	}
+
+	if dropColumnIndex == -1 {
+		t.Fatal("DROP_COLUMN change not found")
+	}
+
+	if dropCAIndex >= dropColumnIndex {
+		t.Errorf(
+			"DROP_CONTINUOUS_AGGREGATE should come before DROP_COLUMN. CA at %d, column at %d",
+			dropCAIndex,
+			dropColumnIndex,
+		)
+	}
+}
+
+func TestDropColumnDependsOnModifyContinuousAggregate(t *testing.T) {
+	t.Parallel()
+
+	hypertable := schema.Hypertable{
+		Schema:            schema.DefaultSchema,
+		TableName:         "metrics",
+		TimeColumnName:    "recorded_at",
+		PartitionInterval: "1 day",
+	}
+
+	currentCA := schema.ContinuousAggregate{
+		Schema:           schema.DefaultSchema,
+		ViewName:         "metrics_hourly",
+		HypertableSchema: schema.DefaultSchema,
+		HypertableName:   "metrics",
+		Query:            "SELECT old_col, time_bucket('1 hour', recorded_at) AS bucket FROM metrics",
+	}
+
+	desiredCA := schema.ContinuousAggregate{
+		Schema:           schema.DefaultSchema,
+		ViewName:         "metrics_hourly",
+		HypertableSchema: schema.DefaultSchema,
+		HypertableName:   "metrics",
+		Query:            "SELECT new_col, time_bucket('1 hour', recorded_at) AS bucket FROM metrics",
+	}
+
+	current := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "metrics",
+				Columns: []schema.Column{
+					{Name: "old_col", DataType: "text", IsNullable: false, Position: 1},
+					{Name: "recorded_at", DataType: "timestamptz", IsNullable: false, Position: 2},
+				},
+			},
+		},
+		Hypertables:          []schema.Hypertable{hypertable},
+		ContinuousAggregates: []schema.ContinuousAggregate{currentCA},
+	}
+
+	desired := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "metrics",
+				Columns: []schema.Column{
+					{Name: "new_col", DataType: "text", IsNullable: false, Position: 1},
+					{Name: "recorded_at", DataType: "timestamptz", IsNullable: false, Position: 2},
+				},
+			},
+		},
+		Hypertables:          []schema.Hypertable{hypertable},
+		ContinuousAggregates: []schema.ContinuousAggregate{desiredCA},
+	}
+
+	d := differ.New(differ.DefaultOptions())
+
+	result, err := d.Compare(current, desired)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	modifyCAIndex, dropColumnIndex := -1, -1
+
+	for i, change := range result.Changes {
+		switch change.Type {
+		case differ.ChangeTypeModifyContinuousAggregate:
+			modifyCAIndex = i
+		case differ.ChangeTypeDropColumn:
+			dropColumnIndex = i
+		}
+	}
+
+	if modifyCAIndex == -1 {
+		t.Fatal("MODIFY_CONTINUOUS_AGGREGATE change not found")
+	}
+
+	if dropColumnIndex == -1 {
+		t.Fatal("DROP_COLUMN change not found")
+	}
+
+	if modifyCAIndex >= dropColumnIndex {
+		t.Errorf(
+			"MODIFY_CONTINUOUS_AGGREGATE should come before DROP_COLUMN. CA at %d, column at %d",
+			modifyCAIndex,
+			dropColumnIndex,
+		)
+	}
+}
