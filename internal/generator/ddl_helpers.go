@@ -194,6 +194,16 @@ func buildContinuousAggregateSQL(ca *schema.ContinuousAggregate) (string, error)
 		))
 	}
 
+	for _, idx := range ca.Indexes {
+		idxSQL, err := formatIndexDefinition(&idx)
+		if err != nil {
+			return "", fmt.Errorf("formatting index %s: %w", idx.Name, err)
+		}
+
+		sql.WriteString("\n\n")
+		sql.WriteString(ensureStatementTerminated(idxSQL))
+	}
+
 	return sql.String(), nil
 }
 

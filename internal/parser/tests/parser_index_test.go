@@ -177,6 +177,61 @@ func TestParseAdvancedIndexes(t *testing.T) {
 	}
 }
 
+func TestParseIndexOnContinuousAggregate(t *testing.T) {
+	t.Parallel()
+
+	setupSQL := `
+CREATE TABLE public.sensor_data (
+    sensor_id VARCHAR(50) NOT NULL,
+    reading_time TIMESTAMPTZ NOT NULL,
+    value NUMERIC(20, 8) NOT NULL,
+    PRIMARY KEY (sensor_id, reading_time)
+);
+
+SELECT create_hypertable('sensor_data', 'reading_time');
+
+CREATE MATERIALIZED VIEW sensor_data_hourly
+WITH (timescaledb.continuous) AS
+SELECT
+    sensor_id,
+    time_bucket('1 hour', reading_time) AS bucket,
+    sum(value) AS total_value
+FROM sensor_data
+GROUP BY sensor_id, time_bucket('1 hour', reading_time)
+WITH NO DATA;
+`
+
+	indexSQL := `CREATE INDEX idx_sensor_data_hourly_sensor ON sensor_data_hourly (sensor_id, bucket DESC);`
+
+	db := parseSQLWithSetup(t, setupSQL, indexSQL)
+
+	if len(db.ContinuousAggregates) != 1 {
+		t.Fatalf("expected 1 continuous aggregate, got %d", len(db.ContinuousAggregates))
+	}
+
+	ca := db.ContinuousAggregates[0]
+	if ca.ViewName != "sensor_data_hourly" {
+		t.Errorf("CA view name = %v, want sensor_data_hourly", ca.ViewName)
+	}
+
+	if len(ca.Indexes) != 1 {
+		t.Fatalf("expected 1 index on CA, got %d", len(ca.Indexes))
+	}
+
+	idx := ca.Indexes[0]
+	if idx.Name != "idx_sensor_data_hourly_sensor" {
+		t.Errorf("index name = %v, want idx_sensor_data_hourly_sensor", idx.Name)
+	}
+
+	if idx.TableName != "sensor_data_hourly" {
+		t.Errorf("index table name = %v, want sensor_data_hourly", idx.TableName)
+	}
+
+	if len(idx.Columns) != 2 {
+		t.Errorf("expected 2 columns, got %d", len(idx.Columns))
+	}
+}
+
 func TestParseSchemaQualifiedIndex(t *testing.T) { //nolint:gocognit
 	t.Parallel()
 

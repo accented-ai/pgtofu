@@ -218,8 +218,10 @@ func (e *Extractor) extractContinuousAggregates(
 		scanner := NewNullScanner()
 
 		var (
-			ca        schema.ContinuousAggregate
-			finalized *bool
+			ca                  schema.ContinuousAggregate
+			finalized           *bool
+			matHypertableSchema string
+			matHypertableName   string
 		)
 
 		if err := rows.Scan(
@@ -231,6 +233,8 @@ func (e *Extractor) extractContinuousAggregates(
 			&ca.Materialized,
 			&finalized,
 			scanner.String("comment"),
+			&matHypertableSchema,
+			&matHypertableName,
 		); err != nil {
 			return util.WrapError("scan continuous aggregate", err)
 		}
@@ -246,6 +250,13 @@ func (e *Extractor) extractContinuousAggregates(
 		refreshPolicy, err := e.extractRefreshPolicy(ctx, ca.Schema, ca.ViewName)
 		if err == nil && refreshPolicy != nil {
 			ca.RefreshPolicy = refreshPolicy
+		}
+
+		indexes, err := e.extractCAIndexes(
+			ctx, matHypertableSchema, matHypertableName, ca.Schema, ca.ViewName,
+		)
+		if err == nil {
+			ca.Indexes = indexes
 		}
 
 		aggregates = append(aggregates, ca)
@@ -286,6 +297,67 @@ func (e *Extractor) extractRefreshPolicy(
 	policy.EndOffset = scanner.GetString("endOffset")
 
 	return &policy, nil
+}
+
+func (e *Extractor) extractCAIndexes(
+	ctx context.Context,
+	matSchema, matTableName, caSchema, viewName string,
+) ([]schema.Index, error) {
+	var indexes []schema.Index
+
+	err := e.queryHelper.FetchAll(ctx, queryIndexes, func(rows pgx.Rows) error {
+		scanner := NewNullScanner()
+
+		var idx schema.Index
+
+		if err := rows.Scan(
+			&idx.Schema,
+			&idx.Name,
+			&idx.TableName,
+			&idx.IsUnique,
+			&idx.IsPrimary,
+			&idx.Type,
+			scanner.String("where"),
+			&idx.Definition,
+			scanner.String("tablespace"),
+		); err != nil {
+			return util.WrapError("scan CA index", err)
+		}
+
+		if strings.HasPrefix(idx.Name, "_materialized_hypertable_") {
+			return nil
+		}
+
+		idx.Where = scanner.GetString("where")
+		idx.Tablespace = scanner.GetString("tablespace")
+
+		columns, includeColumns := parseIndexDefinition(idx.Definition)
+		idx.Columns = columns
+		idx.IncludeColumns = includeColumns
+
+		storageParams, err := e.extractIndexStorageParams(ctx, idx.Schema, idx.Name)
+		if err == nil && len(storageParams) > 0 {
+			idx.StorageParams = storageParams
+		}
+
+		idx.TableName = viewName
+		idx.Definition = strings.Replace(
+			idx.Definition,
+			matSchema+"."+matTableName,
+			caSchema+"."+viewName,
+			1,
+		)
+		idx.Schema = caSchema
+
+		indexes = append(indexes, idx)
+
+		return nil
+	}, matSchema, matTableName)
+	if err != nil {
+		return nil, util.WrapError("fetch CA indexes", err)
+	}
+
+	return indexes, nil
 }
 
 func parseOrderByColumns(orderBy string) []schema.OrderByColumn {

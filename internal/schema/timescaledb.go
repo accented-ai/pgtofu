@@ -48,6 +48,7 @@ type ContinuousAggregate struct {
 	Materialized     bool           `json:"materialized"`
 	Finalized        bool           `json:"finalized,omitempty"`
 	Comment          string         `json:"comment,omitempty"`
+	Indexes          []Index        `json:"indexes,omitempty"`
 }
 
 type RefreshPolicy struct {

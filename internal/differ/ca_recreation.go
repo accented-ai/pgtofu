@@ -13,6 +13,7 @@ func (d *Differ) processContinuousAggregateRecreationForColumnChanges(result *Di
 	}
 
 	d.processContinuousAggregatesForColumnChanges(result, tablesWithColumnChanges)
+	d.filterDuplicateCAIndexChanges(result)
 }
 
 func (d *Differ) findTablesWithColumnChangesAffectingCAs(changes []Change) map[string]bool {
@@ -175,4 +176,40 @@ func (d *Differ) addCARecreationChanges(
 		},
 		DependsOn: []string{desiredCA.QualifiedHypertableName()},
 	})
+}
+
+func (d *Differ) filterDuplicateCAIndexChanges(result *DiffResult) {
+	casBeingRecreated := make(map[string]bool)
+
+	for _, change := range result.Changes {
+		if change.Type == ChangeTypeAddContinuousAggregate {
+			if isRecreation, ok := change.Details["is_recreation"].(bool); ok && isRecreation {
+				if ca, ok := change.Details["aggregate"].(*schema.ContinuousAggregate); ok {
+					caViewName := strings.ToLower(ca.QualifiedViewName())
+					casBeingRecreated[caViewName] = true
+				}
+			}
+		}
+	}
+
+	if len(casBeingRecreated) == 0 {
+		return
+	}
+
+	filtered := make([]Change, 0, len(result.Changes))
+
+	for _, change := range result.Changes {
+		if change.Type == ChangeTypeAddIndex {
+			if idx, ok := change.Details["index"].(*schema.Index); ok {
+				indexTableName := strings.ToLower(idx.QualifiedTableName())
+				if casBeingRecreated[indexTableName] {
+					continue
+				}
+			}
+		}
+
+		filtered = append(filtered, change)
+	}
+
+	result.Changes = filtered
 }

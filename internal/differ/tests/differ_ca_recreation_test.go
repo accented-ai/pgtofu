@@ -318,6 +318,100 @@ func TestDiffer_MultipleContinuousAggregatesRecreation(t *testing.T) {
 		"should have 3 ADD continuous aggregates for recreation")
 }
 
+func TestDiffer_CARecreationFiltersDuplicateIndexChanges(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "metrics",
+				Columns: []schema.Column{
+					{Name: "device_id", DataType: "text", IsNullable: false},
+					{Name: "recorded_at", DataType: "timestamptz", IsNullable: false},
+					{Name: "value", DataType: "numeric(20,8)", IsNullable: false},
+				},
+			},
+		},
+		Hypertables: []schema.Hypertable{
+			{
+				Schema:            schema.DefaultSchema,
+				TableName:         "metrics",
+				TimeColumnName:    "recorded_at",
+				PartitionInterval: "1 day",
+			},
+		},
+		ContinuousAggregates: []schema.ContinuousAggregate{
+			{
+				Schema:           schema.DefaultSchema,
+				ViewName:         "metrics_hourly",
+				HypertableSchema: schema.DefaultSchema,
+				HypertableName:   "metrics",
+				Query:            metricsHourlyQuery,
+			},
+		},
+	}
+
+	desired := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "metrics",
+				Columns: []schema.Column{
+					{Name: "device_id", DataType: "text", IsNullable: false},
+					{Name: "recorded_at", DataType: "timestamptz", IsNullable: false},
+					{Name: "value", DataType: "numeric(30,8)", IsNullable: false},
+				},
+			},
+		},
+		Hypertables: []schema.Hypertable{
+			{
+				Schema:            schema.DefaultSchema,
+				TableName:         "metrics",
+				TimeColumnName:    "recorded_at",
+				PartitionInterval: "1 day",
+			},
+		},
+		ContinuousAggregates: []schema.ContinuousAggregate{
+			{
+				Schema:           schema.DefaultSchema,
+				ViewName:         "metrics_hourly",
+				HypertableSchema: schema.DefaultSchema,
+				HypertableName:   "metrics",
+				Query:            metricsHourlyQuery,
+				Indexes: []schema.Index{
+					{
+						Schema:    schema.DefaultSchema,
+						Name:      "idx_metrics_hourly_device",
+						TableName: "metrics_hourly",
+						Columns:   []string{"device_id", "bucket"},
+						Type:      "btree",
+					},
+				},
+			},
+		},
+	}
+
+	d := differ.New(differ.DefaultOptions())
+
+	result, err := d.Compare(current, desired)
+	require.NoError(t, err)
+
+	changeTypes := make(map[differ.ChangeType]int)
+	for _, c := range result.Changes {
+		changeTypes[c.Type]++
+	}
+
+	assert.Equal(t, 1, changeTypes[differ.ChangeTypeModifyColumnType],
+		"should have 1 column type change")
+	assert.Equal(t, 1, changeTypes[differ.ChangeTypeDropContinuousAggregate],
+		"should have 1 DROP continuous aggregate")
+	assert.Equal(t, 1, changeTypes[differ.ChangeTypeAddContinuousAggregate],
+		"should have 1 ADD continuous aggregate for recreation")
+	assert.Equal(t, 0, changeTypes[differ.ChangeTypeAddIndex],
+		"should NOT have separate ADD_INDEX - index included in CA recreation")
+}
+
 func TestDiffer_NoContinuousAggregateRecreationForUnrelatedTable(t *testing.T) {
 	t.Parallel()
 
