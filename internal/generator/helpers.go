@@ -50,12 +50,41 @@ func extractTableNameFromChange(change *differ.Change) string {
 		return ""
 	}
 
+	if !isTableRelatedChange(change.Type) {
+		return ""
+	}
+
 	parts := strings.Split(change.ObjectName, ".")
 	if len(parts) < 2 {
 		return change.ObjectName
 	}
 
 	return strings.ToLower(parts[len(parts)-1])
+}
+
+func isTableRelatedChange(changeType differ.ChangeType) bool {
+	switch changeType {
+	case differ.ChangeTypeAddTable,
+		differ.ChangeTypeDropTable,
+		differ.ChangeTypeModifyTableComment,
+		differ.ChangeTypeAddColumn,
+		differ.ChangeTypeDropColumn,
+		differ.ChangeTypeModifyColumnComment,
+		differ.ChangeTypeModifyColumnType,
+		differ.ChangeTypeModifyColumnNullability,
+		differ.ChangeTypeModifyColumnDefault,
+		differ.ChangeTypeAddConstraint,
+		differ.ChangeTypeDropConstraint,
+		differ.ChangeTypeModifyConstraint,
+		differ.ChangeTypeAddIndex,
+		differ.ChangeTypeDropIndex,
+		differ.ChangeTypeModifyIndex,
+		differ.ChangeTypeAddPartition,
+		differ.ChangeTypeDropPartition:
+		return true
+	default:
+		return false
+	}
 }
 
 func getChangePriorityForTable(changeType differ.ChangeType) int {
