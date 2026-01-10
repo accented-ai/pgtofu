@@ -396,7 +396,7 @@ func formatMaterializedViewDefinition(mv *schema.MaterializedView) (string, erro
 	), nil
 }
 
-func formatFunctionDefinition(f *schema.Function, orReplace bool) (string, error) {
+func formatFunctionDefinition(f *schema.Function) (string, error) {
 	if f == nil {
 		return "", errors.New("function cannot be nil")
 	}
@@ -437,12 +437,7 @@ func formatFunctionDefinition(f *schema.Function, orReplace bool) (string, error
 	}
 
 	var sb strings.Builder
-	if orReplace {
-		sb.WriteString("CREATE OR REPLACE FUNCTION ")
-	} else {
-		sb.WriteString("CREATE FUNCTION ")
-	}
-
+	sb.WriteString("CREATE OR REPLACE FUNCTION ")
 	sb.WriteString(funcSignature)
 	sb.WriteString("\n\n")
 	sb.WriteString("RETURNS ")

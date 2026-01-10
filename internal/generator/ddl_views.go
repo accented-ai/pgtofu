@@ -59,6 +59,41 @@ func (b *DDLBuilder) buildDropView(change differ.Change) (DDLStatement, error) {
 	}, nil
 }
 
+func (b *DDLBuilder) buildAddViewForDown(change differ.Change) (DDLStatement, error) {
+	view := b.getView(change.ObjectName, b.result.Current)
+	if view == nil {
+		return DDLStatement{}, newGeneratorError(
+			"buildAddViewForDown",
+			&change,
+			wrapObjectNotFoundError(ErrViewNotFound, "view", change.ObjectName),
+		)
+	}
+
+	definition, err := formatViewDefinition(view, false)
+	if err != nil {
+		return DDLStatement{}, newGeneratorError("buildAddViewForDown", &change, err)
+	}
+
+	var sb strings.Builder
+	appendStatement(&sb, definition)
+
+	if view.Comment != "" {
+		commentSQL := buildCommentStatement(
+			"VIEW",
+			QualifiedName(view.Schema, view.Name),
+			view.Comment,
+			false,
+		)
+		appendStatement(&sb, commentSQL)
+	}
+
+	return DDLStatement{
+		SQL:         sb.String(),
+		Description: "Add view " + view.Name,
+		RequiresTx:  true,
+	}, nil
+}
+
 func (b *DDLBuilder) buildModifyView(change differ.Change) (DDLStatement, error) {
 	comment, err := extractCommentDetails(change)
 	if err != nil {
@@ -220,6 +255,47 @@ func (b *DDLBuilder) buildDropMaterializedView(change differ.Change) (DDLStateme
 		SQL:         sql,
 		Description: "Drop materialized view " + mv.Name,
 		IsUnsafe:    true,
+		RequiresTx:  true,
+	}, nil
+}
+
+func (b *DDLBuilder) buildAddMaterializedViewForDown(
+	change differ.Change,
+) (DDLStatement, error) {
+	mv := b.getMaterializedView(change.ObjectName, b.result.Current)
+	if mv == nil {
+		return DDLStatement{}, newGeneratorError(
+			"buildAddMaterializedViewForDown",
+			&change,
+			wrapObjectNotFoundError(
+				ErrMaterializedViewNotFound,
+				"materialized view",
+				change.ObjectName,
+			),
+		)
+	}
+
+	definition, err := formatMaterializedViewDefinition(mv)
+	if err != nil {
+		return DDLStatement{}, newGeneratorError("buildAddMaterializedViewForDown", &change, err)
+	}
+
+	var sb strings.Builder
+	appendStatement(&sb, definition)
+
+	if mv.Comment != "" {
+		commentSQL := buildCommentStatement(
+			"MATERIALIZED VIEW",
+			QualifiedName(mv.Schema, mv.Name),
+			mv.Comment,
+			false,
+		)
+		appendStatement(&sb, commentSQL)
+	}
+
+	return DDLStatement{
+		SQL:         sb.String(),
+		Description: "Add materialized view " + mv.Name,
 		RequiresTx:  true,
 	}, nil
 }
