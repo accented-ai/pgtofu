@@ -151,7 +151,10 @@ func tableMatchesDependency(tableName string, dependencies []string) bool {
 func indexUsesColumn(indexChange *Change, tableName, columnName string) bool {
 	idx, ok := indexChange.Details["index"].(*schema.Index)
 	if !ok {
-		return false
+		idx, ok = indexChange.Details["desired"].(*schema.Index)
+		if !ok {
+			return false
+		}
 	}
 
 	if !strings.EqualFold(idx.QualifiedTableName(), tableName) {
