@@ -424,6 +424,23 @@ func (d *Differ) implicitlyDependsOn( //nolint:cyclop,gocognit,gocyclo,maintidx
 		}
 	}
 
+	if (change.Type == ChangeTypeModifyColumnType || change.Type == ChangeTypeModifyColumnNullability) &&
+		otherChange.Type == ChangeTypeDropContinuousAggregate {
+		tableName, _ := change.Details["table"].(string)
+		if tableName != "" && caChangeMatchesTable(otherChange, tableName) {
+			return true
+		}
+	}
+
+	if change.Type == ChangeTypeAddContinuousAggregate &&
+		(otherChange.Type == ChangeTypeModifyColumnType ||
+			otherChange.Type == ChangeTypeModifyColumnNullability) {
+		tableName, _ := otherChange.Details["table"].(string)
+		if tableName != "" && tableMatchesDependency(tableName, change.DependsOn) {
+			return true
+		}
+	}
+
 	if change.Type == ChangeTypeAddConstraint && otherChange.Type == ChangeTypeDropConstraint {
 		if isPrimaryKeyConstraintOnSameTable(change, otherChange) {
 			return true
@@ -449,6 +466,17 @@ func (d *Differ) implicitlyDependsOn( //nolint:cyclop,gocognit,gocyclo,maintidx
 	}
 
 	return false
+}
+
+func caChangeMatchesTable(caChange *Change, tableName string) bool {
+	agg, ok := caChange.Details["aggregate"].(*schema.ContinuousAggregate)
+	if !ok {
+		return false
+	}
+
+	hypertableName := agg.QualifiedHypertableName()
+
+	return tableMatchesDependency(tableName, []string{hypertableName})
 }
 
 func isPrimaryKeyConstraintOnSameTable(addChange, dropChange *Change) bool {
