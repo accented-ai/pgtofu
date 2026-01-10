@@ -308,12 +308,21 @@ func (g *Generator) splitIntoBatches(changes []differ.Change) [][]differ.Change 
 		currentBatch []differ.Change
 	)
 
-	for _, change := range changes {
+	objectsInBatch := make(map[string]bool)
+
+	for i, change := range changes {
 		currentBatch = append(currentBatch, change)
 
+		if change.ObjectName != "" {
+			objectsInBatch[normalizeObjectName(change.ObjectName)] = true
+		}
+
 		if len(currentBatch) >= g.Options.MaxOperationsPerFile {
-			batches = append(batches, currentBatch)
-			currentBatch = []differ.Change{}
+			if i+1 < len(changes) && g.canSplitBetween(currentBatch, changes[i+1], objectsInBatch) {
+				batches = append(batches, currentBatch)
+				currentBatch = []differ.Change{}
+				objectsInBatch = make(map[string]bool)
+			}
 		}
 	}
 
@@ -322,6 +331,150 @@ func (g *Generator) splitIntoBatches(changes []differ.Change) [][]differ.Change 
 	}
 
 	return batches
+}
+
+func (g *Generator) canSplitBetween(
+	currentBatch []differ.Change,
+	nextChange differ.Change,
+	objectsInBatch map[string]bool,
+) bool {
+	if g.hasDependencyInBatch(nextChange, objectsInBatch) {
+		return false
+	}
+
+	if g.sharesSameTable(currentBatch, nextChange) {
+		return false
+	}
+
+	if g.isViewRecreation(currentBatch, nextChange) {
+		return false
+	}
+
+	if g.isConstraintRecreation(currentBatch, nextChange) {
+		return false
+	}
+
+	if g.isIndexOnNewColumn(currentBatch, nextChange) {
+		return false
+	}
+
+	return true
+}
+
+func (g *Generator) hasDependencyInBatch(
+	nextChange differ.Change,
+	objectsInBatch map[string]bool,
+) bool {
+	for _, dep := range nextChange.DependsOn {
+		depNormalized := normalizeObjectName(dep)
+		if objectsInBatch[depNormalized] {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (g *Generator) sharesSameTable(currentBatch []differ.Change, nextChange differ.Change) bool {
+	nextTable := extractTableNameFromChange(&nextChange)
+	if nextTable == "" {
+		return false
+	}
+
+	for i := range currentBatch {
+		currentTable := extractTableNameFromChange(&currentBatch[i])
+		if currentTable == nextTable {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (g *Generator) isViewRecreation(currentBatch []differ.Change, nextChange differ.Change) bool {
+	if nextChange.Type != differ.ChangeTypeAddView &&
+		nextChange.Type != differ.ChangeTypeAddMaterializedView {
+		return false
+	}
+
+	nextViewName := normalizeObjectName(nextChange.ObjectName)
+
+	for i := range currentBatch {
+		ch := &currentBatch[i]
+		if (ch.Type == differ.ChangeTypeDropView ||
+			ch.Type == differ.ChangeTypeDropMaterializedView) &&
+			normalizeObjectName(ch.ObjectName) == nextViewName {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (g *Generator) isConstraintRecreation(
+	currentBatch []differ.Change,
+	nextChange differ.Change,
+) bool {
+	if nextChange.Type != differ.ChangeTypeAddConstraint {
+		return false
+	}
+
+	nextTable := extractTableNameFromChange(&nextChange)
+	if nextTable == "" {
+		return false
+	}
+
+	for i := range currentBatch {
+		ch := &currentBatch[i]
+		if ch.Type != differ.ChangeTypeDropConstraint {
+			continue
+		}
+
+		chTable := extractTableNameFromChange(ch)
+		if nextTable == chTable {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (g *Generator) isIndexOnNewColumn(
+	currentBatch []differ.Change,
+	nextChange differ.Change,
+) bool {
+	if nextChange.Type != differ.ChangeTypeAddIndex {
+		return false
+	}
+
+	indexDetails, ok := nextChange.Details["index"]
+	if !ok {
+		return false
+	}
+
+	idx, ok := indexDetails.(interface{ GetColumns() []string })
+	if !ok {
+		return false
+	}
+
+	indexCols := idx.GetColumns()
+
+	for i := range currentBatch {
+		ch := &currentBatch[i]
+		if ch.Type != differ.ChangeTypeAddColumn {
+			continue
+		}
+
+		colName, _ := ch.Details["column_name"].(string)
+
+		for _, icol := range indexCols {
+			if strings.EqualFold(colName, icol) {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 func (g *Generator) sortSchemaChanges(changes []differ.Change) {
