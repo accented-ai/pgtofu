@@ -552,3 +552,145 @@ func TestDDLBuilder_IndexDefaultBtreeType(t *testing.T) {
 	assert.Contains(t, stmt.SQL, "CREATE INDEX")
 	assert.NotContains(t, stmt.SQL, "USING btree")
 }
+
+func TestDDLBuilder_ModifyIndex(t *testing.T) {
+	t.Parallel()
+
+	currentIndex := &schema.Index{
+		Schema:    schema.DefaultSchema,
+		Name:      "idx_events_status",
+		TableName: "events",
+		Columns:   []string{"status"},
+		Type:      "btree",
+		Where:     "active = true",
+	}
+
+	desiredIndex := &schema.Index{
+		Schema:    schema.DefaultSchema,
+		Name:      "idx_events_status",
+		TableName: "events",
+		Columns:   []string{"status"},
+		Type:      "btree",
+		Where:     "enabled = true",
+	}
+
+	current := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema:  schema.DefaultSchema,
+				Name:    "events",
+				Indexes: []schema.Index{*currentIndex},
+			},
+		},
+	}
+	desired := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema:  schema.DefaultSchema,
+				Name:    "events",
+				Indexes: []schema.Index{*desiredIndex},
+			},
+		},
+	}
+
+	result := &differ.DiffResult{
+		Current: current,
+		Desired: desired,
+		Changes: []differ.Change{
+			{
+				Type:       differ.ChangeTypeModifyIndex,
+				ObjectName: fmt.Sprintf("%s.%s", currentIndex.Schema, currentIndex.Name),
+				Details: map[string]any{
+					"current": currentIndex,
+					"desired": desiredIndex,
+				},
+			},
+		},
+	}
+
+	builder := generator.NewDDLBuilder(result, true)
+	stmt, err := builder.BuildUpStatement(result.Changes[0])
+
+	require.NoError(t, err)
+	assert.Contains(t, stmt.SQL, "DROP INDEX")
+	assert.Contains(t, stmt.SQL, "idx_events_status")
+	assert.Contains(t, stmt.SQL, "CREATE INDEX")
+	assert.Contains(t, stmt.SQL, "WHERE enabled = TRUE")
+
+	dropPos := indexOf(stmt.SQL, "DROP INDEX")
+	createPos := indexOf(stmt.SQL, "CREATE INDEX")
+	assert.Less(t, dropPos, createPos, "DROP should come before CREATE")
+}
+
+func TestDDLBuilder_ModifyIndexDownMigration(t *testing.T) {
+	t.Parallel()
+
+	currentIndex := &schema.Index{
+		Schema:    schema.DefaultSchema,
+		Name:      "idx_users_email",
+		TableName: "users",
+		Columns:   []string{"email"},
+		Type:      "btree",
+	}
+
+	desiredIndex := &schema.Index{
+		Schema:         schema.DefaultSchema,
+		Name:           "idx_users_email",
+		TableName:      "users",
+		Columns:        []string{"email"},
+		IncludeColumns: []string{"name"},
+		Type:           "btree",
+	}
+
+	current := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema:  schema.DefaultSchema,
+				Name:    "users",
+				Indexes: []schema.Index{*currentIndex},
+			},
+		},
+	}
+	desired := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema:  schema.DefaultSchema,
+				Name:    "users",
+				Indexes: []schema.Index{*desiredIndex},
+			},
+		},
+	}
+
+	result := &differ.DiffResult{
+		Current: current,
+		Desired: desired,
+		Changes: []differ.Change{
+			{
+				Type:       differ.ChangeTypeModifyIndex,
+				ObjectName: fmt.Sprintf("%s.%s", currentIndex.Schema, currentIndex.Name),
+				Details: map[string]any{
+					"current": currentIndex,
+					"desired": desiredIndex,
+				},
+			},
+		},
+	}
+
+	builder := generator.NewDDLBuilder(result, true)
+	stmt, err := builder.BuildDownStatement(result.Changes[0])
+
+	require.NoError(t, err)
+	assert.Contains(t, stmt.SQL, "DROP INDEX")
+	assert.Contains(t, stmt.SQL, "CREATE INDEX")
+	assert.NotContains(t, stmt.SQL, "INCLUDE")
+}
+
+func indexOf(s, substr string) int {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return i
+		}
+	}
+
+	return -1
+}
