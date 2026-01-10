@@ -235,6 +235,15 @@ func (b *DDLBuilder) buildAddMaterializedView(change differ.Change) (DDLStatemen
 		appendStatement(&sb, commentSQL)
 	}
 
+	for _, idx := range mv.Indexes {
+		idxSQL, err := formatIndexDefinition(&idx)
+		if err != nil {
+			return DDLStatement{}, newGeneratorError("buildAddMaterializedView", &change, err)
+		}
+
+		appendStatement(&sb, idxSQL)
+	}
+
 	return DDLStatement{
 		SQL:         sb.String(),
 		Description: "Add materialized view " + mv.Name,
@@ -291,6 +300,16 @@ func (b *DDLBuilder) buildAddMaterializedViewForDown(
 			false,
 		)
 		appendStatement(&sb, commentSQL)
+	}
+
+	for _, idx := range mv.Indexes {
+		idxSQL, err := formatIndexDefinition(&idx)
+		if err != nil {
+			return DDLStatement{}, newGeneratorError(
+				"buildAddMaterializedViewForDown", &change, err)
+		}
+
+		appendStatement(&sb, idxSQL)
 	}
 
 	return DDLStatement{

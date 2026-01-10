@@ -18,20 +18,36 @@ func NewIndexComparator(opts *Options) *IndexComparator {
 }
 
 func (ic *IndexComparator) Compare(result *DiffResult) {
-	currentIndexes := ic.buildIndexMap(result.Current.Tables)
-	desiredIndexes := ic.buildIndexMap(result.Desired.Tables)
+	currentIndexes := ic.buildIndexMap(result.Current)
+	desiredIndexes := ic.buildIndexMap(result.Desired)
 
 	ic.detectAddedIndexes(result, currentIndexes, desiredIndexes, result.Desired)
 	ic.detectDroppedIndexes(result, currentIndexes, desiredIndexes, result.Current)
 	ic.detectModifiedIndexes(result, currentIndexes, desiredIndexes, result.Current, result.Desired)
 }
 
-func (ic *IndexComparator) buildIndexMap(tables []schema.Table) map[string]*schema.Index {
+func (ic *IndexComparator) buildIndexMap(db *schema.Database) map[string]*schema.Index {
 	m := make(map[string]*schema.Index)
 
-	for i := range tables {
-		for j := range tables[i].Indexes {
-			idx := &tables[i].Indexes[j]
+	for i := range db.Tables {
+		for j := range db.Tables[i].Indexes {
+			idx := &db.Tables[i].Indexes[j]
+			key := IndexKey(idx.Schema, idx.Name)
+			m[key] = idx
+		}
+	}
+
+	for i := range db.MaterializedViews {
+		for j := range db.MaterializedViews[i].Indexes {
+			idx := &db.MaterializedViews[i].Indexes[j]
+			key := IndexKey(idx.Schema, idx.Name)
+			m[key] = idx
+		}
+	}
+
+	for i := range db.ContinuousAggregates {
+		for j := range db.ContinuousAggregates[i].Indexes {
+			idx := &db.ContinuousAggregates[i].Indexes[j]
 			key := IndexKey(idx.Schema, idx.Name)
 			m[key] = idx
 		}
