@@ -117,6 +117,37 @@ func extractSchemaFromChange(change *Change) string {
 	return schemaName
 }
 
+func tableMatchesDependency(tableName string, dependencies []string) bool {
+	tableLower := strings.ToLower(tableName)
+
+	for _, dep := range dependencies {
+		depLower := strings.ToLower(dep)
+
+		if tableLower == depLower {
+			return true
+		}
+
+		tableParts := strings.Split(tableLower, ".")
+		depParts := strings.Split(depLower, ".")
+
+		if len(tableParts) == 2 && len(depParts) == 1 {
+			if (tableParts[0] == schema.DefaultSchema || tableParts[0] == "public") &&
+				tableParts[1] == depParts[0] {
+				return true
+			}
+		}
+
+		if len(tableParts) == 1 && len(depParts) == 2 {
+			if (depParts[0] == schema.DefaultSchema || depParts[0] == "public") &&
+				depParts[1] == tableParts[0] {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 func (d *Differ) implicitlyDependsOn( //nolint:cyclop,gocognit,gocyclo,maintidx
 	change *Change,
 	otherChange *Change,
@@ -256,6 +287,30 @@ func (d *Differ) implicitlyDependsOn( //nolint:cyclop,gocognit,gocyclo,maintidx
 				return true
 			}
 		}
+	}
+
+	if (change.Type == ChangeTypeModifyView || change.Type == ChangeTypeModifyMaterializedView) &&
+		otherChange.Type == ChangeTypeAddColumn &&
+		tableMatchesDependency(otherChange.ObjectName, change.DependsOn) {
+		return true
+	}
+
+	if (change.Type == ChangeTypeAddView || change.Type == ChangeTypeAddMaterializedView) &&
+		otherChange.Type == ChangeTypeAddColumn &&
+		tableMatchesDependency(otherChange.ObjectName, change.DependsOn) {
+		return true
+	}
+
+	if change.Type == ChangeTypeDropColumn &&
+		(otherChange.Type == ChangeTypeModifyView || otherChange.Type == ChangeTypeModifyMaterializedView) &&
+		tableMatchesDependency(change.ObjectName, otherChange.DependsOn) {
+		return true
+	}
+
+	if change.Type == ChangeTypeDropColumn &&
+		(otherChange.Type == ChangeTypeDropView || otherChange.Type == ChangeTypeDropMaterializedView) &&
+		tableMatchesDependency(change.ObjectName, otherChange.DependsOn) {
+		return true
 	}
 
 	return false
