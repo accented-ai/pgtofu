@@ -495,7 +495,9 @@ const (
 			obj_description(
 				(quote_ident(ca.view_schema) || '.' || quote_ident(ca.view_name))::regclass::oid,
 				'pg_class'
-			)
+			),
+			ca.materialization_hypertable_schema,
+			ca.materialization_hypertable_name
 		FROM timescaledb_information.continuous_aggregates ca
 		WHERE %s
 		ORDER BY ca.view_schema, ca.view_name`

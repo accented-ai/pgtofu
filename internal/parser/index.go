@@ -38,8 +38,7 @@ func (p *Parser) parseCreateIndex(stmt string, db *schema.Database) error {
 		Definition:     parsed.definition,
 	}
 
-	table := db.GetTable(parsed.tableSchema, parsed.tableName)
-	if table != nil {
+	if table := db.GetTable(parsed.tableSchema, parsed.tableName); table != nil {
 		for i, existing := range table.Indexes {
 			if existing.Name == parsed.indexName {
 				table.Indexes[i] = idx
@@ -48,17 +47,45 @@ func (p *Parser) parseCreateIndex(stmt string, db *schema.Database) error {
 		}
 
 		table.Indexes = append(table.Indexes, idx)
-	} else {
-		p.addWarning(
-			0,
-			fmt.Sprintf(
-				"table %s.%s not found for index %s",
-				parsed.tableSchema,
-				parsed.tableName,
-				parsed.indexName,
-			),
-		)
+
+		return nil
 	}
+
+	if mv := db.GetMaterializedView(parsed.tableSchema, parsed.tableName); mv != nil {
+		for i, existing := range mv.Indexes {
+			if existing.Name == parsed.indexName {
+				mv.Indexes[i] = idx
+				return nil
+			}
+		}
+
+		mv.Indexes = append(mv.Indexes, idx)
+
+		return nil
+	}
+
+	if ca := db.GetContinuousAggregate(parsed.tableSchema, parsed.tableName); ca != nil {
+		for i, existing := range ca.Indexes {
+			if existing.Name == parsed.indexName {
+				ca.Indexes[i] = idx
+				return nil
+			}
+		}
+
+		ca.Indexes = append(ca.Indexes, idx)
+
+		return nil
+	}
+
+	p.addWarning(
+		0,
+		fmt.Sprintf(
+			"table %s.%s not found for index %s",
+			parsed.tableSchema,
+			parsed.tableName,
+			parsed.indexName,
+		),
+	)
 
 	return nil
 }

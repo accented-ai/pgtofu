@@ -127,6 +127,20 @@ func (db *Database) GetContinuousAggregate(schema, viewName string) *ContinuousA
 	return nil
 }
 
+func (db *Database) GetMaterializedView(schema, name string) *MaterializedView {
+	schema = NormalizeSchemaName(schema)
+	name = NormalizeIdentifier(name)
+
+	for i := range db.MaterializedViews {
+		if NormalizeSchemaName(db.MaterializedViews[i].Schema) == schema &&
+			NormalizeIdentifier(db.MaterializedViews[i].Name) == name {
+			return &db.MaterializedViews[i]
+		}
+	}
+
+	return nil
+}
+
 func (db *Database) GetFunction(schema, name string, argTypes []string) *Function {
 	schema = NormalizeSchemaName(schema)
 	name = NormalizeIdentifier(name)
