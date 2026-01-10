@@ -52,8 +52,8 @@ func countParenDepth(s string) int {
 func removeTypeCasts(expr string) string {
 	typeCasts := []string{
 		"::double precision", "::real", "::numeric", "::integer", "::bigint",
-		"::smallint", "::text", "::varchar", "::character varying", "::boolean",
-		"::timestamp", "::timestamptz", "::date", "::time",
+		"::smallint", "::text[]", "::text", "::varchar", "::character varying",
+		"::boolean", "::timestamp", "::timestamptz", "::date", "::time",
 	}
 	for _, cast := range typeCasts {
 		expr = strings.ReplaceAll(expr, cast, "")
@@ -72,28 +72,95 @@ func removeLiteralParens(expr string) string {
 	expr = numPattern.ReplaceAllString(expr, "$1")
 	strPattern := regexp.MustCompile(`\(('[^']*')\)`)
 	expr = strPattern.ReplaceAllString(expr, "$1")
+	identPattern := regexp.MustCompile(`\((\w+)\)`)
+	expr = identPattern.ReplaceAllString(expr, "$1")
 
 	return expr
 }
 
 func normalizeInClauses(expr string) string {
-	anyPattern := regexp.MustCompile(`(\w+)\s*=\s*any\s*\(\s*array\s*\[(.*?)\]\s*\)`)
-	expr = anyPattern.ReplaceAllStringFunc(expr, func(match string) string {
+	expr = normalizeArrayConstructorToIn(expr)
+	expr = normalizeArrayLiteralToIn(expr)
+	expr = normalizeInClauseSpacing(expr)
+
+	return expr
+}
+
+func normalizeArrayConstructorToIn(expr string) string {
+	anyPattern := regexp.MustCompile(
+		`\(?(\w+|"[^"]+")\)?\s*=\s*any\s*\(\s*\(?array\s*\[(.*?)\]\s*\)?\s*\)`,
+	)
+
+	return anyPattern.ReplaceAllStringFunc(expr, func(match string) string {
 		submatches := anyPattern.FindStringSubmatch(match)
 		if len(submatches) == 3 {
 			col := submatches[1]
+			col = strings.Trim(col, `"`)
 			values := submatches[2]
 			values = strings.ReplaceAll(values, "::text", "")
 			values = strings.ReplaceAll(values, "::integer", "")
 			values = strings.ReplaceAll(values, "::bigint", "")
+			values = strings.ReplaceAll(values, "::character varying", "")
 
 			return fmt.Sprintf("%s in (%s)", col, values)
 		}
 
 		return match
 	})
+}
 
-	return expr
+func normalizeArrayLiteralToIn(expr string) string {
+	arrayLiteralPattern := regexp.MustCompile(
+		`\(?(\w+|"[^"]+")\)?\s*=\s*any\s*\(?\s*'\{([^}]*)\}'(?:::(?:text|character varying|integer|bigint))?(?:\[\])?\s*\)?`,
+	)
+
+	return arrayLiteralPattern.ReplaceAllStringFunc(expr, func(match string) string {
+		submatches := arrayLiteralPattern.FindStringSubmatch(match)
+		if len(submatches) == 3 {
+			col := submatches[1]
+			col = strings.Trim(col, `"`)
+			rawValues := submatches[2]
+
+			parts := strings.Split(rawValues, ",")
+			quotedParts := make([]string, len(parts))
+
+			for i, part := range parts {
+				part = strings.TrimSpace(part)
+				if !strings.HasPrefix(part, "'") {
+					part = "'" + part + "'"
+				}
+
+				quotedParts[i] = part
+			}
+
+			return fmt.Sprintf("%s in (%s)", col, strings.Join(quotedParts, ", "))
+		}
+
+		return match
+	})
+}
+
+func normalizeInClauseSpacing(expr string) string {
+	inPattern := regexp.MustCompile(`(\w+)\s+in\s*\(([^)]+)\)`)
+
+	return inPattern.ReplaceAllStringFunc(expr, func(match string) string {
+		submatches := inPattern.FindStringSubmatch(match)
+		if len(submatches) == 3 {
+			col := submatches[1]
+			values := submatches[2]
+
+			parts := strings.Split(values, ",")
+			normalizedParts := make([]string, len(parts))
+
+			for i, part := range parts {
+				normalizedParts[i] = strings.TrimSpace(part)
+			}
+
+			return fmt.Sprintf("%s in (%s)", col, strings.Join(normalizedParts, ", "))
+		}
+
+		return match
+	})
 }
 
 func normalizeBetweenExpressions(expr string) string {

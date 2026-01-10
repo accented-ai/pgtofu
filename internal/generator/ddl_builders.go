@@ -189,22 +189,28 @@ func (b *constraintBuilder) BuildUp(
 	change differ.Change,
 	ddlBuilder *DDLBuilder,
 ) (DDLStatement, error) {
-	if change.Type == differ.ChangeTypeAddConstraint {
+	switch change.Type {
+	case differ.ChangeTypeAddConstraint:
 		return ddlBuilder.buildAddConstraint(change)
+	case differ.ChangeTypeModifyConstraint:
+		return ddlBuilder.buildModifyConstraint(change)
+	default:
+		return ddlBuilder.buildDropConstraint(change)
 	}
-
-	return ddlBuilder.buildDropConstraint(change)
 }
 
 func (b *constraintBuilder) BuildDown(
 	change differ.Change,
 	ddlBuilder *DDLBuilder,
 ) (DDLStatement, error) {
-	if change.Type == differ.ChangeTypeAddConstraint {
+	switch change.Type {
+	case differ.ChangeTypeAddConstraint:
 		return ddlBuilder.buildDropConstraint(change)
+	case differ.ChangeTypeModifyConstraint:
+		return ddlBuilder.buildReverseModifyConstraint(change)
+	default:
+		return ddlBuilder.buildAddConstraint(change)
 	}
-
-	return ddlBuilder.buildAddConstraint(change)
 }
 
 type indexBuilder struct{}

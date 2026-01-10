@@ -541,6 +541,96 @@ func (b *DDLBuilder) buildDropConstraint(change differ.Change) (DDLStatement, er
 	}, nil
 }
 
+func (b *DDLBuilder) buildModifyConstraint(change differ.Change) (DDLStatement, error) {
+	tableName, err := getDetailString(change.Details, DetailKeyTable)
+	if err != nil {
+		return DDLStatement{}, newGeneratorError("buildModifyConstraint", &change, err)
+	}
+
+	currentConstraint, err := getCurrentConstraint(change.Details)
+	if err != nil {
+		return DDLStatement{}, newGeneratorError("buildModifyConstraint", &change, err)
+	}
+
+	desiredConstraint, err := getDesiredConstraint(change.Details)
+	if err != nil {
+		return DDLStatement{}, newGeneratorError("buildModifyConstraint", &change, err)
+	}
+
+	schemaName, name := parseSchemaAndName(tableName)
+	if schemaName == "" {
+		schemaName = schema.DefaultSchema
+	}
+
+	qualifiedTable := QualifiedName(schemaName, name)
+
+	dropSQL := fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT %s%s;",
+		qualifiedTable,
+		b.ifExists(),
+		QuoteIdentifier(currentConstraint.Name))
+
+	definition, err := formatConstraintDefinition(desiredConstraint)
+	if err != nil {
+		return DDLStatement{}, newGeneratorError("buildModifyConstraint", &change, err)
+	}
+
+	addSQL := fmt.Sprintf("ALTER TABLE %s ADD %s;", qualifiedTable, definition)
+
+	sql := dropSQL + "\n" + addSQL
+
+	return DDLStatement{
+		SQL:         sql,
+		Description: fmt.Sprintf("Modify constraint %s.%s", name, desiredConstraint.Name),
+		IsUnsafe:    true,
+		RequiresTx:  true,
+	}, nil
+}
+
+func (b *DDLBuilder) buildReverseModifyConstraint(change differ.Change) (DDLStatement, error) {
+	tableName, err := getDetailString(change.Details, DetailKeyTable)
+	if err != nil {
+		return DDLStatement{}, newGeneratorError("buildReverseModifyConstraint", &change, err)
+	}
+
+	currentConstraint, err := getCurrentConstraint(change.Details)
+	if err != nil {
+		return DDLStatement{}, newGeneratorError("buildReverseModifyConstraint", &change, err)
+	}
+
+	desiredConstraint, err := getDesiredConstraint(change.Details)
+	if err != nil {
+		return DDLStatement{}, newGeneratorError("buildReverseModifyConstraint", &change, err)
+	}
+
+	schemaName, name := parseSchemaAndName(tableName)
+	if schemaName == "" {
+		schemaName = schema.DefaultSchema
+	}
+
+	qualifiedTable := QualifiedName(schemaName, name)
+
+	dropSQL := fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT %s%s;",
+		qualifiedTable,
+		b.ifExists(),
+		QuoteIdentifier(desiredConstraint.Name))
+
+	definition, err := formatConstraintDefinition(currentConstraint)
+	if err != nil {
+		return DDLStatement{}, newGeneratorError("buildReverseModifyConstraint", &change, err)
+	}
+
+	addSQL := fmt.Sprintf("ALTER TABLE %s ADD %s;", qualifiedTable, definition)
+
+	sql := dropSQL + "\n" + addSQL
+
+	return DDLStatement{
+		SQL:         sql,
+		Description: fmt.Sprintf("Revert constraint %s.%s", name, currentConstraint.Name),
+		IsUnsafe:    true,
+		RequiresTx:  true,
+	}, nil
+}
+
 func (b *DDLBuilder) buildAddIndex(change differ.Change) (DDLStatement, error) {
 	index, err := getDetailIndex(change.Details)
 	if err != nil {
