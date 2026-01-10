@@ -150,6 +150,14 @@ func getDetailConstraint(details map[string]any) (*schema.Constraint, error) {
 	return requireDetail[*schema.Constraint](details, DetailKeyConstraint)
 }
 
+func getCurrentConstraint(details map[string]any) (*schema.Constraint, error) {
+	return requireDetail[*schema.Constraint](details, DetailKeyCurrent)
+}
+
+func getDesiredConstraint(details map[string]any) (*schema.Constraint, error) {
+	return requireDetail[*schema.Constraint](details, DetailKeyDesired)
+}
+
 func getDetailIndex(details map[string]any) (*schema.Index, error) {
 	return requireDetail[*schema.Index](details, DetailKeyIndex)
 }

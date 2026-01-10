@@ -42,4 +42,6 @@ const (
 	DetailKeyHypertable    DetailKey = "hypertable"
 	DetailKeyOldDefinition DetailKey = "old_definition"
 	DetailKeyNewDefinition DetailKey = "new_definition"
+	DetailKeyCurrent       DetailKey = "current"
+	DetailKeyDesired       DetailKey = "desired"
 )
