@@ -102,12 +102,14 @@ func (b *DDLBuilder) buildAddColumn(change differ.Change) (DDLStatement, error) 
 
 	isUnsafe := !column.IsNullable && column.Default == ""
 
-	return DDLStatement{
+	stmt := DDLStatement{
 		SQL:         sql,
 		Description: fmt.Sprintf("Add column %s.%s", table.Name, column.Name),
 		IsUnsafe:    isUnsafe,
 		RequiresTx:  true,
-	}, nil
+	}
+
+	return b.wrapWithCompressionToggle(stmt, tableName)
 }
 
 func (b *DDLBuilder) buildDropColumn(change differ.Change) (DDLStatement, error) {
@@ -135,20 +137,42 @@ func (b *DDLBuilder) buildDropColumn(change differ.Change) (DDLStatement, error)
 		b.ifExists(),
 		QuoteIdentifier(column.Name))
 
-	return DDLStatement{
+	stmt := DDLStatement{
 		SQL:         sql,
 		Description: fmt.Sprintf("Drop column %s.%s", table.Name, column.Name),
 		IsUnsafe:    true,
 		RequiresTx:  true,
-	}, nil
+	}
+
+	return b.wrapWithCompressionToggle(stmt, tableName)
 }
 
 func (b *DDLBuilder) buildModifyColumnType(change differ.Change) (DDLStatement, error) {
-	return b.buildColumnTypeChange(change, b.result.Desired, DetailKeyNewType, "Modify")
+	stmt, err := b.buildColumnTypeChange(change, b.result.Desired, DetailKeyNewType, "Modify")
+	if err != nil {
+		return DDLStatement{}, err
+	}
+
+	tableName, err := getDetailString(change.Details, DetailKeyTable)
+	if err != nil {
+		return DDLStatement{}, newGeneratorError("buildModifyColumnType", &change, err)
+	}
+
+	return b.wrapWithCompressionToggle(stmt, tableName)
 }
 
 func (b *DDLBuilder) buildReverseModifyColumnType(change differ.Change) (DDLStatement, error) {
-	return b.buildColumnTypeChange(change, b.result.Current, DetailKeyOldType, "Revert")
+	stmt, err := b.buildColumnTypeChange(change, b.result.Current, DetailKeyOldType, "Revert")
+	if err != nil {
+		return DDLStatement{}, err
+	}
+
+	tableName, err := getDetailString(change.Details, DetailKeyTable)
+	if err != nil {
+		return DDLStatement{}, newGeneratorError("buildReverseModifyColumnType", &change, err)
+	}
+
+	return b.wrapWithCompressionToggle(stmt, tableName)
 }
 
 func (b *DDLBuilder) buildColumnTypeChange(
@@ -195,13 +219,39 @@ func (b *DDLBuilder) buildColumnTypeChange(
 }
 
 func (b *DDLBuilder) buildModifyColumnNullability(change differ.Change) (DDLStatement, error) {
-	return b.buildColumnNullabilityChange(change, b.result.Desired, DetailKeyNewNullable, "Modify")
+	stmt, err := b.buildColumnNullabilityChange(
+		change, b.result.Desired, DetailKeyNewNullable, "Modify",
+	)
+	if err != nil {
+		return DDLStatement{}, err
+	}
+
+	tableName, err := getDetailString(change.Details, DetailKeyTable)
+	if err != nil {
+		return DDLStatement{}, newGeneratorError("buildModifyColumnNullability", &change, err)
+	}
+
+	return b.wrapWithCompressionToggle(stmt, tableName)
 }
 
 func (b *DDLBuilder) buildReverseModifyColumnNullability(
 	change differ.Change,
 ) (DDLStatement, error) {
-	return b.buildColumnNullabilityChange(change, b.result.Current, DetailKeyOldNullable, "Revert")
+	stmt, err := b.buildColumnNullabilityChange(
+		change, b.result.Current, DetailKeyOldNullable, "Revert",
+	)
+	if err != nil {
+		return DDLStatement{}, err
+	}
+
+	tableName, err := getDetailString(change.Details, DetailKeyTable)
+	if err != nil {
+		return DDLStatement{}, newGeneratorError(
+			"buildReverseModifyColumnNullability", &change, err,
+		)
+	}
+
+	return b.wrapWithCompressionToggle(stmt, tableName)
 }
 
 func (b *DDLBuilder) buildColumnNullabilityChange(
@@ -504,12 +554,14 @@ func (b *DDLBuilder) buildAddConstraint(change differ.Change) (DDLStatement, err
 		QualifiedName(table.Schema, table.Name),
 		definition)
 
-	return DDLStatement{
+	stmt := DDLStatement{
 		SQL:         sql,
 		Description: fmt.Sprintf("Add constraint %s.%s", table.Name, constraint.Name),
 		IsUnsafe:    constraint.Type == "FOREIGN KEY",
 		RequiresTx:  true,
-	}, nil
+	}
+
+	return b.wrapWithCompressionToggle(stmt, tableName)
 }
 
 func (b *DDLBuilder) buildDropConstraint(change differ.Change) (DDLStatement, error) {
@@ -533,12 +585,14 @@ func (b *DDLBuilder) buildDropConstraint(change differ.Change) (DDLStatement, er
 		b.ifExists(),
 		QuoteIdentifier(constraint.Name))
 
-	return DDLStatement{
+	stmt := DDLStatement{
 		SQL:         sql,
 		Description: fmt.Sprintf("Drop constraint %s.%s", name, constraint.Name),
 		IsUnsafe:    true,
 		RequiresTx:  true,
-	}, nil
+	}
+
+	return b.wrapWithCompressionToggle(stmt, tableName)
 }
 
 func (b *DDLBuilder) buildModifyConstraint(change differ.Change) (DDLStatement, error) {
@@ -578,12 +632,14 @@ func (b *DDLBuilder) buildModifyConstraint(change differ.Change) (DDLStatement, 
 
 	sql := dropSQL + "\n" + addSQL
 
-	return DDLStatement{
+	stmt := DDLStatement{
 		SQL:         sql,
 		Description: fmt.Sprintf("Modify constraint %s.%s", name, desiredConstraint.Name),
 		IsUnsafe:    true,
 		RequiresTx:  true,
-	}, nil
+	}
+
+	return b.wrapWithCompressionToggle(stmt, tableName)
 }
 
 func (b *DDLBuilder) buildReverseModifyConstraint(change differ.Change) (DDLStatement, error) {
@@ -623,12 +679,14 @@ func (b *DDLBuilder) buildReverseModifyConstraint(change differ.Change) (DDLStat
 
 	sql := dropSQL + "\n" + addSQL
 
-	return DDLStatement{
+	stmt := DDLStatement{
 		SQL:         sql,
 		Description: fmt.Sprintf("Revert constraint %s.%s", name, currentConstraint.Name),
 		IsUnsafe:    true,
 		RequiresTx:  true,
-	}, nil
+	}
+
+	return b.wrapWithCompressionToggle(stmt, tableName)
 }
 
 func (b *DDLBuilder) buildAddIndex(change differ.Change) (DDLStatement, error) {

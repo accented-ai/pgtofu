@@ -430,6 +430,24 @@ func (d *Differ) implicitlyDependsOn( //nolint:cyclop,gocognit,gocyclo,maintidx
 		}
 	}
 
+	if change.Type == ChangeTypeModifyCompressionPolicy {
+		tableName := change.ObjectName
+
+		switch otherChange.Type {
+		case ChangeTypeDropColumn, ChangeTypeAddColumn,
+			ChangeTypeAddConstraint, ChangeTypeModifyConstraint, ChangeTypeDropConstraint,
+			ChangeTypeModifyColumnType, ChangeTypeModifyColumnNullability:
+			otherTable, _ := otherChange.Details["table"].(string)
+			if strings.EqualFold(otherTable, tableName) {
+				return true
+			}
+		case ChangeTypeModifyContinuousAggregate:
+			if caChangeMatchesTable(otherChange, tableName) {
+				return true
+			}
+		}
+	}
+
 	return false
 }
 
