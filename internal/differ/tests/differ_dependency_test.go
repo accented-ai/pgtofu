@@ -2590,3 +2590,88 @@ func TestDropColumnDependsOnModifyContinuousAggregate(t *testing.T) {
 		)
 	}
 }
+
+func TestModifyIndexDependsOnAddColumn(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "events",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", Position: 1},
+					{Name: "old_col", DataType: "varchar(20)", Position: 2},
+					{Name: "created_at", DataType: "timestamptz", Position: 3},
+				},
+				Indexes: []schema.Index{
+					{
+						Schema:    schema.DefaultSchema,
+						Name:      "idx_events_lookup",
+						TableName: "events",
+						Columns:   []string{"old_col", "created_at"},
+					},
+				},
+			},
+		},
+	}
+
+	desired := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "events",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", Position: 1},
+					{Name: "old_col", DataType: "varchar(20)", Position: 2},
+					{Name: "created_at", DataType: "timestamptz", Position: 3},
+					{Name: "new_col", DataType: "varchar(20)", Position: 4},
+				},
+				Indexes: []schema.Index{
+					{
+						Schema:    schema.DefaultSchema,
+						Name:      "idx_events_lookup",
+						TableName: "events",
+						Columns:   []string{"new_col", "created_at"},
+					},
+				},
+			},
+		},
+	}
+
+	d := differ.New(differ.DefaultOptions())
+
+	result, err := d.Compare(current, desired)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	addColumnIndex, modifyIndexIndex := -1, -1
+
+	for i, change := range result.Changes {
+		switch change.Type {
+		case differ.ChangeTypeAddColumn:
+			if col, ok := change.Details["column"].(*schema.Column); ok && col.Name == "new_col" {
+				addColumnIndex = i
+			}
+		case differ.ChangeTypeModifyIndex:
+			modifyIndexIndex = i
+		}
+	}
+
+	if addColumnIndex == -1 {
+		t.Fatal("ADD_COLUMN change not found")
+	}
+
+	if modifyIndexIndex == -1 {
+		t.Fatal("MODIFY_INDEX change not found")
+	}
+
+	if addColumnIndex >= modifyIndexIndex {
+		t.Errorf(
+			"ADD_COLUMN should come before MODIFY_INDEX. ADD_COLUMN at %d, MODIFY_INDEX at %d",
+			addColumnIndex,
+			modifyIndexIndex,
+		)
+	}
+}

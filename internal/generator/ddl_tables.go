@@ -1,6 +1,7 @@
 package generator
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -721,6 +722,76 @@ func (b *DDLBuilder) buildDropIndex(change differ.Change) (DDLStatement, error) 
 		Description: "Drop index " + index.Name,
 		RequiresTx:  true,
 	}, nil
+}
+
+func (b *DDLBuilder) buildModifyIndex(change differ.Change) (DDLStatement, error) {
+	currentIndex, desiredIndex, err := getModifyIndexDetails(change.Details)
+	if err != nil {
+		return DDLStatement{}, newGeneratorError("buildModifyIndex", &change, err)
+	}
+
+	dropSQL := fmt.Sprintf("DROP INDEX %s%s;",
+		b.ifExists(), QualifiedName(currentIndex.Schema, currentIndex.Name))
+
+	createSQL, err := formatIndexDefinition(desiredIndex)
+	if err != nil {
+		return DDLStatement{}, newGeneratorError("buildModifyIndex", &change, err)
+	}
+
+	sql := dropSQL + "\n" + ensureStatementTerminated(createSQL)
+
+	return DDLStatement{
+		SQL:         sql,
+		Description: "Modify index " + desiredIndex.Name,
+		RequiresTx:  true,
+	}, nil
+}
+
+func (b *DDLBuilder) buildReverseModifyIndex(change differ.Change) (DDLStatement, error) {
+	currentIndex, desiredIndex, err := getModifyIndexDetails(change.Details)
+	if err != nil {
+		return DDLStatement{}, newGeneratorError("buildReverseModifyIndex", &change, err)
+	}
+
+	dropSQL := fmt.Sprintf("DROP INDEX %s%s;",
+		b.ifExists(), QualifiedName(desiredIndex.Schema, desiredIndex.Name))
+
+	createSQL, err := formatIndexDefinition(currentIndex)
+	if err != nil {
+		return DDLStatement{}, newGeneratorError("buildReverseModifyIndex", &change, err)
+	}
+
+	sql := dropSQL + "\n" + ensureStatementTerminated(createSQL)
+
+	return DDLStatement{
+		SQL:         sql,
+		Description: "Revert index " + currentIndex.Name,
+		RequiresTx:  true,
+	}, nil
+}
+
+func getModifyIndexDetails(details map[string]any) (*schema.Index, *schema.Index, error) {
+	currentRaw, ok := details["current"]
+	if !ok {
+		return nil, nil, errors.New("missing 'current' index in details")
+	}
+
+	currentIndex, ok := currentRaw.(*schema.Index)
+	if !ok {
+		return nil, nil, errors.New("'current' is not an *schema.Index")
+	}
+
+	desiredRaw, ok := details["desired"]
+	if !ok {
+		return nil, nil, errors.New("missing 'desired' index in details")
+	}
+
+	desiredIndex, ok := desiredRaw.(*schema.Index)
+	if !ok {
+		return nil, nil, errors.New("'desired' is not an *schema.Index")
+	}
+
+	return currentIndex, desiredIndex, nil
 }
 
 func (b *DDLBuilder) buildAddPartition(change differ.Change) (DDLStatement, error) {

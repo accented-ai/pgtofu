@@ -44,6 +44,7 @@ func NewDDLBuilderRegistry() *DDLBuilderRegistry {
 	r.Register(differ.ChangeTypeModifyConstraint, &constraintBuilder{})
 	r.Register(differ.ChangeTypeAddIndex, &indexBuilder{})
 	r.Register(differ.ChangeTypeDropIndex, &indexBuilder{})
+	r.Register(differ.ChangeTypeModifyIndex, &indexBuilder{})
 	r.Register(differ.ChangeTypeAddPartition, &partitionBuilder{})
 	r.Register(differ.ChangeTypeDropPartition, &partitionBuilder{})
 	r.Register(differ.ChangeTypeAddView, &viewBuilder{})
@@ -145,6 +146,7 @@ func (r *DDLBuilderRegistry) BuildDown(
 		differ.ChangeTypeModifyCompressionPolicy:   differ.ChangeTypeModifyCompressionPolicy,
 		differ.ChangeTypeModifyContinuousAggregate: differ.ChangeTypeModifyContinuousAggregate,
 		differ.ChangeTypeModifyConstraint:          differ.ChangeTypeModifyConstraint,
+		differ.ChangeTypeModifyIndex:               differ.ChangeTypeModifyIndex,
 	}
 
 	var targetType differ.ChangeType

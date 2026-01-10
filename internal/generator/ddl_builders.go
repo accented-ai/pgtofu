@@ -216,22 +216,28 @@ func (b *constraintBuilder) BuildDown(
 type indexBuilder struct{}
 
 func (b *indexBuilder) BuildUp(change differ.Change, ddlBuilder *DDLBuilder) (DDLStatement, error) {
-	if change.Type == differ.ChangeTypeAddIndex {
+	switch change.Type {
+	case differ.ChangeTypeAddIndex:
 		return ddlBuilder.buildAddIndex(change)
+	case differ.ChangeTypeModifyIndex:
+		return ddlBuilder.buildModifyIndex(change)
+	default:
+		return ddlBuilder.buildDropIndex(change)
 	}
-
-	return ddlBuilder.buildDropIndex(change)
 }
 
 func (b *indexBuilder) BuildDown(
 	change differ.Change,
 	ddlBuilder *DDLBuilder,
 ) (DDLStatement, error) {
-	if change.Type == differ.ChangeTypeAddIndex {
+	switch change.Type {
+	case differ.ChangeTypeAddIndex:
 		return ddlBuilder.buildDropIndex(change)
+	case differ.ChangeTypeModifyIndex:
+		return ddlBuilder.buildReverseModifyIndex(change)
+	default:
+		return ddlBuilder.buildAddIndex(change)
 	}
-
-	return ddlBuilder.buildAddIndex(change)
 }
 
 type partitionBuilder struct{}
