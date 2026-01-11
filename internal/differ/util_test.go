@@ -53,6 +53,68 @@ func TestNormalizeExpression_InClauseVariants(t *testing.T) {
 	}
 }
 
+func TestNormalizeExpression_ComparisonParentheses(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		fromSQL      string
+		fromPostgres string
+	}{
+		{
+			name:         "AND expression with parenthesized comparisons",
+			fromSQL:      "CHECK (low <= high AND open >= low)",
+			fromPostgres: "CHECK (((low <= high) AND (open >= low)))",
+		},
+		{
+			name:         "OR expression with parenthesized comparisons",
+			fromSQL:      "CHECK (status = 'urgent' OR priority > 5)",
+			fromPostgres: "CHECK (((status = 'urgent') OR (priority > 5)))",
+		},
+		{
+			name:         "mixed AND/OR with IS NOT NULL",
+			fromSQL:      "CHECK (is_active = true OR (end_time IS NOT NULL AND end_time > start_time))",
+			fromPostgres: "CHECK (((is_active = true) OR ((end_time IS NOT NULL) AND (end_time > start_time))))",
+		},
+		{
+			name:         "multiple comparisons in chain",
+			fromSQL:      "CHECK (a <= b AND b <= c AND c <= d)",
+			fromPostgres: "CHECK (((a <= b) AND (b <= c) AND (c <= d)))",
+		},
+		{
+			name:         "arithmetic with ABS function and type casts",
+			fromSQL:      "CHECK (a >= 0 AND a <= 1 AND ABS((x + y + z) - 1.0) < 0.01)",
+			fromPostgres: "CHECK (((a >= (0)::numeric) AND (a <= (1)::numeric) AND (abs((((x + y) + z) - 1.0)) < 0.01)))",
+		},
+		{
+			name:         "chained addition in function call",
+			fromSQL:      "CHECK (total = (a + b + c))",
+			fromPostgres: "CHECK ((total = ((a + b) + c)))",
+		},
+		{
+			name:         "nested arithmetic operations",
+			fromSQL:      "CHECK (result = (a + b - c + d))",
+			fromPostgres: "CHECK ((result = (((a + b) - c) + d)))",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			normalizedSQL := normalizeExpression(tt.fromSQL)
+			normalizedPG := normalizeExpression(tt.fromPostgres)
+
+			if normalizedSQL != normalizedPG {
+				t.Errorf(
+					"Normalized expressions don't match:\n  SQL:      %q\n  Postgres: %q",
+					normalizedSQL, normalizedPG,
+				)
+			}
+		})
+	}
+}
+
 func TestNormalizeExpression_CompareEquivalentConstraints(t *testing.T) {
 	t.Parallel()
 
