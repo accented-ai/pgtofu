@@ -74,8 +74,203 @@ func removeLiteralParens(expr string) string {
 	expr = strPattern.ReplaceAllString(expr, "$1")
 	identPattern := regexp.MustCompile(`\((\w+)\)`)
 	expr = identPattern.ReplaceAllString(expr, "$1")
+	expr = removeComparisonParens(expr)
 
 	return expr
+}
+
+func removeComparisonParensOnce(expr string) string {
+	start, end := findInnermostParens(expr)
+	if start == -1 {
+		return expr
+	}
+
+	inner := expr[start+1 : end]
+	if isSimpleComparison(inner) || canRemoveArithmeticParens(inner, expr, end) {
+		return expr[:start] + inner + expr[end+1:]
+	}
+
+	return expr[:start] + "\x00" + expr[start+1:end] + "\x01" + expr[end+1:]
+}
+
+func canRemoveArithmeticParens(inner, fullExpr string, closePos int) bool {
+	inner = strings.TrimSpace(inner)
+	if inner == "" {
+		return false
+	}
+
+	lower := strings.ToLower(inner)
+	if containsLogicalKeyword(lower) {
+		return false
+	}
+
+	if containsComparisonOperator(inner) ||
+		strings.Contains(inner, "<=") ||
+		strings.Contains(inner, ">=") ||
+		strings.Contains(inner, "<>") ||
+		strings.Contains(inner, "!=") {
+		return false
+	}
+
+	innerPrec := getLowestArithmeticPrecedence(inner)
+	if innerPrec == 0 {
+		return false
+	}
+
+	outerOp := getOperatorAfterParen(fullExpr, closePos)
+	if outerOp == 0 {
+		return true
+	}
+
+	outerPrec := getArithmeticPrecedence(outerOp)
+	if outerPrec == 0 {
+		return true
+	}
+
+	return innerPrec >= outerPrec
+}
+
+func getLowestArithmeticPrecedence(expr string) int {
+	lowest := 0
+
+	for i := range len(expr) {
+		ch := expr[i]
+		prec := getArithmeticPrecedence(ch)
+
+		if prec > 0 && (lowest == 0 || prec < lowest) {
+			lowest = prec
+		}
+	}
+
+	return lowest
+}
+
+func getArithmeticPrecedence(ch byte) int {
+	switch ch {
+	case '+', '-':
+		return 1
+	case '*', '/', '%':
+		return 2
+	default:
+		return 0
+	}
+}
+
+func getOperatorAfterParen(expr string, closePos int) byte {
+	for i := closePos + 1; i < len(expr); i++ {
+		ch := expr[i]
+		if ch == ' ' || ch == '\t' || ch == '\n' {
+			continue
+		}
+
+		if ch == '+' || ch == '-' || ch == '*' || ch == '/' || ch == '%' {
+			return ch
+		}
+
+		return 0
+	}
+
+	return 0
+}
+
+func findInnermostParens(expr string) (int, int) {
+	lastOpen := -1
+
+	for i, ch := range expr {
+		switch ch {
+		case '(':
+			lastOpen = i
+		case ')':
+			if lastOpen != -1 {
+				return lastOpen, i
+			}
+		}
+	}
+
+	return -1, -1
+}
+
+func removeComparisonParens(expr string) string {
+	prev := ""
+	for prev != expr {
+		prev = expr
+		expr = removeComparisonParensOnce(expr)
+	}
+
+	expr = strings.ReplaceAll(expr, "\x00", "(")
+	expr = strings.ReplaceAll(expr, "\x01", ")")
+
+	return expr
+}
+
+func isSimpleComparison(expr string) bool {
+	expr = strings.TrimSpace(expr)
+	if expr == "" {
+		return false
+	}
+
+	lower := strings.ToLower(expr)
+
+	if containsLogicalKeyword(lower) {
+		return false
+	}
+
+	hasComparison := strings.Contains(expr, "<=") ||
+		strings.Contains(expr, ">=") ||
+		strings.Contains(expr, "<>") ||
+		strings.Contains(expr, "!=") ||
+		strings.Contains(lower, " is null") ||
+		strings.Contains(lower, " is not null") ||
+		strings.Contains(lower, " like ") ||
+		strings.Contains(lower, " ilike ") ||
+		strings.Contains(lower, " similar to ") ||
+		containsComparisonOperator(expr)
+
+	return hasComparison
+}
+
+func containsLogicalKeyword(expr string) bool {
+	keywords := []string{" and ", " or "}
+	for _, kw := range keywords {
+		if strings.Contains(expr, kw) {
+			return true
+		}
+	}
+
+	if strings.HasPrefix(expr, "and ") || strings.HasPrefix(expr, "or ") {
+		return true
+	}
+
+	if strings.HasSuffix(expr, " and") || strings.HasSuffix(expr, " or") {
+		return true
+	}
+
+	return false
+}
+
+func containsComparisonOperator(expr string) bool {
+	for i := range len(expr) {
+		ch := expr[i]
+		if ch != '<' && ch != '>' && ch != '=' {
+			continue
+		}
+
+		prevIsOp := i > 0 &&
+			(expr[i-1] == '<' || expr[i-1] == '>' || expr[i-1] == '!' || expr[i-1] == '=')
+		if prevIsOp {
+			continue
+		}
+
+		nextIsOp := i+1 < len(expr) &&
+			(expr[i+1] == '<' || expr[i+1] == '>' || expr[i+1] == '=')
+		if nextIsOp {
+			continue
+		}
+
+		return true
+	}
+
+	return false
 }
 
 func normalizeInClauses(expr string) string {
@@ -166,6 +361,7 @@ func normalizeInClauseSpacing(expr string) string {
 func normalizeBetweenExpressions(expr string) string {
 	if strings.Contains(expr, " between ") {
 		expr = expandBetween(expr)
+		expr = removeComparisonParens(expr)
 	}
 
 	expr = normalizeOperators(expr)
