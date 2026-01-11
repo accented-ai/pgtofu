@@ -478,18 +478,6 @@ func (g *Generator) isIndexOnNewColumn(
 }
 
 func (g *Generator) sortSchemaChanges(changes []differ.Change) {
-	tableFirstOrder := make(map[string]int)
-
-	for _, change := range changes {
-		tableName := extractTableNameFromChange(&change)
-		if tableName != "" {
-			if firstOrder, exists := tableFirstOrder[tableName]; !exists ||
-				change.Order < firstOrder {
-				tableFirstOrder[tableName] = change.Order
-			}
-		}
-	}
-
 	sort.Slice(changes, func(i, j int) bool {
 		iIsSchema := changes[i].Type == differ.ChangeTypeAddSchema ||
 			changes[i].Type == differ.ChangeTypeDropSchema
@@ -507,38 +495,13 @@ func (g *Generator) sortSchemaChanges(changes []differ.Change) {
 		tableNameI := extractTableNameFromChange(&changes[i])
 		tableNameJ := extractTableNameFromChange(&changes[j])
 
-		if tableNameI != "" && tableNameJ != "" { //nolint:nestif
-			if tableNameI == tableNameJ {
-				priorityI := getChangePriorityForTable(changes[i].Type)
+		if tableNameI != "" && tableNameJ != "" && tableNameI == tableNameJ {
+			priorityI := getChangePriorityForTable(changes[i].Type)
+			priorityJ := getChangePriorityForTable(changes[j].Type)
 
-				priorityJ := getChangePriorityForTable(changes[j].Type)
-				if priorityI != priorityJ {
-					return priorityI < priorityJ
-				}
-
-				return changes[i].Order < changes[j].Order
+			if priorityI != priorityJ {
+				return priorityI < priorityJ
 			}
-
-			orderI, hasI := tableFirstOrder[tableNameI]
-
-			orderJ, hasJ := tableFirstOrder[tableNameJ]
-			if hasI && hasJ {
-				if orderI != orderJ {
-					return orderI < orderJ
-				}
-
-				return tableNameI < tableNameJ
-			}
-
-			if hasI {
-				return true
-			}
-
-			if hasJ {
-				return false
-			}
-
-			return tableNameI < tableNameJ
 		}
 
 		return changes[i].Order < changes[j].Order
