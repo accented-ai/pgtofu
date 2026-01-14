@@ -13,44 +13,51 @@ type queryBuilder struct {
 }
 
 func (qb *queryBuilder) schemaFilter() string {
-	if len(qb.excludeSchemas) == 0 {
-		return "TRUE"
-	}
-
 	var builder strings.Builder
-	builder.WriteString("table_schema NOT IN (")
 
-	for i, s := range qb.excludeSchemas {
-		if i > 0 {
-			builder.WriteString(", ")
+	builder.WriteString("table_schema NOT LIKE 'pg_temp_%'")
+	builder.WriteString(" AND table_schema NOT LIKE 'pg_toast_temp_%'")
+
+	if len(qb.excludeSchemas) > 0 {
+		builder.WriteString(" AND table_schema NOT IN (")
+
+		for i, s := range qb.excludeSchemas {
+			if i > 0 {
+				builder.WriteString(", ")
+			}
+
+			builder.WriteString(fmt.Sprintf("'%s'", s))
 		}
 
-		builder.WriteString(fmt.Sprintf("'%s'", s))
+		builder.WriteString(")")
 	}
-
-	builder.WriteString(")")
 
 	return builder.String()
 }
 
 func (qb *queryBuilder) namespaceFilter(column string) string {
-	if len(qb.excludeSchemas) == 0 {
-		return "TRUE"
-	}
-
 	var builder strings.Builder
-	builder.WriteString(column)
-	builder.WriteString(" NOT IN (")
 
-	for i, s := range qb.excludeSchemas {
-		if i > 0 {
-			builder.WriteString(", ")
+	builder.WriteString(column)
+	builder.WriteString(" NOT LIKE 'pg_temp_%' AND ")
+	builder.WriteString(column)
+	builder.WriteString(" NOT LIKE 'pg_toast_temp_%'")
+
+	if len(qb.excludeSchemas) > 0 {
+		builder.WriteString(" AND ")
+		builder.WriteString(column)
+		builder.WriteString(" NOT IN (")
+
+		for i, s := range qb.excludeSchemas {
+			if i > 0 {
+				builder.WriteString(", ")
+			}
+
+			builder.WriteString(fmt.Sprintf("'%s'", s))
 		}
 
-		builder.WriteString(fmt.Sprintf("'%s'", s))
+		builder.WriteString(")")
 	}
-
-	builder.WriteString(")")
 
 	return builder.String()
 }
