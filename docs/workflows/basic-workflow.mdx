@@ -12,7 +12,7 @@ This guide walks through the complete pgtofu workflow from an existing database 
 Start by extracting your current database schema:
 
 ```bash
-export DATABASE_URL="postgres://user:pass@localhost:5432/mydb"
+export DATABASE_URL="postgres://user:pass@localhost:5432/db"
 
 pgtofu extract --output current-schema.json
 ```

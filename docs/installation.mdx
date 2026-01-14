@@ -51,7 +51,7 @@ To connect to a local database from Docker, use the host network mode on Linux o
       --network host \
       -v "$(pwd):/workspace" \
       -w /workspace \
-      -e DATABASE_URL="postgres://user:pass@localhost:5432/mydb" \
+      -e DATABASE_URL="postgres://user:pass@localhost:5432/db" \
       accented/pgtofu:latest extract --output schema.json
     ```
   </Tab>
@@ -60,7 +60,7 @@ To connect to a local database from Docker, use the host network mode on Linux o
     docker run --rm \
       -v "$(pwd):/workspace" \
       -w /workspace \
-      -e DATABASE_URL="postgres://user:pass@host.docker.internal:5432/mydb" \
+      -e DATABASE_URL="postgres://user:pass@host.docker.internal:5432/db" \
       accented/pgtofu:latest extract --output schema.json
     ```
   </Tab>

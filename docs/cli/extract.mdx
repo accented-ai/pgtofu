@@ -26,11 +26,11 @@ pgtofu extract [flags]
 
 ```bash
 # Using command-line flag
-pgtofu extract --database-url "postgres://user:pass@localhost:5432/mydb" \
+pgtofu extract --database-url "postgres://user:pass@localhost:5432/db" \
   --output current-schema.json
 
 # Using environment variable
-export DATABASE_URL="postgres://user:pass@localhost:5432/mydb"
+export DATABASE_URL="postgres://user:pass@localhost:5432/db"
 pgtofu extract --output current-schema.json
 ```
 
@@ -72,16 +72,16 @@ postgres://[user[:password]@][host][:port][/database][?param1=value1&...]
 
 ```bash
 # Basic connection
-postgres://user:password@localhost:5432/mydb
+postgres://user:password@localhost:5432/db
 
 # With SSL mode
-postgres://user:password@host.example.com:5432/mydb?sslmode=require
+postgres://user:password@host.example.com:5432/db?sslmode=require
 
 # With connection timeout
-postgres://user:password@localhost:5432/mydb?connect_timeout=10
+postgres://user:password@localhost:5432/db?connect_timeout=10
 
 # Using socket connection
-postgres://user:password@/mydb?host=/var/run/postgresql
+postgres://user:password@/db?host=/var/run/postgresql
 ```
 
 ### SSL Modes
@@ -133,7 +133,7 @@ The extracted schema is a JSON object containing all database objects:
 ```json
 {
   "version": "1.0",
-  "database_name": "mydb",
+  "database_name": "db",
   "extracted_at": "2024-01-15T10:30:00Z",
   "schemas": [
     {"name": "public", "owner": "postgres"}
@@ -223,7 +223,7 @@ The extracted schema is a JSON object containing all database objects:
   <Accordion title="Permission denied">
     The user needs read access to system catalogs. Grant if needed:
     ```sql
-    GRANT SELECT ON ALL TABLES IN SCHEMA pg_catalog TO myuser;
+    GRANT SELECT ON ALL TABLES IN SCHEMA pg_catalog TO alice;
     ```
   </Accordion>
   <Accordion title="SSL errors">
