@@ -123,7 +123,8 @@ func (e *Extractor) enrichRetentionPolicy(ctx context.Context, ht *schema.Hypert
 
 func (e *Extractor) isCompressionEnabled(ctx context.Context, schemaName, tableName string) bool {
 	var enabled bool
-	if err := e.pool.QueryRow(ctx, queryCompressionEnabled, schemaName, tableName).Scan(&enabled); err != nil {
+	if err := e.pool.QueryRow(ctx, queryCompressionEnabled, schemaName, tableName).
+		Scan(&enabled); err != nil {
 		return false
 	}
 
@@ -361,7 +362,7 @@ func (e *Extractor) extractCAIndexes(
 }
 
 func parseOrderByColumns(orderBy string) []schema.OrderByColumn {
-	var columns []schema.OrderByColumn //nolint:prealloc
+	var columns []schema.OrderByColumn
 
 	parts := strings.SplitSeq(orderBy, ",")
 	for part := range parts {

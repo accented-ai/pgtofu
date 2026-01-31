@@ -411,7 +411,7 @@ func (tc *TriggerComparator) findParentTableForPartition(
 func dedupeDependencies(deps []string) []string {
 	seen := make(map[string]struct{}, len(deps))
 
-	var result []string //nolint:prealloc
+	var result []string
 
 	for _, dep := range deps {
 		dep = strings.TrimSpace(dep)

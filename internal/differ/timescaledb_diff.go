@@ -391,7 +391,7 @@ func isRetentionShorter(interval1, interval2 string) bool {
 func normalizeSegmentColumns(columns []string) []string {
 	unique := make(map[string]struct{}, len(columns))
 
-	var result []string //nolint:prealloc
+	var result []string
 
 	for _, col := range columns {
 		clean := strings.ToLower(strings.TrimSpace(col))

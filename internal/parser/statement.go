@@ -37,7 +37,7 @@ func (s Statement) NormalizedSQL() string {
 }
 
 func DetectStatementType(tokens []Token) StatementType { //nolint:cyclop,gocyclo
-	var parts []string //nolint:prealloc
+	var parts []string
 
 	for _, token := range tokens {
 		switch token.Type {

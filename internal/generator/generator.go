@@ -303,7 +303,7 @@ func (g *Generator) splitIntoBatches(changes []differ.Change) [][]differ.Change 
 		return nil
 	}
 
-	var ( //nolint:prealloc
+	var (
 		batches      [][]differ.Change
 		currentBatch []differ.Change
 	)
@@ -612,7 +612,7 @@ func (g *Generator) buildUpStatements(
 	changes []differ.Change,
 	builder *DDLBuilder,
 ) ([]DDLStatement, []string) {
-	var ( //nolint:prealloc
+	var (
 		statements []DDLStatement
 		warnings   []string
 	)

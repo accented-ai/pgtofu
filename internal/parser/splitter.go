@@ -12,7 +12,7 @@ func splitStatements(sql string) ([]Statement, error) {
 }
 
 func splitTokensIntoStatements(sql string, tokens []Token) []Statement {
-	var ( //nolint:prealloc
+	var (
 		statements    []Statement
 		currentTokens []Token
 		start         int
@@ -105,7 +105,7 @@ func isCommentOnly(stmt string) bool {
 func stripLeadingComments(stmt string) string {
 	lines := strings.Split(stmt, "\n")
 
-	var result []string //nolint:prealloc
+	var result []string
 
 	foundSQL := false
 

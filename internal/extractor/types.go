@@ -19,7 +19,12 @@ func (e *Extractor) extractExtensions(ctx context.Context) ([]schema.Extension, 
 
 		var ext schema.Extension
 
-		if err := rows.Scan(&ext.Name, &ext.Schema, &ext.Version, scanner.String("comment")); err != nil {
+		if err := rows.Scan(
+			&ext.Name,
+			&ext.Schema,
+			&ext.Version,
+			scanner.String("comment"),
+		); err != nil {
 			return util.WrapError("scan extension", err)
 		}
 
@@ -45,7 +50,13 @@ func (e *Extractor) extractCustomTypes(ctx context.Context) ([]schema.CustomType
 
 		var ct schema.CustomType
 
-		if err := rows.Scan(&ct.Schema, &ct.Name, &ct.Type, scanner.String("comment"), &ct.Definition); err != nil {
+		if err := rows.Scan(
+			&ct.Schema,
+			&ct.Name,
+			&ct.Type,
+			scanner.String("comment"),
+			&ct.Definition,
+		); err != nil {
 			return util.WrapError("scan custom type", err)
 		}
 

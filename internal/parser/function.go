@@ -205,7 +205,7 @@ func parseFunctionArguments(argsLiteral string) ([]string, []string, []string) {
 		return nil, nil, nil
 	}
 
-	var ( //nolint:prealloc
+	var (
 		argTypes []string
 		argNames []string
 		argModes []string

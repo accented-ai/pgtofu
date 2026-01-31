@@ -736,7 +736,7 @@ func filterConstraintTokens(tokens []Token) []Token {
 		return nil
 	}
 
-	var filtered []Token //nolint:prealloc
+	var filtered []Token
 
 	for _, token := range tokens {
 		if token.Type == TokenEOF || token.Type == TokenComment {
@@ -1259,7 +1259,9 @@ func (p *Parser) parseAlterTable(stmt string, db *schema.Database) error {
 		ht.CompressionSettings = &schema.CompressionSettings{}
 	}
 
-	if segmentRe := regexp.MustCompile(`(?i)timescaledb\.compress_segmentby\s*=\s*'([^']*)'`); segmentRe.MatchString(
+	if segmentRe := regexp.MustCompile(
+		`(?i)timescaledb\.compress_segmentby\s*=\s*'([^']*)'`,
+	); segmentRe.MatchString(
 		stmt,
 	) {
 		if m := segmentRe.FindStringSubmatch(stmt); len(m) > 1 {
