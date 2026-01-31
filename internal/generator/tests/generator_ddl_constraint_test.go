@@ -617,3 +617,54 @@ func TestDDLBuilder_ConstraintWithQuotedName(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, stmt.SQL, `"Constraint-Name"`)
 }
+
+func TestDDLBuilder_CheckConstraintNumericTypeCastNormalization(t *testing.T) {
+	t.Parallel()
+
+	constraint := &schema.Constraint{
+		Name: "items_rating_check",
+		Type: "CHECK",
+		Definition: "CHECK (((rating >= (0)::double precision) AND " +
+			"(rating <= (1)::double precision)))",
+	}
+
+	tableName := "public.items"
+	result := &differ.DiffResult{
+		Current: &schema.Database{},
+		Desired: &schema.Database{
+			Tables: []schema.Table{
+				{
+					Schema: schema.DefaultSchema,
+					Name:   "items",
+					Columns: []schema.Column{
+						{Name: "rating", DataType: "double precision", Position: 1},
+					},
+					Constraints: []schema.Constraint{*constraint},
+				},
+			},
+		},
+		Changes: []differ.Change{
+			{
+				Type:       differ.ChangeTypeAddConstraint,
+				ObjectName: tableName,
+				Details: map[string]any{
+					"table":      tableName,
+					"constraint": constraint,
+				},
+			},
+		},
+	}
+
+	builder := generator.NewDDLBuilder(result, true)
+	stmt, err := builder.BuildUpStatement(result.Changes[0])
+
+	require.NoError(t, err)
+	assert.NotContains(t, stmt.SQL, "::double precision",
+		"Should not contain lowercase type casts")
+	assert.NotContains(t, stmt.SQL, "(0)",
+		"Should not contain parenthesized numeric literals")
+	assert.NotContains(t, stmt.SQL, "(1)",
+		"Should not contain parenthesized numeric literals")
+	assert.Contains(t, stmt.SQL, ">=")
+	assert.Contains(t, stmt.SQL, "<=")
+}

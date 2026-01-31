@@ -111,6 +111,21 @@ func normalizeTypeCasts(s string) string {
 	stringCastPattern := regexp.MustCompile(`('(?:[^']*|'')*')::[a-zA-Z_][a-zA-Z0-9_\s]*(?:\[\])?`)
 	result = stringCastPattern.ReplaceAllString(result, "$1")
 
+	numericTypeCasts := []string{
+		"::double precision",
+		"::real",
+		"::numeric",
+		"::integer",
+		"::bigint",
+		"::smallint",
+	}
+	for _, cast := range numericTypeCasts {
+		result = strings.ReplaceAll(result, cast, "")
+	}
+
+	numericParenPattern := regexp.MustCompile(`\((-?\d+(?:\.\d+)?)\)`)
+	result = numericParenPattern.ReplaceAllString(result, "$1")
+
 	return result
 }
 
