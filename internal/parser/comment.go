@@ -467,7 +467,7 @@ func parseColumnReferenceLiteral(p *Parser, literal string) (string, string, str
 
 	for _, token := range refTokens {
 		switch token.Type {
-		case TokenIdentifier, TokenQuotedIdentifier:
+		case TokenIdentifier, TokenQuotedIdentifier, TokenKeyword:
 			segments = append(segments, strings.TrimSpace(token.Literal))
 		case TokenEOF, TokenComment:
 			continue

@@ -7,6 +7,49 @@ import (
 	"github.com/accented-ai/pgtofu/internal/schema"
 )
 
+func TestCommentOnColumnWithKeywordName(t *testing.T) {
+	t.Parallel()
+
+	sql := `
+		CREATE TABLE kb.association_types (
+			type TEXT PRIMARY KEY,
+			description TEXT NOT NULL
+		);
+
+		COMMENT ON COLUMN kb.association_types.type IS
+		'Primary identifier for the association type.';
+
+		COMMENT ON COLUMN kb.association_types.description IS
+		'Description of the association type.';
+	`
+
+	parsed := parseSQL(t, sql)
+
+	if len(parsed.Tables) != 1 {
+		t.Fatalf("expected 1 table, got %d", len(parsed.Tables))
+	}
+
+	table := &parsed.Tables[0]
+
+	typeCol := table.GetColumn("type")
+	if typeCol == nil {
+		t.Fatal("column 'type' not found")
+	}
+
+	if typeCol.Comment != "Primary identifier for the association type." {
+		t.Errorf("expected comment on 'type' column, got %q", typeCol.Comment)
+	}
+
+	descCol := table.GetColumn("description")
+	if descCol == nil {
+		t.Fatal("column 'description' not found")
+	}
+
+	if descCol.Comment != "Description of the association type." {
+		t.Errorf("expected comment on 'description' column, got %q", descCol.Comment)
+	}
+}
+
 func TestCommentIdempotency(t *testing.T) {
 	t.Parallel()
 
