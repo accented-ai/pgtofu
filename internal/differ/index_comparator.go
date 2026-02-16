@@ -239,6 +239,7 @@ func equalIndexColumns(a, b []string) bool {
 func normalizeIndexColumn(col string) string {
 	expr := strings.TrimSpace(col)
 	expr = strings.ToLower(expr)
+	expr = stripIdentifierQuotes(expr)
 
 	for strings.HasPrefix(expr, "((") && strings.HasSuffix(expr, "))") {
 		expr = expr[1 : len(expr)-1]
@@ -249,6 +250,14 @@ func normalizeIndexColumn(col string) string {
 	expr = strings.TrimSpace(expr)
 
 	return expr
+}
+
+func stripIdentifierQuotes(expr string) string {
+	if !strings.Contains(expr, `"`) {
+		return expr
+	}
+
+	return strings.ReplaceAll(expr, `"`, "")
 }
 
 func equalStringSlicesSorted(a, b []string) bool {

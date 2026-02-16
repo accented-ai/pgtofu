@@ -72,6 +72,84 @@ func TestDiffer_CompareIndexes(t *testing.T) {
 			expectedTypes:   []differ.ChangeType{differ.ChangeTypeDropIndex},
 		},
 		{
+			name: "no change when columns differ only by identifier quoting",
+			current: &schema.Database{
+				Tables: []schema.Table{
+					{
+						Schema: schema.DefaultSchema,
+						Name:   "items",
+						Indexes: []schema.Index{
+							{
+								Schema:    schema.DefaultSchema,
+								TableName: "items",
+								Name:      "idx_items_position",
+								Columns:   []string{`"position"`},
+								Type:      "btree",
+							},
+						},
+					},
+				},
+			},
+			desired: &schema.Database{
+				Tables: []schema.Table{
+					{
+						Schema: schema.DefaultSchema,
+						Name:   "items",
+						Indexes: []schema.Index{
+							{
+								Schema:    schema.DefaultSchema,
+								TableName: "items",
+								Name:      "idx_items_position",
+								Columns:   []string{"position"},
+								Type:      "btree",
+							},
+						},
+					},
+				},
+			},
+			expectedChanges: 0,
+			expectedTypes:   nil,
+		},
+		{
+			name: "no change when multi-column index has quoted reserved word",
+			current: &schema.Database{
+				Tables: []schema.Table{
+					{
+						Schema: schema.DefaultSchema,
+						Name:   "events",
+						Indexes: []schema.Index{
+							{
+								Schema:    schema.DefaultSchema,
+								TableName: "events",
+								Name:      "idx_events_type_position",
+								Columns:   []string{"type_id", `"position"`},
+								Type:      "btree",
+							},
+						},
+					},
+				},
+			},
+			desired: &schema.Database{
+				Tables: []schema.Table{
+					{
+						Schema: schema.DefaultSchema,
+						Name:   "events",
+						Indexes: []schema.Index{
+							{
+								Schema:    schema.DefaultSchema,
+								TableName: "events",
+								Name:      "idx_events_type_position",
+								Columns:   []string{"type_id", "position"},
+								Type:      "btree",
+							},
+						},
+					},
+				},
+			},
+			expectedChanges: 0,
+			expectedTypes:   nil,
+		},
+		{
 			name: "modify index",
 			current: &schema.Database{
 				Tables: []schema.Table{
