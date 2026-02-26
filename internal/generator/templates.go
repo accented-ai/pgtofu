@@ -200,9 +200,16 @@ func formatConstraintDefinition( //nolint:cyclop,gocognit,gocyclo
 
 		if strings.HasPrefix(strings.ToUpper(def), "CHECK") { //nolint:nestif
 			lines := strings.Split(def, "\n")
-			for i := range lines {
-				lines[i] = strings.TrimRight(lines[i], " \t")
+
+			nonEmpty := lines[:0]
+			for _, line := range lines {
+				trimmed := strings.TrimRight(line, " \t")
+				if strings.TrimSpace(trimmed) != "" {
+					nonEmpty = append(nonEmpty, trimmed)
+				}
 			}
+
+			lines = nonEmpty
 
 			if len(lines) > 1 {
 				minIndent := -1
