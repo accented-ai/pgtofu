@@ -163,9 +163,9 @@ func buildContinuousAggregateSQL(ca *schema.ContinuousAggregate) (string, error)
 
 	var sql strings.Builder
 
-	sql.WriteString(fmt.Sprintf("CREATE MATERIALIZED VIEW %s\nWITH (timescaledb.continuous) AS\n%s",
+	fmt.Fprintf(&sql, "CREATE MATERIALIZED VIEW %s\nWITH (timescaledb.continuous) AS\n%s",
 		QualifiedName(ca.Schema, ca.ViewName),
-		ca.Query))
+		ca.Query)
 
 	if ca.WithData {
 		sql.WriteString("\nWITH DATA;")
@@ -174,14 +174,14 @@ func buildContinuousAggregateSQL(ca *schema.ContinuousAggregate) (string, error)
 	}
 
 	if ca.RefreshPolicy != nil {
-		sql.WriteString(fmt.Sprintf("\n\nSELECT add_continuous_aggregate_policy('%s',\n"+
+		fmt.Fprintf(&sql, "\n\nSELECT add_continuous_aggregate_policy('%s',\n"+
 			sqlIndent+"start_offset => INTERVAL '%s',\n"+
 			sqlIndent+"end_offset => INTERVAL '%s',\n"+
 			sqlIndent+"schedule_interval => INTERVAL '%s');",
 			QualifiedName(ca.Schema, ca.ViewName),
 			ca.RefreshPolicy.StartOffset,
 			ca.RefreshPolicy.EndOffset,
-			ca.RefreshPolicy.ScheduleInterval))
+			ca.RefreshPolicy.ScheduleInterval)
 	}
 
 	if ca.Comment != "" {

@@ -93,7 +93,7 @@ func (b *DDLBuilder) wrapWithCompressionToggle(
 
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf(compressedHypertableWarning, qualifiedTable))
+	fmt.Fprintf(&sb, compressedHypertableWarning, qualifiedTable)
 	sb.WriteString(disableSQL)
 	sb.WriteString("\n")
 

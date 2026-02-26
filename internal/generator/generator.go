@@ -806,7 +806,7 @@ func (g *Generator) formatMigrationContent(
 		}
 
 		if g.Options.IncludeComments && stmt.Description != "" {
-			sb.WriteString(fmt.Sprintf("-- %s\n", stmt.Description))
+			fmt.Fprintf(&sb, "-- %s\n", stmt.Description)
 		}
 
 		if stmt.IsUnsafe && g.Options.IncludeComments {

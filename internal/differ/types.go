@@ -164,37 +164,37 @@ func (dr *DiffResult) Summary() string {
 		return sb.String()
 	}
 
-	sb.WriteString(fmt.Sprintf("Total Changes: %d\n\n", len(dr.Changes)))
+	fmt.Fprintf(&sb, "Total Changes: %d\n\n", len(dr.Changes))
 
 	if dr.Stats.TablesAdded > 0 || dr.Stats.TablesDropped > 0 || dr.Stats.TablesModified > 0 {
-		sb.WriteString(fmt.Sprintf("Tables: +%d -%d ~%d\n",
-			dr.Stats.TablesAdded, dr.Stats.TablesDropped, dr.Stats.TablesModified))
+		fmt.Fprintf(&sb, "Tables: +%d -%d ~%d\n",
+			dr.Stats.TablesAdded, dr.Stats.TablesDropped, dr.Stats.TablesModified)
 	}
 
 	if dr.Stats.ColumnsAdded > 0 || dr.Stats.ColumnsDropped > 0 || dr.Stats.ColumnsModified > 0 {
-		sb.WriteString(fmt.Sprintf("Columns: +%d -%d ~%d\n",
-			dr.Stats.ColumnsAdded, dr.Stats.ColumnsDropped, dr.Stats.ColumnsModified))
+		fmt.Fprintf(&sb, "Columns: +%d -%d ~%d\n",
+			dr.Stats.ColumnsAdded, dr.Stats.ColumnsDropped, dr.Stats.ColumnsModified)
 	}
 
 	if dr.Stats.IndexesAdded > 0 || dr.Stats.IndexesDropped > 0 {
-		sb.WriteString(fmt.Sprintf("Indexes: +%d -%d\n",
-			dr.Stats.IndexesAdded, dr.Stats.IndexesDropped))
+		fmt.Fprintf(&sb, "Indexes: +%d -%d\n",
+			dr.Stats.IndexesAdded, dr.Stats.IndexesDropped)
 	}
 
 	if dr.Stats.ConstraintsAdded > 0 || dr.Stats.ConstraintsDropped > 0 {
-		sb.WriteString(fmt.Sprintf("Constraints: +%d -%d\n",
-			dr.Stats.ConstraintsAdded, dr.Stats.ConstraintsDropped))
+		fmt.Fprintf(&sb, "Constraints: +%d -%d\n",
+			dr.Stats.ConstraintsAdded, dr.Stats.ConstraintsDropped)
 	}
 
 	if dr.Stats.ViewsAdded > 0 || dr.Stats.ViewsDropped > 0 || dr.Stats.ViewsModified > 0 {
-		sb.WriteString(fmt.Sprintf("Views: +%d -%d ~%d\n",
-			dr.Stats.ViewsAdded, dr.Stats.ViewsDropped, dr.Stats.ViewsModified))
+		fmt.Fprintf(&sb, "Views: +%d -%d ~%d\n",
+			dr.Stats.ViewsAdded, dr.Stats.ViewsDropped, dr.Stats.ViewsModified)
 	}
 
 	if dr.Stats.FunctionsAdded > 0 || dr.Stats.FunctionsDropped > 0 ||
 		dr.Stats.FunctionsModified > 0 {
-		sb.WriteString(fmt.Sprintf("Functions: +%d -%d ~%d\n",
-			dr.Stats.FunctionsAdded, dr.Stats.FunctionsDropped, dr.Stats.FunctionsModified))
+		fmt.Fprintf(&sb, "Functions: +%d -%d ~%d\n",
+			dr.Stats.FunctionsAdded, dr.Stats.FunctionsDropped, dr.Stats.FunctionsModified)
 	}
 
 	sb.WriteString("\n")
@@ -205,13 +205,13 @@ func (dr *DiffResult) Summary() string {
 	dataMigration := dr.GetChangesBySeverity(SeverityDataMigrationRequired)
 
 	sb.WriteString("Severity Breakdown:\n")
-	sb.WriteString(fmt.Sprintf("  Safe: %d\n", len(safe)))
-	sb.WriteString(fmt.Sprintf("  Potentially Breaking: %d\n", len(potentiallyBreaking)))
-	sb.WriteString(fmt.Sprintf("  Breaking: %d\n", len(breaking)))
-	sb.WriteString(fmt.Sprintf("  Data Migration Required: %d\n", len(dataMigration)))
+	fmt.Fprintf(&sb, "  Safe: %d\n", len(safe))
+	fmt.Fprintf(&sb, "  Potentially Breaking: %d\n", len(potentiallyBreaking))
+	fmt.Fprintf(&sb, "  Breaking: %d\n", len(breaking))
+	fmt.Fprintf(&sb, "  Data Migration Required: %d\n", len(dataMigration))
 
 	if len(dr.Warnings) > 0 {
-		sb.WriteString(fmt.Sprintf("\nWarnings: %d\n", len(dr.Warnings)))
+		fmt.Fprintf(&sb, "\nWarnings: %d\n", len(dr.Warnings))
 	}
 
 	return sb.String()

@@ -26,7 +26,7 @@ func (qb *queryBuilder) schemaFilter() string {
 				builder.WriteString(", ")
 			}
 
-			builder.WriteString(fmt.Sprintf("'%s'", s))
+			fmt.Fprintf(&builder, "'%s'", s)
 		}
 
 		builder.WriteString(")")
@@ -53,7 +53,7 @@ func (qb *queryBuilder) namespaceFilter(column string) string {
 				builder.WriteString(", ")
 			}
 
-			builder.WriteString(fmt.Sprintf("'%s'", s))
+			fmt.Fprintf(&builder, "'%s'", s)
 		}
 
 		builder.WriteString(")")
@@ -95,7 +95,7 @@ func (qb *queryBuilder) buildInClause(values []string) string {
 			builder.WriteString(", ")
 		}
 
-		builder.WriteString(fmt.Sprintf("'%s'", v))
+		fmt.Fprintf(&builder, "'%s'", v)
 	}
 
 	return builder.String()
