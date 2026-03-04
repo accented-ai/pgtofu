@@ -234,6 +234,18 @@ func (l *Lexer) nextToken() (Token, error) { //nolint:cyclop,gocyclo
 		return l.consumeSingleCharacter(TokenOperator, startPos, startLine, startCol), nil
 	case ch == '/':
 		return l.consumeSingleCharacter(TokenOperator, startPos, startLine, startCol), nil
+	case ch == '&' && l.peekAheadString("&&"):
+		return l.consumeMultiCharacter(TokenOperator, startPos, startLine, startCol, 2), nil
+	case ch == '|' && l.peekAheadString("||"):
+		return l.consumeMultiCharacter(TokenOperator, startPos, startLine, startCol, 2), nil
+	case ch == '~':
+		return l.consumeSingleCharacter(TokenOperator, startPos, startLine, startCol), nil
+	case ch == '#':
+		return l.consumeSingleCharacter(TokenOperator, startPos, startLine, startCol), nil
+	case ch == '&':
+		return l.consumeSingleCharacter(TokenOperator, startPos, startLine, startCol), nil
+	case ch == '|':
+		return l.consumeSingleCharacter(TokenOperator, startPos, startLine, startCol), nil
 	default:
 		l.advance()
 

@@ -87,6 +87,43 @@ func TestLexerComments(t *testing.T) {
 	require.Equal(t, parser.TokenEOF, tokens[5].Type)
 }
 
+func TestLexerOperators(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		input   string
+		wantOps []string
+	}{
+		{"double ampersand", "a && b", []string{"&&"}},
+		{"double pipe", "a || b", []string{"||"}},
+		{"single ampersand", "a & b", []string{"&"}},
+		{"single pipe", "a | b", []string{"|"}},
+		{"tilde", "~a", []string{"~"}},
+		{"hash", "a # b", []string{"#"}},
+		{"mixed operators", "a && b || c", []string{"&&", "||"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tokens, err := parser.NewLexer(tt.input).Tokenize()
+			require.NoError(t, err)
+
+			var ops []string
+
+			for _, tok := range tokens {
+				if tok.Type == parser.TokenOperator {
+					ops = append(ops, tok.Literal)
+				}
+			}
+
+			require.Equal(t, tt.wantOps, ops)
+		})
+	}
+}
+
 func TestLexerErrors(t *testing.T) {
 	t.Parallel()
 

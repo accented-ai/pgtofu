@@ -148,6 +148,24 @@ func TestParseComplexConstraints(t *testing.T) { //nolint:gocognit
 			wantCheck:           false,
 			wantDeferrable:      false,
 		},
+		{
+			name: "EXCLUDE USING gist with && operator",
+			sql: `CREATE TABLE reservations (
+				id UUID NOT NULL PRIMARY KEY,
+				room_id INTEGER NOT NULL,
+				valid_from TIMESTAMPTZ NOT NULL,
+				valid_until TIMESTAMPTZ NOT NULL,
+				EXCLUDE USING gist (
+					room_id WITH =,
+					tstzrange(valid_from, valid_until) WITH &&
+				)
+			);`,
+			wantTable:           "reservations",
+			wantConstraintCount: 2, // PK + EXCLUDE
+			wantFK:              false,
+			wantCheck:           false,
+			wantDeferrable:      false,
+		},
 	}
 
 	for _, tt := range tests {
