@@ -125,7 +125,7 @@ func formatColumnDefinition(col *schema.Column) (string, error) {
 	return buf.String(), nil
 }
 
-func formatConstraintDefinition( //nolint:cyclop,gocognit,gocyclo
+func formatConstraintDefinition( //nolint:cyclop,gocognit,gocyclo,maintidx
 	c *schema.Constraint,
 ) (string, error) {
 	if c == nil {
@@ -270,8 +270,44 @@ func formatConstraintDefinition( //nolint:cyclop,gocognit,gocyclo
 			return "", errors.New("exclude constraint requires a definition")
 		}
 
-		buf.Write("EXCLUDE")
-		buf.Write(c.Definition)
+		def := strings.TrimSpace(c.Definition)
+		if !strings.HasPrefix(strings.ToUpper(def), "EXCLUDE") {
+			def = "EXCLUDE " + def
+		}
+
+		lines := strings.Split(def, "\n")
+
+		nonEmpty := lines[:0]
+		for _, line := range lines {
+			trimmed := strings.TrimRight(line, " \t")
+			if strings.TrimSpace(trimmed) != "" {
+				nonEmpty = append(nonEmpty, trimmed)
+			}
+		}
+
+		lines = nonEmpty
+
+		if len(lines) > 1 {
+			minIndent := -1
+
+			for i := 1; i < len(lines); i++ {
+				indent := len(lines[i]) - len(strings.TrimLeft(lines[i], " \t"))
+				if minIndent == -1 || indent < minIndent {
+					minIndent = indent
+				}
+			}
+
+			for i := 1; i < len(lines); i++ {
+				trimmed := strings.TrimLeft(lines[i], " \t")
+				if strings.TrimSpace(trimmed) == ")" {
+					lines[i] = trimmed
+				} else {
+					lines[i] = sqlIndent + trimmed
+				}
+			}
+		}
+
+		buf.Write(strings.Join(lines, "\n"))
 
 	default:
 		if c.Definition != "" {

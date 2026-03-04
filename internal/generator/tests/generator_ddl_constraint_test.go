@@ -314,6 +314,30 @@ func TestDDLBuilder_ConstraintOperations(t *testing.T) { //nolint:maintidx
 			wantRequiresTx: true,
 		},
 		{
+			name:       "add EXCLUDE constraint with EXCLUDE in definition",
+			changeType: differ.ChangeTypeAddConstraint,
+			table: &schema.Table{
+				Schema: schema.DefaultSchema,
+				Name:   "reservations",
+			},
+			constraint: &schema.Constraint{
+				Name: "reservations_no_overlap",
+				Type: "EXCLUDE",
+				Definition: "EXCLUDE USING gist (\n" +
+					"        room_id WITH =,\n" +
+					"        item_id WITH =,\n" +
+					"        tstzrange(valid_from, valid_until) WITH &&\n" +
+					"    )",
+			},
+			wantSQL: []string{
+				"ADD CONSTRAINT",
+				"reservations_no_overlap",
+				"EXCLUDE USING gist (\n    room_id WITH =,\n    item_id WITH =,\n    tstzrange(valid_from, valid_until) WITH &&\n)",
+			},
+			wantUnsafe:     false,
+			wantRequiresTx: true,
+		},
+		{
 			name:       "add deferrable constraint",
 			changeType: differ.ChangeTypeAddConstraint,
 			table: &schema.Table{
