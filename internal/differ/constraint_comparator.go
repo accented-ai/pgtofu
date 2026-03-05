@@ -196,7 +196,7 @@ func areConstraintsEqual(c1, c2 *schema.Constraint) bool {
 		return false
 	}
 
-	if !c1.IsCheck() && !equalStringSlices(c1.Columns, c2.Columns) {
+	if !c1.IsCheck() && !isExcludeConstraint(c1) && !equalStringSlices(c1.Columns, c2.Columns) {
 		return false
 	}
 
@@ -223,6 +223,12 @@ func areConstraintsEqual(c1, c2 *schema.Constraint) bool {
 
 	if c1.IsCheck() {
 		if normalizeExpression(c1.CheckExpression) != normalizeExpression(c2.CheckExpression) {
+			return false
+		}
+	}
+
+	if isExcludeConstraint(c1) {
+		if normalizeExcludeDefinition(c1.Definition) != normalizeExcludeDefinition(c2.Definition) {
 			return false
 		}
 	}
@@ -264,6 +270,18 @@ func normalizeAction(action string) string {
 	if normalized == "" || normalized == "NO ACTION" {
 		return "NO ACTION"
 	}
+
+	return normalized
+}
+
+func isExcludeConstraint(c *schema.Constraint) bool {
+	return c.Type == schema.ConstraintExclude
+}
+
+func normalizeExcludeDefinition(def string) string {
+	normalized := strings.ToLower(strings.Join(strings.Fields(def), " "))
+	normalized = strings.ReplaceAll(normalized, "( ", "(")
+	normalized = strings.ReplaceAll(normalized, " )", ")")
 
 	return normalized
 }

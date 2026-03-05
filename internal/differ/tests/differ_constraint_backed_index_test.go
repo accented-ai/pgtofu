@@ -113,6 +113,115 @@ func TestDiffer_ConstraintBackedIndexes(t *testing.T) {
 	}
 }
 
+func TestDiffer_ExcludeConstraintBackedIndex(t *testing.T) {
+	t.Parallel()
+
+	// Simulate what happens after applying an EXCLUDE constraint:
+	// - The extractor sees the auto-created gist index and the constraint with columns
+	// - The parser sees only the constraint (no index, no columns)
+	// There should be no changes detected.
+	current := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "reservations",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "uuid", IsNullable: false, Position: 1},
+					{Name: "room_id", DataType: "integer", IsNullable: false, Position: 2},
+					{Name: "valid_from", DataType: "timestamptz", IsNullable: false, Position: 3},
+					{Name: "valid_until", DataType: "timestamptz", IsNullable: false, Position: 4},
+				},
+				Constraints: []schema.Constraint{
+					{
+						Name:       "reservations_pkey",
+						Type:       schema.ConstraintPrimaryKey,
+						Columns:    []string{"id"},
+						Definition: "PRIMARY KEY (id)",
+					},
+					{
+						Name:       "reservations_no_overlap",
+						Type:       schema.ConstraintExclude,
+						Columns:    []string{"room_id"},
+						Definition: "EXCLUDE USING gist (room_id WITH =, tstzrange(valid_from, valid_until) WITH &&)",
+					},
+				},
+				Indexes: []schema.Index{
+					{
+						Schema:    schema.DefaultSchema,
+						TableName: "reservations",
+						Name:      "reservations_pkey",
+						Columns:   []string{"id"},
+						Type:      "btree",
+						IsUnique:  true,
+						IsPrimary: true,
+					},
+					{
+						Schema:    schema.DefaultSchema,
+						TableName: "reservations",
+						Name:      "reservations_no_overlap",
+						Columns:   []string{"room_id", "tstzrange(valid_from, valid_until)"},
+						Type:      "gist",
+					},
+				},
+			},
+		},
+	}
+
+	desired := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "reservations",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "uuid", IsNullable: false, Position: 1},
+					{Name: "room_id", DataType: "integer", IsNullable: false, Position: 2},
+					{Name: "valid_from", DataType: "timestamptz", IsNullable: false, Position: 3},
+					{Name: "valid_until", DataType: "timestamptz", IsNullable: false, Position: 4},
+				},
+				Constraints: []schema.Constraint{
+					{
+						Name:       "reservations_pkey",
+						Type:       schema.ConstraintPrimaryKey,
+						Columns:    []string{"id"},
+						Definition: "PRIMARY KEY (id)",
+					},
+					{
+						Name: "reservations_no_overlap",
+						Type: schema.ConstraintExclude,
+						Definition: "EXCLUDE USING gist (\n" +
+							"    room_id WITH =,\n" +
+							"    TSTZRANGE(valid_from, valid_until) WITH &&\n" +
+							")",
+					},
+				},
+			},
+		},
+	}
+
+	d := differ.New(differ.DefaultOptions())
+
+	result, err := d.Compare(current, desired)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, change := range result.Changes {
+		if change.Type == differ.ChangeTypeDropIndex {
+			t.Errorf(
+				"Unexpected DROP_INDEX change: %s (EXCLUDE constraint-backed indexes should be filtered out)",
+				change.Description,
+			)
+		}
+
+		if change.Type == differ.ChangeTypeModifyConstraint {
+			t.Errorf(
+				"Unexpected MODIFY_CONSTRAINT change: %s (EXCLUDE definitions should match after normalization)",
+				change.Description,
+			)
+		}
+	}
+}
+
 func TestDiffer_StandaloneIndexesStillDetected(t *testing.T) {
 	t.Parallel()
 

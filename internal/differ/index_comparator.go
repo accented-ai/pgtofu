@@ -171,7 +171,9 @@ func (ic *IndexComparator) isConstraintBackedIndex(idx *schema.Index, db *schema
 	for i := range table.Constraints {
 		constraint := &table.Constraints[i]
 		if constraint.Name == idx.Name &&
-			(constraint.Type == schema.ConstraintPrimaryKey || constraint.Type == schema.ConstraintUnique) {
+			(constraint.Type == schema.ConstraintPrimaryKey ||
+				constraint.Type == schema.ConstraintUnique ||
+				constraint.Type == schema.ConstraintExclude) {
 			return true
 		}
 	}
