@@ -1,6 +1,7 @@
 aggs
 amname
 attrelid
+atttypid
 bidichk
 cagg
 confrelid

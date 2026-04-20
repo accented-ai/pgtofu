@@ -143,8 +143,12 @@ const (
 			c.is_identity = 'YES',
 			c.identity_generation,
 			c.is_generated = 'ALWAYS',
-			c.generation_expression
+			c.generation_expression,
+			format_type(a.atttypid, a.atttypmod) AS full_type
 		FROM information_schema.columns c
+		LEFT JOIN pg_catalog.pg_attribute a
+			ON a.attrelid = (quote_ident(c.table_schema) || '.' || quote_ident(c.table_name))::regclass
+			AND a.attname = c.column_name
 		WHERE c.table_schema = $1 AND c.table_name = $2
 		ORDER BY c.ordinal_position`
 

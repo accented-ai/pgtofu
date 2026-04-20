@@ -3,6 +3,7 @@ package extractor
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -124,6 +125,7 @@ func (e *Extractor) extractColumns(ctx context.Context, table *schema.Table) err
 			scanner.String("identityGen"),
 			&col.IsGenerated,
 			scanner.String("generationExpr"),
+			scanner.String("fullType"),
 		); err != nil {
 			return util.WrapError("scan column", err)
 		}
@@ -132,6 +134,12 @@ func (e *Extractor) extractColumns(ctx context.Context, table *schema.Table) err
 		col.Comment = scanner.GetString("comment")
 		col.IdentityGeneration = scanner.GetString("identityGen")
 		col.GenerationExpression = scanner.GetString("generationExpr")
+
+		if col.DataType == "USER-DEFINED" {
+			if fullType := scanner.GetString("fullType"); fullType != "" {
+				col.DataType, col.Precision = parseFullType(fullType)
+			}
+		}
 
 		if maxLength := scanner.GetInt("charMaxLength"); maxLength != nil {
 			col.MaxLength = maxLength
@@ -269,6 +277,27 @@ func normalizeArrayElementType(elementType string) string {
 	}
 
 	return dt
+}
+
+func parseFullType(fullType string) (string, *int) {
+	openIdx := strings.Index(fullType, "(")
+	if openIdx == -1 {
+		return strings.ToUpper(fullType), nil
+	}
+
+	closeIdx := strings.LastIndex(fullType, ")")
+	if closeIdx == -1 || closeIdx < openIdx {
+		return strings.ToUpper(fullType), nil
+	}
+
+	base := strings.ToUpper(strings.TrimSpace(fullType[:openIdx]))
+	param := strings.TrimSpace(fullType[openIdx+1 : closeIdx])
+
+	if val, err := strconv.Atoi(param); err == nil {
+		return base, &val
+	}
+
+	return strings.ToUpper(fullType), nil
 }
 
 func (e *Extractor) extractPartitionInfo(ctx context.Context, table *schema.Table) error {
