@@ -568,6 +568,117 @@ func TestParseArrayTypes(t *testing.T) {
 	}
 }
 
+func TestParseExtensionTypes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		sql              string
+		columnName       string
+		wantDataType     string
+		wantFullDataType string
+		wantPrecision    *int
+	}{
+		{
+			name: "pgvector VECTOR type with dimensions",
+			sql: `CREATE TABLE items (
+				embedding VECTOR(1536) NOT NULL
+			);`,
+			columnName:       "embedding",
+			wantDataType:     "VECTOR",
+			wantFullDataType: "VECTOR(1536)",
+			wantPrecision:    intPtr(1536),
+		},
+		{
+			name: "pgvector VECTOR type without dimensions",
+			sql: `CREATE TABLE items (
+				embedding VECTOR NOT NULL
+			);`,
+			columnName:       "embedding",
+			wantDataType:     "VECTOR",
+			wantFullDataType: "VECTOR",
+			wantPrecision:    nil,
+		},
+		{
+			name: "pgvector in full table with foreign keys",
+			sql: `CREATE TABLE vectors.documents (
+				document_id UUID NOT NULL REFERENCES vectors.sources (id) ON DELETE CASCADE,
+				model_id TEXT NOT NULL REFERENCES vectors.embedding_models (id),
+				embedding VECTOR(1536) NOT NULL,
+				source_text TEXT NOT NULL,
+				created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				PRIMARY KEY (document_id, model_id)
+			);`,
+			columnName:       "embedding",
+			wantDataType:     "VECTOR",
+			wantFullDataType: "VECTOR(1536)",
+			wantPrecision:    intPtr(1536),
+		},
+		{
+			name: "NUMERIC type still works",
+			sql: `CREATE TABLE items (
+				price NUMERIC(10, 2) NOT NULL
+			);`,
+			columnName:       "price",
+			wantDataType:     "NUMERIC",
+			wantFullDataType: "NUMERIC(10, 2)",
+			wantPrecision:    intPtr(10),
+		},
+		{
+			name: "BIT type with length",
+			sql: `CREATE TABLE items (
+				flags BIT(8)
+			);`,
+			columnName:       "flags",
+			wantDataType:     "BIT",
+			wantFullDataType: "BIT(8)",
+			wantPrecision:    intPtr(8),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			db := parseSQL(t, tt.sql)
+			table := requireSingleTable(t, db)
+
+			col := table.GetColumn(tt.columnName)
+			if col == nil {
+				t.Fatalf("column %s not found", tt.columnName)
+			}
+
+			if col.DataType != tt.wantDataType {
+				t.Errorf("column DataType = %q, want %q", col.DataType, tt.wantDataType)
+			}
+
+			if col.FullDataType() != tt.wantFullDataType {
+				t.Errorf(
+					"column FullDataType() = %q, want %q",
+					col.FullDataType(),
+					tt.wantFullDataType,
+				)
+			}
+
+			if tt.wantPrecision == nil {
+				if col.Precision != nil {
+					t.Errorf("column Precision = %d, want nil", *col.Precision)
+				}
+			} else {
+				if col.Precision == nil {
+					t.Errorf("column Precision = nil, want %d", *tt.wantPrecision)
+				} else if *col.Precision != *tt.wantPrecision {
+					t.Errorf("column Precision = %d, want %d", *col.Precision, *tt.wantPrecision)
+				}
+			}
+		})
+	}
+}
+
+func intPtr(v int) *int {
+	return &v
+}
+
 func TestParseCrossSchemaReferences(t *testing.T) {
 	t.Parallel()
 

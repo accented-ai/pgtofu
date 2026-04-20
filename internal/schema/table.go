@@ -159,9 +159,9 @@ func (c *Column) FullDataType() string {
 		dt = formatCharacterType(dt, *c.MaxLength)
 	} else if c.Precision != nil {
 		if c.Scale != nil && *c.Scale > 0 {
-			dt = fmt.Sprintf("NUMERIC(%d, %d)", *c.Precision, *c.Scale)
+			dt = fmt.Sprintf("%s(%d, %d)", dt, *c.Precision, *c.Scale)
 		} else {
-			dt = fmt.Sprintf("NUMERIC(%d)", *c.Precision)
+			dt = fmt.Sprintf("%s(%d)", dt, *c.Precision)
 		}
 	}
 
