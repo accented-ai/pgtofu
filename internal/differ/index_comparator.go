@@ -221,7 +221,67 @@ func areIndexesEqual(i1, i2 *schema.Index) bool {
 		return false
 	}
 
+	if !equalStorageParams(i1.StorageParams, i2.StorageParams) {
+		return false
+	}
+
 	return normalizeExpression(i1.Where) == normalizeExpression(i2.Where)
+}
+
+func equalStorageParams(a, b map[string]string) bool {
+	normalizedA := normalizeStorageParams(a)
+	normalizedB := normalizeStorageParams(b)
+
+	if len(normalizedA) != len(normalizedB) {
+		return false
+	}
+
+	for k, v1 := range normalizedA {
+		v2, ok := normalizedB[k]
+		if !ok {
+			return false
+		}
+
+		if v1 != v2 {
+			return false
+		}
+	}
+
+	return true
+}
+
+func trimQuotes(value string) string {
+	if len(value) < 2 {
+		return value
+	}
+
+	first := value[0]
+	last := value[len(value)-1]
+
+	if (first == '\'' && last == '\'') || (first == '"' && last == '"') {
+		return value[1 : len(value)-1]
+	}
+
+	return value
+}
+
+func normalizeStorageParams(params map[string]string) map[string]string {
+	if len(params) == 0 {
+		return nil
+	}
+
+	normalized := make(map[string]string, len(params))
+
+	for k, v := range params {
+		key := strings.ToLower(strings.TrimSpace(k))
+		value := strings.TrimSpace(v)
+
+		value = trimQuotes(value)
+
+		normalized[key] = value
+	}
+
+	return normalized
 }
 
 func equalIndexColumns(a, b []string) bool {

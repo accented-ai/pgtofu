@@ -262,6 +262,29 @@ func TestDDLBuilder_AdvancedIndexOperations(t *testing.T) { //nolint:maintidx
 			},
 		},
 		{
+			name:       "HNSW index with opclass and storage params",
+			changeType: differ.ChangeTypeAddIndex,
+			index: &schema.Index{
+				Schema:        "vectors",
+				Name:          "documents_hnsw_idx",
+				TableName:     "documents",
+				Columns:       []string{"embedding halfvec_cosine_ops"},
+				Type:          "hnsw",
+				StorageParams: map[string]string{"m": "16", "ef_construction": "64"},
+				Where:         "model_id = 'primary' AND task_type = 'search'",
+			},
+			wantSQL: []string{
+				"CREATE INDEX",
+				"documents_hnsw_idx",
+				"ON vectors.documents",
+				"USING hnsw",
+				"(embedding halfvec_cosine_ops)",
+				"WITH (ef_construction = 64, m = 16)",
+				"WHERE",
+				"'primary'",
+			},
+		},
+		{
 			name:       "drop index",
 			changeType: differ.ChangeTypeDropIndex,
 			index: &schema.Index{

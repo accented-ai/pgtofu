@@ -124,6 +124,16 @@ func TestParseAdvancedIndexes(t *testing.T) {
 			wantInclude:    false,
 			wantExpression: false,
 		},
+		{
+			name:           "HNSW index with halfvec opclass",
+			setupSQL:       `CREATE TABLE embeddings (id UUID, v HALFVEC(3072));`,
+			indexSQL:       `CREATE INDEX idx_embeddings_hnsw ON embeddings USING hnsw (v halfvec_cosine_ops);`,
+			wantIndex:      "idx_embeddings_hnsw",
+			wantType:       "hnsw",
+			wantGIN:        false,
+			wantInclude:    false,
+			wantExpression: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -174,6 +184,151 @@ func TestParseAdvancedIndexes(t *testing.T) {
 				t.Errorf("is expression index = %v, want %v", idx.IsExpression(), tt.wantExpression)
 			}
 		})
+	}
+}
+
+func TestParseIndexOperatorClassAndStorageParams(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name              string
+		setupSQL          string
+		indexSQL          string
+		wantIndex         string
+		wantType          string
+		wantColumns       []string
+		wantStorageParams map[string]string
+		wantWhere         string
+	}{
+		{
+			name:     "HNSW index with opclass and storage params",
+			setupSQL: `CREATE TABLE embeddings (id UUID, embedding HALFVEC(3072));`,
+			indexSQL: `CREATE INDEX idx_emb_hnsw ON embeddings
+				USING hnsw (embedding halfvec_cosine_ops)
+				WITH (m = 16, ef_construction = 64);`,
+			wantIndex:         "idx_emb_hnsw",
+			wantType:          "hnsw",
+			wantColumns:       []string{"embedding halfvec_cosine_ops"},
+			wantStorageParams: map[string]string{"m": "16", "ef_construction": "64"},
+			wantWhere:         "",
+		},
+		{
+			name:     "partial HNSW index with opclass storage params and WHERE",
+			setupSQL: `CREATE TABLE documents (id UUID, model_id TEXT, task_type TEXT, embedding HALFVEC(3072));`,
+			indexSQL: `CREATE INDEX documents_search_idx ON documents
+				USING hnsw (embedding halfvec_cosine_ops)
+				WITH (m = 16, ef_construction = 64)
+				WHERE model_id = 'primary' AND task_type = 'search';`,
+			wantIndex:         "documents_search_idx",
+			wantType:          "hnsw",
+			wantColumns:       []string{"embedding halfvec_cosine_ops"},
+			wantStorageParams: map[string]string{"m": "16", "ef_construction": "64"},
+			wantWhere:         "model_id = 'primary' AND task_type = 'search'",
+		},
+		{
+			name:              "btree index with fillfactor storage param",
+			setupSQL:          `CREATE TABLE t (id UUID, email TEXT);`,
+			indexSQL:          `CREATE INDEX idx_t_email ON t (email) WITH (fillfactor = 70);`,
+			wantIndex:         "idx_t_email",
+			wantType:          "btree",
+			wantColumns:       []string{"email"},
+			wantStorageParams: map[string]string{"fillfactor": "70"},
+			wantWhere:         "",
+		},
+		{
+			name:              "quoted storage param value",
+			setupSQL:          `CREATE TABLE t (id UUID, v HALFVEC(3));`,
+			indexSQL:          `CREATE INDEX idx_t_v ON t USING hnsw (v halfvec_cosine_ops) WITH (m='16');`,
+			wantIndex:         "idx_t_v",
+			wantType:          "hnsw",
+			wantColumns:       []string{"v halfvec_cosine_ops"},
+			wantStorageParams: map[string]string{"m": "16"},
+			wantWhere:         "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			db := parseSQLWithSetup(t, tt.setupSQL, tt.indexSQL)
+			table := requireSingleTable(t, db)
+
+			idx := findIndexByName(table.Indexes, tt.wantIndex)
+			if idx == nil {
+				t.Fatalf("index %s not found; got %d indexes", tt.wantIndex, len(table.Indexes))
+			}
+
+			assertIndexShape(
+				t,
+				idx,
+				tt.wantType,
+				tt.wantColumns,
+				tt.wantStorageParams,
+				tt.wantWhere,
+			)
+		})
+	}
+}
+
+func findIndexByName(indexes []schema.Index, name string) *schema.Index {
+	for i := range indexes {
+		if indexes[i].Name == name {
+			return &indexes[i]
+		}
+	}
+
+	return nil
+}
+
+func assertIndexShape(
+	t *testing.T,
+	idx *schema.Index,
+	wantType string,
+	wantColumns []string,
+	wantStorageParams map[string]string,
+	wantWhere string,
+) {
+	t.Helper()
+
+	if idx.Type != wantType {
+		t.Errorf("index type = %v, want %v", idx.Type, wantType)
+	}
+
+	if len(idx.Columns) != len(wantColumns) {
+		t.Fatalf("columns length = %d, want %d", len(idx.Columns), len(wantColumns))
+	}
+
+	for i, want := range wantColumns {
+		if idx.Columns[i] != want {
+			t.Errorf("columns[%d] = %q, want %q", i, idx.Columns[i], want)
+		}
+	}
+
+	assertStorageParams(t, idx.StorageParams, wantStorageParams)
+
+	if strings.TrimSpace(idx.Where) != wantWhere {
+		t.Errorf("where = %q, want %q", idx.Where, wantWhere)
+	}
+}
+
+func assertStorageParams(t *testing.T, got, want map[string]string) {
+	t.Helper()
+
+	if len(got) != len(want) {
+		t.Errorf("storage params count = %d, want %d (got %v)", len(got), len(want), got)
+	}
+
+	for k, v := range want {
+		actual, ok := got[k]
+		if !ok {
+			t.Errorf("missing storage param %q", k)
+			continue
+		}
+
+		if actual != v {
+			t.Errorf("storage param %q = %q, want %q", k, actual, v)
+		}
 	}
 }
 

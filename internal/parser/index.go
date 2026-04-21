@@ -8,15 +8,16 @@ import (
 )
 
 type indexStatement struct {
-	isUnique    bool
-	indexName   string
-	tableSchema string
-	tableName   string
-	indexType   string
-	columnExprs []string
-	includeCols []string
-	whereClause string
-	definition  string
+	isUnique      bool
+	indexName     string
+	tableSchema   string
+	tableName     string
+	indexType     string
+	columnExprs   []string
+	includeCols   []string
+	whereClause   string
+	storageParams map[string]string
+	definition    string
 }
 
 func (p *Parser) parseCreateIndex(stmt string, db *schema.Database) error {
@@ -35,6 +36,7 @@ func (p *Parser) parseCreateIndex(stmt string, db *schema.Database) error {
 		Type:           parsed.indexType,
 		Where:          parsed.whereClause,
 		IncludeColumns: parsed.includeCols,
+		StorageParams:  parsed.storageParams,
 		Definition:     parsed.definition,
 	}
 
@@ -90,7 +92,7 @@ func (p *Parser) parseCreateIndex(stmt string, db *schema.Database) error {
 	return nil
 }
 
-func (p *Parser) parseIndexStatement( //nolint:cyclop,gocognit,gocyclo
+func (p *Parser) parseIndexStatement( //nolint:cyclop,gocognit,gocyclo,maintidx
 	stmt string,
 ) (*indexStatement, error) {
 	tokens, err := NewLexer(stmt).Tokenize()
@@ -214,6 +216,8 @@ func (p *Parser) parseIndexStatement( //nolint:cyclop,gocognit,gocyclo
 	includeColumns := []string{}
 	whereClause := ""
 
+	var storageParams map[string]string
+
 	for idx < len(tokens) {
 		word := upperLiteral(tokens, idx)
 
@@ -236,6 +240,24 @@ func (p *Parser) parseIndexStatement( //nolint:cyclop,gocognit,gocyclo
 			includeColumns = parseIncludeColumnsLiteral(p, includeLiteral)
 			idx = nextIncludeIdx
 
+		case "WITH":
+			parentIdx := nextNonCommentIndex(tokens, idx+1)
+			if parentIdx >= len(tokens) || tokens[parentIdx].Type != TokenLParen {
+				return nil, NewParseError("missing WITH storage parameter list")
+			}
+
+			paramsLiteral, nextWithIdx, err := extractParenthesizedLiteral(
+				stmt,
+				tokens,
+				parentIdx,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			storageParams = parseStorageParamsLiteral(paramsLiteral)
+			idx = nextWithIdx
+
 		case "WHERE":
 			expr, nextWhereIdx := collectLiteralUntil(
 				tokens,
@@ -256,15 +278,16 @@ func (p *Parser) parseIndexStatement( //nolint:cyclop,gocognit,gocyclo
 	}
 
 	return &indexStatement{
-		isUnique:    isUnique,
-		indexName:   indexName,
-		tableSchema: tableSchema,
-		tableName:   tableName,
-		indexType:   indexType,
-		columnExprs: columns,
-		includeCols: includeColumns,
-		whereClause: strings.TrimSpace(whereClause),
-		definition:  stmt,
+		isUnique:      isUnique,
+		indexName:     indexName,
+		tableSchema:   tableSchema,
+		tableName:     tableName,
+		indexType:     indexType,
+		columnExprs:   columns,
+		includeCols:   includeColumns,
+		whereClause:   strings.TrimSpace(whereClause),
+		storageParams: storageParams,
+		definition:    stmt,
 	}, nil
 }
 
@@ -280,6 +303,40 @@ func parseIndexColumnsLiteral(p *Parser, literal string) []string {
 	}
 
 	return columns
+}
+
+func parseStorageParamsLiteral(literal string) map[string]string {
+	if strings.TrimSpace(literal) == "" {
+		return nil
+	}
+
+	parts := splitByComma(literal)
+	if len(parts) == 0 {
+		return nil
+	}
+
+	params := make(map[string]string, len(parts))
+
+	for _, part := range parts {
+		key, value, ok := strings.Cut(part, "=")
+		if !ok {
+			continue
+		}
+
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		value = unquote(value)
+
+		if key != "" {
+			params[strings.ToLower(key)] = value
+		}
+	}
+
+	if len(params) == 0 {
+		return nil
+	}
+
+	return params
 }
 
 func parseIncludeColumnsLiteral(p *Parser, literal string) []string {
@@ -311,5 +368,7 @@ func (p *Parser) normalizeIndexColumn(colExpr string) string {
 		return colExpr
 	}
 
-	return p.normalizeIdent(parts[0])
+	parts[0] = p.normalizeIdent(parts[0])
+
+	return strings.Join(parts, " ")
 }

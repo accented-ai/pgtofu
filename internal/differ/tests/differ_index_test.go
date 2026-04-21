@@ -7,7 +7,7 @@ import (
 	"github.com/accented-ai/pgtofu/internal/schema"
 )
 
-func TestDiffer_CompareIndexes(t *testing.T) {
+func TestDiffer_CompareIndexes(t *testing.T) { //nolint:maintidx
 	t.Parallel()
 
 	tests := []struct {
@@ -180,6 +180,190 @@ func TestDiffer_CompareIndexes(t *testing.T) {
 								Name:      "idx_users",
 								Columns:   []string{"email", "name"},
 								Type:      "btree",
+							},
+						},
+					},
+				},
+			},
+			expectedChanges: 1,
+			expectedTypes:   []differ.ChangeType{differ.ChangeTypeModifyIndex},
+		},
+		{
+			name: "no change for HNSW index with matching opclass and storage params",
+			current: &schema.Database{
+				Tables: []schema.Table{
+					{
+						Schema: "vectors",
+						Name:   "documents",
+						Indexes: []schema.Index{
+							{
+								Schema:    "vectors",
+								TableName: "documents",
+								Name:      "documents_hnsw_idx",
+								Columns:   []string{"embedding halfvec_cosine_ops"},
+								Type:      "hnsw",
+								StorageParams: map[string]string{
+									"m":               "16",
+									"ef_construction": "64",
+								},
+								Where: "model_id = 'primary' AND task_type = 'search'",
+							},
+						},
+					},
+				},
+			},
+			desired: &schema.Database{
+				Tables: []schema.Table{
+					{
+						Schema: "vectors",
+						Name:   "documents",
+						Indexes: []schema.Index{
+							{
+								Schema:    "vectors",
+								TableName: "documents",
+								Name:      "documents_hnsw_idx",
+								Columns:   []string{"embedding halfvec_cosine_ops"},
+								Type:      "hnsw",
+								StorageParams: map[string]string{
+									"m":               "16",
+									"ef_construction": "64",
+								},
+								Where: "model_id = 'primary' AND task_type = 'search'",
+							},
+						},
+					},
+				},
+			},
+			expectedChanges: 0,
+			expectedTypes:   nil,
+		},
+		{
+			name: "modify when HNSW storage params differ",
+			current: &schema.Database{
+				Tables: []schema.Table{
+					{
+						Schema: "vectors",
+						Name:   "documents",
+						Indexes: []schema.Index{
+							{
+								Schema:    "vectors",
+								TableName: "documents",
+								Name:      "documents_hnsw_idx",
+								Columns:   []string{"embedding halfvec_cosine_ops"},
+								Type:      "hnsw",
+								StorageParams: map[string]string{
+									"m":               "16",
+									"ef_construction": "64",
+								},
+							},
+						},
+					},
+				},
+			},
+			desired: &schema.Database{
+				Tables: []schema.Table{
+					{
+						Schema: "vectors",
+						Name:   "documents",
+						Indexes: []schema.Index{
+							{
+								Schema:    "vectors",
+								TableName: "documents",
+								Name:      "documents_hnsw_idx",
+								Columns:   []string{"embedding halfvec_cosine_ops"},
+								Type:      "hnsw",
+								StorageParams: map[string]string{
+									"m":               "32",
+									"ef_construction": "64",
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedChanges: 1,
+			expectedTypes:   []differ.ChangeType{differ.ChangeTypeModifyIndex},
+		},
+		{
+			name: "no change when extractor WHERE has casts and extra parens",
+			current: &schema.Database{
+				Tables: []schema.Table{
+					{
+						Schema: "vectors",
+						Name:   "documents",
+						Indexes: []schema.Index{
+							{
+								Schema:    "vectors",
+								TableName: "documents",
+								Name:      "documents_hnsw_idx",
+								Columns:   []string{"embedding halfvec_cosine_ops"},
+								Type:      "hnsw",
+								StorageParams: map[string]string{
+									"m":               "16",
+									"ef_construction": "64",
+								},
+								Where: "((model_id = 'primary'::text) AND (task_type = 'search'::text))",
+							},
+						},
+					},
+				},
+			},
+			desired: &schema.Database{
+				Tables: []schema.Table{
+					{
+						Schema: "vectors",
+						Name:   "documents",
+						Indexes: []schema.Index{
+							{
+								Schema:    "vectors",
+								TableName: "documents",
+								Name:      "documents_hnsw_idx",
+								Columns:   []string{"embedding halfvec_cosine_ops"},
+								Type:      "hnsw",
+								StorageParams: map[string]string{
+									"m":               "16",
+									"ef_construction": "64",
+								},
+								Where: "model_id = 'primary' AND task_type = 'search'",
+							},
+						},
+					},
+				},
+			},
+			expectedChanges: 0,
+			expectedTypes:   nil,
+		},
+		{
+			name: "modify when opclass differs",
+			current: &schema.Database{
+				Tables: []schema.Table{
+					{
+						Schema: "vectors",
+						Name:   "documents",
+						Indexes: []schema.Index{
+							{
+								Schema:    "vectors",
+								TableName: "documents",
+								Name:      "documents_hnsw_idx",
+								Columns:   []string{"embedding halfvec_cosine_ops"},
+								Type:      "hnsw",
+							},
+						},
+					},
+				},
+			},
+			desired: &schema.Database{
+				Tables: []schema.Table{
+					{
+						Schema: "vectors",
+						Name:   "documents",
+						Indexes: []schema.Index{
+							{
+								Schema:    "vectors",
+								TableName: "documents",
+								Name:      "documents_hnsw_idx",
+								Columns:   []string{"embedding halfvec_l2_ops"},
+								Type:      "hnsw",
 							},
 						},
 					},

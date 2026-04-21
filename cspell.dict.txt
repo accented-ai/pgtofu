@@ -32,7 +32,9 @@ gomodguard
 goprintffuncname
 gosmopolitan
 govet
+halfvec
 Hasura
+hnsw
 icol
 importas
 inconshreveable

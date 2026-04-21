@@ -45,7 +45,7 @@ func (i *Index) IsPartial() bool {
 
 func (i *Index) IsExpression() bool {
 	for _, col := range i.Columns {
-		if strings.ContainsAny(col, "() ") {
+		if strings.ContainsAny(col, "()") {
 			return true
 		}
 	}

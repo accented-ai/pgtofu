@@ -49,6 +49,52 @@ func TestIdempotencyIntegration(t *testing.T) {
 	}
 }
 
+func TestIdempotencyHNSWIndexWithOperatorClass(t *testing.T) {
+	t.Parallel()
+
+	sql := `
+		CREATE SCHEMA IF NOT EXISTS vectors;
+
+		CREATE TABLE vectors.documents (
+			document_id UUID NOT NULL,
+			model_id TEXT NOT NULL,
+			task_type TEXT NOT NULL,
+			embedding HALFVEC(3072) NOT NULL,
+			PRIMARY KEY (document_id, model_id, task_type)
+		);
+
+		CREATE INDEX documents_search_hnsw_idx
+			ON vectors.documents
+			USING hnsw (embedding halfvec_cosine_ops)
+			WITH (m = 16, ef_construction = 64)
+			WHERE model_id = 'primary' AND task_type = 'search';
+
+		CREATE INDEX documents_similarity_hnsw_idx
+			ON vectors.documents
+			USING hnsw (embedding halfvec_cosine_ops)
+			WITH (m = 16, ef_construction = 64)
+			WHERE model_id = 'primary' AND task_type = 'similarity';
+	`
+
+	current := parseSQL(t, sql)
+	desired := parseSQL(t, sql)
+
+	d := differ.New(differ.DefaultOptions())
+
+	result, err := d.Compare(current, desired)
+	if err != nil {
+		t.Fatalf("Compare error = %v", err)
+	}
+
+	if len(result.Changes) > 0 {
+		t.Errorf("Expected no changes for identical HNSW indexes, got %d:", len(result.Changes))
+
+		for _, change := range result.Changes {
+			t.Logf("  [%s] %s: %s", change.Severity, change.Type, change.Description)
+		}
+	}
+}
+
 func TestIdempotencyWithExplicitConstraintNames(t *testing.T) {
 	t.Parallel()
 

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/accented-ai/pgtofu/internal/schema"
@@ -390,12 +391,33 @@ func formatIndexDefinition(idx *schema.Index) (string, error) {
 		buf.Write(fmt.Sprintf("(%s)", quoteColumns(idx.IncludeColumns)))
 	}
 
+	if len(idx.StorageParams) > 0 {
+		buf.Write("WITH")
+		buf.Write(fmt.Sprintf("(%s)", formatStorageParams(idx.StorageParams)))
+	}
+
 	if idx.Where != "" {
 		buf.Write("WHERE")
 		buf.Write(NormalizeWhereClause(idx.Where))
 	}
 
 	return buf.String(), nil
+}
+
+func formatStorageParams(params map[string]string) string {
+	keys := make([]string, 0, len(params))
+	for k := range params {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	pairs := make([]string, 0, len(keys))
+	for _, k := range keys {
+		pairs = append(pairs, fmt.Sprintf("%s = %s", k, params[k]))
+	}
+
+	return strings.Join(pairs, ", ")
 }
 
 func formatViewDefinition(v *schema.View, orReplace bool) (string, error) {
