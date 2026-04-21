@@ -310,8 +310,21 @@ func normalizeIndexColumn(col string) string {
 	expr = removeTypeCasts(expr)
 	expr = regexp.MustCompile(`\s+`).ReplaceAllString(expr, " ")
 	expr = strings.TrimSpace(expr)
+	expr = canonicalizeSortOrder(expr)
 
 	return expr
+}
+
+func canonicalizeSortOrder(expr string) string {
+	expr = strings.TrimSuffix(expr, " asc nulls last")
+	expr = strings.TrimSuffix(expr, " asc")
+	expr = strings.TrimSuffix(expr, " nulls last")
+
+	if strings.HasSuffix(expr, " desc nulls first") {
+		expr = strings.TrimSuffix(expr, " nulls first")
+	}
+
+	return strings.TrimSpace(expr)
 }
 
 func stripIdentifierQuotes(expr string) string {

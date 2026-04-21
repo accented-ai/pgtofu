@@ -334,6 +334,123 @@ func TestDiffer_CompareIndexes(t *testing.T) { //nolint:maintidx
 			expectedTypes:   nil,
 		},
 		{
+			name: "no change when parser has explicit ASC but extractor omits it",
+			current: &schema.Database{
+				Tables: []schema.Table{
+					{
+						Schema: schema.DefaultSchema,
+						Name:   "orders",
+						Indexes: []schema.Index{
+							{
+								Schema:    schema.DefaultSchema,
+								TableName: "orders",
+								Name:      "idx_orders_customer_seq",
+								Columns:   []string{"customer_id", "seq"},
+								Type:      "btree",
+							},
+						},
+					},
+				},
+			},
+			desired: &schema.Database{
+				Tables: []schema.Table{
+					{
+						Schema: schema.DefaultSchema,
+						Name:   "orders",
+						Indexes: []schema.Index{
+							{
+								Schema:    schema.DefaultSchema,
+								TableName: "orders",
+								Name:      "idx_orders_customer_seq",
+								Columns:   []string{"customer_id", "seq ASC"},
+								Type:      "btree",
+							},
+						},
+					},
+				},
+			},
+			expectedChanges: 0,
+			expectedTypes:   nil,
+		},
+		{
+			name: "no change when DESC NULLS FIRST matches bare DESC",
+			current: &schema.Database{
+				Tables: []schema.Table{
+					{
+						Schema: schema.DefaultSchema,
+						Name:   "events",
+						Indexes: []schema.Index{
+							{
+								Schema:    schema.DefaultSchema,
+								TableName: "events",
+								Name:      "idx_events_created",
+								Columns:   []string{"created_at DESC"},
+								Type:      "btree",
+							},
+						},
+					},
+				},
+			},
+			desired: &schema.Database{
+				Tables: []schema.Table{
+					{
+						Schema: schema.DefaultSchema,
+						Name:   "events",
+						Indexes: []schema.Index{
+							{
+								Schema:    schema.DefaultSchema,
+								TableName: "events",
+								Name:      "idx_events_created",
+								Columns:   []string{"created_at DESC NULLS FIRST"},
+								Type:      "btree",
+							},
+						},
+					},
+				},
+			},
+			expectedChanges: 0,
+			expectedTypes:   nil,
+		},
+		{
+			name: "modify when sort direction actually differs",
+			current: &schema.Database{
+				Tables: []schema.Table{
+					{
+						Schema: schema.DefaultSchema,
+						Name:   "events",
+						Indexes: []schema.Index{
+							{
+								Schema:    schema.DefaultSchema,
+								TableName: "events",
+								Name:      "idx_events_created",
+								Columns:   []string{"created_at"},
+								Type:      "btree",
+							},
+						},
+					},
+				},
+			},
+			desired: &schema.Database{
+				Tables: []schema.Table{
+					{
+						Schema: schema.DefaultSchema,
+						Name:   "events",
+						Indexes: []schema.Index{
+							{
+								Schema:    schema.DefaultSchema,
+								TableName: "events",
+								Name:      "idx_events_created",
+								Columns:   []string{"created_at DESC"},
+								Type:      "btree",
+							},
+						},
+					},
+				},
+			},
+			expectedChanges: 1,
+			expectedTypes:   []differ.ChangeType{differ.ChangeTypeModifyIndex},
+		},
+		{
 			name: "modify when opclass differs",
 			current: &schema.Database{
 				Tables: []schema.Table{
