@@ -26,6 +26,7 @@ type Index struct {
 	Definition string `json:"definition"`
 
 	IsExcludeConstraint bool              `json:"is_exclude_constraint,omitempty"`
+	NullsNotDistinct    bool              `json:"nulls_not_distinct,omitempty"`
 	IncludeColumns      []string          `json:"include_columns,omitempty"`
 	Tablespace          string            `json:"tablespace,omitempty"`
 	StorageParams       map[string]string `json:"storage_params,omitempty"`

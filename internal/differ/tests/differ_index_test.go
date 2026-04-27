@@ -334,6 +334,92 @@ func TestDiffer_CompareIndexes(t *testing.T) { //nolint:maintidx
 			expectedTypes:   nil,
 		},
 		{
+			name: "no change when NullsNotDistinct matches",
+			current: &schema.Database{
+				Tables: []schema.Table{
+					{
+						Schema: schema.DefaultSchema,
+						Name:   "items",
+						Indexes: []schema.Index{
+							{
+								Schema:           schema.DefaultSchema,
+								TableName:        "items",
+								Name:             "uq_items_identity",
+								Columns:          []string{"a", "b"},
+								Type:             "btree",
+								IsUnique:         true,
+								NullsNotDistinct: true,
+							},
+						},
+					},
+				},
+			},
+			desired: &schema.Database{
+				Tables: []schema.Table{
+					{
+						Schema: schema.DefaultSchema,
+						Name:   "items",
+						Indexes: []schema.Index{
+							{
+								Schema:           schema.DefaultSchema,
+								TableName:        "items",
+								Name:             "uq_items_identity",
+								Columns:          []string{"a", "b"},
+								Type:             "btree",
+								IsUnique:         true,
+								NullsNotDistinct: true,
+							},
+						},
+					},
+				},
+			},
+			expectedChanges: 0,
+			expectedTypes:   nil,
+		},
+		{
+			name: "modify when NullsNotDistinct differs",
+			current: &schema.Database{
+				Tables: []schema.Table{
+					{
+						Schema: schema.DefaultSchema,
+						Name:   "items",
+						Indexes: []schema.Index{
+							{
+								Schema:           schema.DefaultSchema,
+								TableName:        "items",
+								Name:             "uq_items_identity",
+								Columns:          []string{"a", "b"},
+								Type:             "btree",
+								IsUnique:         true,
+								NullsNotDistinct: false,
+							},
+						},
+					},
+				},
+			},
+			desired: &schema.Database{
+				Tables: []schema.Table{
+					{
+						Schema: schema.DefaultSchema,
+						Name:   "items",
+						Indexes: []schema.Index{
+							{
+								Schema:           schema.DefaultSchema,
+								TableName:        "items",
+								Name:             "uq_items_identity",
+								Columns:          []string{"a", "b"},
+								Type:             "btree",
+								IsUnique:         true,
+								NullsNotDistinct: true,
+							},
+						},
+					},
+				},
+			},
+			expectedChanges: 1,
+			expectedTypes:   []differ.ChangeType{differ.ChangeTypeModifyIndex},
+		},
+		{
 			name: "no change when parser has explicit ASC but extractor omits it",
 			current: &schema.Database{
 				Tables: []schema.Table{

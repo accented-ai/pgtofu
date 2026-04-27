@@ -253,7 +253,8 @@ const (
 			am.amname,
 			pg_get_expr(ix.indpred, ix.indrelid),
 			pg_get_indexdef(ix.indexrelid),
-			ts.spcname
+			ts.spcname,
+			ix.indnullsnotdistinct
 		FROM pg_indexes i
 		JOIN pg_class c ON c.relname = i.indexname
 		JOIN pg_index ix ON ix.indexrelid = c.oid

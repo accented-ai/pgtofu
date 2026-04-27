@@ -332,6 +332,92 @@ func assertStorageParams(t *testing.T, got, want map[string]string) {
 	}
 }
 
+func TestParseNullsNotDistinct(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                 string
+		setupSQL             string
+		indexSQL             string
+		wantIndex            string
+		wantNullsNotDistinct bool
+		wantColumns          []string
+	}{
+		{
+			name:                 "unique index with NULLS NOT DISTINCT",
+			setupSQL:             `CREATE TABLE t (id UUID, a TEXT, b TEXT);`,
+			indexSQL:             `CREATE UNIQUE INDEX uq_t_ab ON t (a, b) NULLS NOT DISTINCT;`,
+			wantIndex:            "uq_t_ab",
+			wantNullsNotDistinct: true,
+			wantColumns:          []string{"a", "b"},
+		},
+		{
+			name:                 "unique index without NULLS NOT DISTINCT",
+			setupSQL:             `CREATE TABLE t (id UUID, a TEXT);`,
+			indexSQL:             `CREATE UNIQUE INDEX uq_t_a ON t (a);`,
+			wantIndex:            "uq_t_a",
+			wantNullsNotDistinct: false,
+			wantColumns:          []string{"a"},
+		},
+		{
+			name:                 "NULLS NOT DISTINCT with WHERE clause",
+			setupSQL:             `CREATE TABLE t (id UUID, a TEXT, active BOOLEAN);`,
+			indexSQL:             `CREATE UNIQUE INDEX uq_t_a_active ON t (a) NULLS NOT DISTINCT WHERE active = TRUE;`,
+			wantIndex:            "uq_t_a_active",
+			wantNullsNotDistinct: true,
+			wantColumns:          []string{"a"},
+		},
+		{
+			name:                 "NULLS NOT DISTINCT with INCLUDE",
+			setupSQL:             `CREATE TABLE t (id UUID, a TEXT, b TEXT, c TEXT);`,
+			indexSQL:             `CREATE UNIQUE INDEX uq_t_a_incl ON t (a) NULLS NOT DISTINCT INCLUDE (b, c);`,
+			wantIndex:            "uq_t_a_incl",
+			wantNullsNotDistinct: true,
+			wantColumns:          []string{"a"},
+		},
+		{
+			name:                 "NULLS NOT DISTINCT with storage params",
+			setupSQL:             `CREATE TABLE t (id UUID, a TEXT);`,
+			indexSQL:             `CREATE UNIQUE INDEX uq_t_a_fill ON t (a) NULLS NOT DISTINCT WITH (fillfactor = 70);`,
+			wantIndex:            "uq_t_a_fill",
+			wantNullsNotDistinct: true,
+			wantColumns:          []string{"a"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			db := parseSQLWithSetup(t, tt.setupSQL, tt.indexSQL)
+			table := requireSingleTable(t, db)
+
+			idx := findIndexByName(table.Indexes, tt.wantIndex)
+			if idx == nil {
+				t.Fatalf("index %s not found; got %d indexes", tt.wantIndex, len(table.Indexes))
+			}
+
+			if idx.NullsNotDistinct != tt.wantNullsNotDistinct {
+				t.Errorf(
+					"NullsNotDistinct = %v, want %v",
+					idx.NullsNotDistinct,
+					tt.wantNullsNotDistinct,
+				)
+			}
+
+			if len(idx.Columns) != len(tt.wantColumns) {
+				t.Fatalf("columns length = %d, want %d", len(idx.Columns), len(tt.wantColumns))
+			}
+
+			for i, want := range tt.wantColumns {
+				if idx.Columns[i] != want {
+					t.Errorf("columns[%d] = %q, want %q", i, idx.Columns[i], want)
+				}
+			}
+		})
+	}
+}
+
 func TestParseIndexOnContinuousAggregate(t *testing.T) {
 	t.Parallel()
 

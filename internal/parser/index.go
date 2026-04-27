@@ -8,16 +8,17 @@ import (
 )
 
 type indexStatement struct {
-	isUnique      bool
-	indexName     string
-	tableSchema   string
-	tableName     string
-	indexType     string
-	columnExprs   []string
-	includeCols   []string
-	whereClause   string
-	storageParams map[string]string
-	definition    string
+	isUnique         bool
+	nullsNotDistinct bool
+	indexName        string
+	tableSchema      string
+	tableName        string
+	indexType        string
+	columnExprs      []string
+	includeCols      []string
+	whereClause      string
+	storageParams    map[string]string
+	definition       string
 }
 
 func (p *Parser) parseCreateIndex(stmt string, db *schema.Database) error {
@@ -27,17 +28,18 @@ func (p *Parser) parseCreateIndex(stmt string, db *schema.Database) error {
 	}
 
 	idx := schema.Index{
-		Schema:         parsed.tableSchema,
-		Name:           parsed.indexName,
-		TableName:      parsed.tableName,
-		Columns:        parsed.columnExprs,
-		IsUnique:       parsed.isUnique,
-		IsPrimary:      false,
-		Type:           parsed.indexType,
-		Where:          parsed.whereClause,
-		IncludeColumns: parsed.includeCols,
-		StorageParams:  parsed.storageParams,
-		Definition:     parsed.definition,
+		Schema:           parsed.tableSchema,
+		Name:             parsed.indexName,
+		TableName:        parsed.tableName,
+		Columns:          parsed.columnExprs,
+		IsUnique:         parsed.isUnique,
+		IsPrimary:        false,
+		Type:             parsed.indexType,
+		Where:            parsed.whereClause,
+		NullsNotDistinct: parsed.nullsNotDistinct,
+		IncludeColumns:   parsed.includeCols,
+		StorageParams:    parsed.storageParams,
+		Definition:       parsed.definition,
 	}
 
 	if table := db.GetTable(parsed.tableSchema, parsed.tableName); table != nil {
@@ -215,6 +217,7 @@ func (p *Parser) parseIndexStatement( //nolint:cyclop,gocognit,gocyclo,maintidx
 
 	includeColumns := []string{}
 	whereClause := ""
+	nullsNotDistinct := false
 
 	var storageParams map[string]string
 
@@ -258,6 +261,20 @@ func (p *Parser) parseIndexStatement( //nolint:cyclop,gocognit,gocyclo,maintidx
 			storageParams = parseStorageParamsLiteral(paramsLiteral)
 			idx = nextWithIdx
 
+		case "NULLS":
+			nextWord := nextNonCommentIndex(tokens, idx+1)
+			if nextWord < len(tokens) && upperLiteral(tokens, nextWord) == "NOT" {
+				thirdWord := nextNonCommentIndex(tokens, nextWord+1)
+				if thirdWord < len(tokens) && upperLiteral(tokens, thirdWord) == "DISTINCT" {
+					nullsNotDistinct = true
+					idx = nextNonCommentIndex(tokens, thirdWord+1)
+				} else {
+					idx++
+				}
+			} else {
+				idx++
+			}
+
 		case "WHERE":
 			expr, nextWhereIdx := collectLiteralUntil(
 				tokens,
@@ -266,6 +283,7 @@ func (p *Parser) parseIndexStatement( //nolint:cyclop,gocognit,gocyclo,maintidx
 				"INCLUDE",
 				"TABLESPACE",
 				"WITH",
+				"NULLS",
 			)
 			whereClause = strings.TrimSpace(expr)
 			idx = nextWhereIdx
@@ -278,16 +296,17 @@ func (p *Parser) parseIndexStatement( //nolint:cyclop,gocognit,gocyclo,maintidx
 	}
 
 	return &indexStatement{
-		isUnique:      isUnique,
-		indexName:     indexName,
-		tableSchema:   tableSchema,
-		tableName:     tableName,
-		indexType:     indexType,
-		columnExprs:   columns,
-		includeCols:   includeColumns,
-		whereClause:   strings.TrimSpace(whereClause),
-		storageParams: storageParams,
-		definition:    stmt,
+		isUnique:         isUnique,
+		nullsNotDistinct: nullsNotDistinct,
+		indexName:        indexName,
+		tableSchema:      tableSchema,
+		tableName:        tableName,
+		indexType:        indexType,
+		columnExprs:      columns,
+		includeCols:      includeColumns,
+		whereClause:      strings.TrimSpace(whereClause),
+		storageParams:    storageParams,
+		definition:       stmt,
 	}, nil
 }
 

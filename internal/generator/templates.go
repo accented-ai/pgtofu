@@ -386,6 +386,10 @@ func formatIndexDefinition(idx *schema.Index) (string, error) {
 
 	buf.Write(fmt.Sprintf("(%s)", quoteColumns(idx.Columns)))
 
+	if idx.NullsNotDistinct {
+		buf.Write("NULLS NOT DISTINCT")
+	}
+
 	if len(idx.IncludeColumns) > 0 {
 		buf.Write("INCLUDE")
 		buf.Write(fmt.Sprintf("(%s)", quoteColumns(idx.IncludeColumns)))

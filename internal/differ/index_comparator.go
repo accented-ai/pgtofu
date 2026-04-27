@@ -209,6 +209,10 @@ func areIndexesEqual(i1, i2 *schema.Index) bool {
 		return false
 	}
 
+	if i1.NullsNotDistinct != i2.NullsNotDistinct {
+		return false
+	}
+
 	if i1.QualifiedTableName() != i2.QualifiedTableName() {
 		return false
 	}

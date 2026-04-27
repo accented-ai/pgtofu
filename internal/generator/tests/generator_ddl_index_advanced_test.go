@@ -285,6 +285,45 @@ func TestDDLBuilder_AdvancedIndexOperations(t *testing.T) { //nolint:maintidx
 			},
 		},
 		{
+			name:       "add unique index with NULLS NOT DISTINCT",
+			changeType: differ.ChangeTypeAddIndex,
+			index: &schema.Index{
+				Schema:           schema.DefaultSchema,
+				Name:             "uq_items_identity",
+				TableName:        "items",
+				Columns:          []string{"a", "b", "c"},
+				IsUnique:         true,
+				NullsNotDistinct: true,
+				Type:             "btree",
+			},
+			wantSQL: []string{
+				"CREATE UNIQUE INDEX",
+				"uq_items_identity",
+				"ON public.items",
+				"(a, b, c)",
+				"NULLS NOT DISTINCT",
+			},
+		},
+		{
+			name:       "unique index without NULLS NOT DISTINCT omits clause",
+			changeType: differ.ChangeTypeAddIndex,
+			index: &schema.Index{
+				Schema:           schema.DefaultSchema,
+				Name:             "uq_items_a",
+				TableName:        "items",
+				Columns:          []string{"a"},
+				IsUnique:         true,
+				NullsNotDistinct: false,
+				Type:             "btree",
+			},
+			wantSQL: []string{
+				"CREATE UNIQUE INDEX",
+				"uq_items_a",
+				"ON public.items",
+				"(a)",
+			},
+		},
+		{
 			name:       "drop index",
 			changeType: differ.ChangeTypeDropIndex,
 			index: &schema.Index{

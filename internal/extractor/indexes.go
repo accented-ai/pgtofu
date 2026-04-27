@@ -30,6 +30,7 @@ func (e *Extractor) extractIndexes(ctx context.Context, table *schema.Table) err
 			scanner.String("where"),
 			&idx.Definition,
 			scanner.String("tablespace"),
+			&idx.NullsNotDistinct,
 		); err != nil {
 			return util.WrapError("scan index", err)
 		}
