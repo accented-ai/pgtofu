@@ -644,6 +644,13 @@ func (n *sqlNormalizer) parseExpression(stopAtComma bool) map[string]any {
 			}
 		}
 
+		if parenDepth > 0 && n.matchKeyword("SELECT") {
+			subquery := n.parseSubquery(parenDepth)
+			parts = append(parts, subquery)
+
+			continue
+		}
+
 		literal := n.normalizeTokenLiteral(tok)
 		parts = append(parts, literal)
 
@@ -657,6 +664,46 @@ func (n *sqlNormalizer) parseExpression(stopAtComma bool) map[string]any {
 	}
 
 	return expr
+}
+
+func (n *sqlNormalizer) parseSubquery(outerParenDepth int) string {
+	start := n.pos
+	depth := outerParenDepth
+
+	for n.pos < len(n.tokens) {
+		tok := n.current()
+		if tok.Type == parser.TokenEOF {
+			break
+		}
+
+		if tok.Type == parser.TokenLParen {
+			depth++
+		} else if tok.Type == parser.TokenRParen {
+			depth--
+
+			if depth < outerParenDepth {
+				break
+			}
+		}
+
+		n.advance()
+	}
+
+	subTokens := n.tokens[start:n.pos]
+	sub := &sqlNormalizer{tokens: subTokens}
+	stmt := sub.parseSelectStatement()
+
+	jsonData, err := json.Marshal(stmt)
+	if err != nil {
+		raw := make([]string, 0, len(subTokens))
+		for _, t := range subTokens {
+			raw = append(raw, strings.ToLower(t.Literal))
+		}
+
+		return strings.Join(raw, " ")
+	}
+
+	return string(jsonData)
 }
 
 func (n *sqlNormalizer) normalizeTokenLiteral(tok parser.Token) string {
