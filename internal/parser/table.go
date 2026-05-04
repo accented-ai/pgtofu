@@ -1129,11 +1129,27 @@ func (p *Parser) finalizeTableConstraints(table *schema.Table) {
 		}
 	}
 
+	usedNames := make(map[string]int)
+
+	for _, constraint := range table.Constraints {
+		if constraint.Name != "" {
+			usedNames[constraint.Name]++
+		}
+	}
+
 	for i := range table.Constraints {
 		constraint := &table.Constraints[i]
 
 		if constraint.Name == "" {
-			constraint.Name = p.generateConstraintName(table.Name, constraint)
+			base := p.generateConstraintName(table.Name, constraint)
+
+			name := base
+			if n := usedNames[base]; n > 0 {
+				name = fmt.Sprintf("%s%d", base, n)
+			}
+
+			constraint.Name = name
+			usedNames[base]++
 		}
 
 		if constraint.Type == schema.ConstraintPrimaryKey ||

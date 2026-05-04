@@ -353,6 +353,54 @@ func TestParseInlineCheckConstraints(t *testing.T) {
 	}
 }
 
+func TestUnnamedTableCheckConstraintsGetUniqueNames(t *testing.T) {
+	t.Parallel()
+
+	db := parseSQL(t, `CREATE TABLE app.time_ranges (
+		id UUID PRIMARY KEY,
+		start_offset INTEGER NOT NULL,
+		end_offset INTEGER NOT NULL,
+		score FLOAT NOT NULL DEFAULT 1.0 CHECK (score BETWEEN 0 AND 1),
+		CHECK (start_offset >= 0),
+		CHECK (end_offset > start_offset)
+	);`)
+
+	table := requireSingleTable(t, db)
+
+	var checkNames []string
+
+	for _, c := range table.Constraints {
+		if c.Type == "CHECK" {
+			checkNames = append(checkNames, c.Name)
+		}
+	}
+
+	if len(checkNames) != 3 {
+		t.Fatalf("expected 3 CHECK constraints, got %d", len(checkNames))
+	}
+
+	seen := make(map[string]bool)
+
+	for _, name := range checkNames {
+		if seen[name] {
+			t.Errorf("duplicate constraint name: %s", name)
+		}
+
+		seen[name] = true
+	}
+
+	wantNames := map[string]bool{
+		"time_ranges_score_check": true,
+		"time_ranges_check":       true,
+		"time_ranges_check1":      true,
+	}
+	for _, name := range checkNames {
+		if !wantNames[name] {
+			t.Errorf("unexpected constraint name: %s", name)
+		}
+	}
+}
+
 func TestParseMultiLineTableComment(t *testing.T) {
 	t.Parallel()
 
