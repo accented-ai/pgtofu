@@ -168,6 +168,25 @@ func TestNormalizeExpression_CompareEquivalentConstraints(t *testing.T) {
 				"'b'::character varying, 'c'::character varying, 'd'::character varying, " +
 				"'e'::character varying])::text[])))",
 		},
+		{
+			name:    "NOT IN converted to <> ALL ARRAY by PostgreSQL",
+			fromSQL: "CHECK (status NOT IN ('needs_changes', 'approved', 'published', 'rejected'))",
+			fromPostgres: "CHECK (((status)::text <> ALL " +
+				"(ARRAY['needs_changes'::text, 'approved'::text, 'published'::text, 'rejected'::text])))",
+		},
+		{
+			name: "NOT IN with OR clause",
+			fromSQL: "CHECK (status NOT IN ('needs_changes', 'approved', 'published', 'rejected') " +
+				"OR (reviewed_by IS NOT NULL AND reviewed_at IS NOT NULL))",
+			fromPostgres: "CHECK (((status <> ALL " +
+				"(ARRAY['needs_changes'::text, 'approved'::text, 'published'::text, 'rejected'::text])) " +
+				"OR ((reviewed_by IS NOT NULL) AND (reviewed_at IS NOT NULL))))",
+		},
+		{
+			name:         "NOT IN with array literal format",
+			fromSQL:      "CHECK (status NOT IN ('a', 'b', 'c'))",
+			fromPostgres: "CHECK ((status <> ALL ('{a,b,c}'::text[])))",
+		},
 	}
 
 	for _, tt := range tests {

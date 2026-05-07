@@ -286,7 +286,28 @@ func normalizeArrayConstructorToIn(expr string) string {
 		`\(?(\w+|"[^"]+")\)?\s*=\s*any\s*\(\s*\(?array\s*\[(.*?)\]\s*\)?\s*\)`,
 	)
 
-	return anyPattern.ReplaceAllStringFunc(expr, func(match string) string {
+	allPattern := regexp.MustCompile(
+		`\(?(\w+|"[^"]+")\)?\s*<>\s*all\s*\(\s*\(?array\s*\[(.*?)\]\s*\)?\s*\)`,
+	)
+
+	expr = allPattern.ReplaceAllStringFunc(expr, func(match string) string {
+		submatches := allPattern.FindStringSubmatch(match)
+		if len(submatches) == 3 {
+			col := submatches[1]
+			col = strings.Trim(col, `"`)
+			values := submatches[2]
+			values = strings.ReplaceAll(values, "::text", "")
+			values = strings.ReplaceAll(values, "::integer", "")
+			values = strings.ReplaceAll(values, "::bigint", "")
+			values = strings.ReplaceAll(values, "::character varying", "")
+
+			return fmt.Sprintf("%s not in (%s)", col, values)
+		}
+
+		return match
+	})
+
+	expr = anyPattern.ReplaceAllStringFunc(expr, func(match string) string {
 		submatches := anyPattern.FindStringSubmatch(match)
 		if len(submatches) == 3 {
 			col := submatches[1]
@@ -302,6 +323,8 @@ func normalizeArrayConstructorToIn(expr string) string {
 
 		return match
 	})
+
+	return expr
 }
 
 func normalizeArrayLiteralToIn(expr string) string {
@@ -309,7 +332,36 @@ func normalizeArrayLiteralToIn(expr string) string {
 		`\(?(\w+|"[^"]+")\)?\s*=\s*any\s*\(?\s*'\{([^}]*)\}'(?:::(?:text|character varying|integer|bigint))?(?:\[\])?\s*\)?`,
 	)
 
-	return arrayLiteralPattern.ReplaceAllStringFunc(expr, func(match string) string {
+	arrayLiteralAllPattern := regexp.MustCompile(
+		`\(?(\w+|"[^"]+")\)?\s*<>\s*all\s*\(?\s*'\{([^}]*)\}'(?:::(?:text|character varying|integer|bigint))?(?:\[\])?\s*\)?`,
+	)
+
+	expr = arrayLiteralAllPattern.ReplaceAllStringFunc(expr, func(match string) string {
+		submatches := arrayLiteralAllPattern.FindStringSubmatch(match)
+		if len(submatches) == 3 {
+			col := submatches[1]
+			col = strings.Trim(col, `"`)
+			rawValues := submatches[2]
+
+			parts := strings.Split(rawValues, ",")
+			quotedParts := make([]string, len(parts))
+
+			for i, part := range parts {
+				part = strings.TrimSpace(part)
+				if !strings.HasPrefix(part, "'") {
+					part = "'" + part + "'"
+				}
+
+				quotedParts[i] = part
+			}
+
+			return fmt.Sprintf("%s not in (%s)", col, strings.Join(quotedParts, ", "))
+		}
+
+		return match
+	})
+
+	expr = arrayLiteralPattern.ReplaceAllStringFunc(expr, func(match string) string {
 		submatches := arrayLiteralPattern.FindStringSubmatch(match)
 		if len(submatches) == 3 {
 			col := submatches[1]
@@ -333,6 +385,8 @@ func normalizeArrayLiteralToIn(expr string) string {
 
 		return match
 	})
+
+	return expr
 }
 
 func normalizeInClauseSpacing(expr string) string {
