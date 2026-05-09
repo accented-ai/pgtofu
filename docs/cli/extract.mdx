@@ -18,6 +18,7 @@ pgtofu extract [flags]
 | `--database-url` | | PostgreSQL connection URL | `$DATABASE_URL` |
 | `--output` | `-o` | Output file path (`-` for stdout) | `schema.json` |
 | `--exclude-schema` | | Additional schemas to exclude (repeatable) | |
+| `--timeout` | | Maximum time allowed for database connection and schema extraction (`0` disables) | `5m` |
 | `--help` | `-h` | Help for extract | |
 
 ## Examples
@@ -39,6 +40,19 @@ pgtofu extract --output current-schema.json
 ```bash
 pgtofu extract --output - | jq '.tables | length'
 ```
+
+### Increase Extraction Timeout
+
+`extract` has a 5 minute default timeout for its database operations. Increase it for large schemas:
+
+```bash
+pgtofu extract \
+  --database-url "$DATABASE_URL" \
+  --output current-schema.json \
+  --timeout 15m
+```
+
+Use `--timeout 0` to disable pgtofu's command timeout for `extract`.
 
 ### Exclude Additional Schemas
 
@@ -83,6 +97,8 @@ postgres://user:password@localhost:5432/db?connect_timeout=10
 # Using socket connection
 postgres://user:password@/db?host=/var/run/postgresql
 ```
+
+`connect_timeout` only controls connection establishment at the PostgreSQL driver level. Use `--timeout` to control pgtofu's overall deadline for the database operations in `extract`, including connection checks and schema extraction.
 
 ### SSL Modes
 
@@ -208,7 +224,8 @@ The extracted schema is a JSON object containing all database objects:
 ## Performance Considerations
 
 - Extraction queries the PostgreSQL system catalogs directly
-- Large databases (1000+ tables) may take 30-60 seconds
+- Large databases (1000+ tables) may take 30-60 seconds or longer, depending on catalog size, indexes, partitions, functions, and extensions
+- pgtofu enriches each table with columns, constraints, indexes, and partition metadata, so large schemas may need a longer `--timeout`
 - Consider using `--output -` with streaming for very large schemas
 
 ## Troubleshooting
@@ -232,6 +249,14 @@ The extracted schema is a JSON object containing all database objects:
     DATABASE_URL="postgres://...?sslmode=require"
     DATABASE_URL="postgres://...?sslmode=disable"
     ```
+  </Accordion>
+  <Accordion title="context deadline exceeded">
+    The default extraction timeout is 5 minutes. Increase it when extracting large schemas:
+    ```bash
+    pgtofu extract --database-url "$DATABASE_URL" --output current-schema.json --timeout 15m
+    ```
+
+    If the error names a table or extraction step, check whether that object has unusually large catalog metadata, many indexes, many partitions, or blocking catalog locks. You can also run `psql "$DATABASE_URL" -c "SELECT * FROM pg_stat_activity WHERE state <> 'idle';"` while extraction is running to look for waits.
   </Accordion>
 </AccordionGroup>
 

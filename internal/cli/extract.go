@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,14 +16,19 @@ import (
 	"github.com/accented-ai/pgtofu/pkg/database"
 )
 
+const defaultExtractTimeout = 5 * time.Minute
+
 type extractConfig struct {
 	databaseURL   string
 	output        string
 	excludeSchema []string
+	timeout       time.Duration
 }
 
 func newExtractCommand(ctx context.Context) *cobra.Command {
-	cfg := &extractConfig{}
+	cfg := &extractConfig{
+		timeout: defaultExtractTimeout,
+	}
 
 	cmd := &cobra.Command{
 		Use:   "extract",
@@ -32,6 +38,9 @@ This JSON file represents the current state of your database and can be
 used with the diff and generate commands.`,
 		Example: `  # Extract to file
   pgtofu extract --database-url "$DATABASE_URL" --output current-schema.json
+
+  # Extract a large schema with a longer timeout
+  pgtofu extract --database-url "$DATABASE_URL" --output current-schema.json --timeout 15m
 
   # Extract to stdout
   pgtofu extract --database-url "$DATABASE_URL" --output -`,
@@ -47,6 +56,8 @@ used with the diff and generate commands.`,
 	cmd.Flags().StringArrayVar(&cfg.excludeSchema, "exclude-schema", []string{},
 		"Additional schemas to exclude (can be specified multiple times). "+
 			"System schemas (pg_catalog, information_schema, hdb_catalog, etc.) are excluded by default.")
+	cmd.Flags().DurationVar(&cfg.timeout, "timeout", defaultExtractTimeout,
+		"Maximum time allowed for database connection and schema extraction (for example 30s, 5m, 0 to disable)")
 
 	cmd.MarkFlagRequired("database-url") //nolint:errcheck
 
@@ -54,11 +65,27 @@ used with the diff and generate commands.`,
 }
 
 func runExtract(ctx context.Context, cfg *extractConfig) error {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
+	if cfg.timeout < 0 {
+		return errors.New("timeout must be non-negative")
+	}
+
+	if cfg.timeout > 0 {
+		var cancel context.CancelFunc
+
+		ctx, cancel = context.WithTimeout(ctx, cfg.timeout)
+		defer cancel()
+	}
 
 	pool, err := database.NewPoolFromURL(ctx, cfg.databaseURL)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) && cfg.timeout > 0 {
+			return fmt.Errorf(
+				"connect to database timed out after %s; increase --timeout or use --timeout=0 to disable it: %w",
+				cfg.timeout,
+				err,
+			)
+		}
+
 		return util.WrapError("connect to database", err)
 	}
 	defer pool.Close()
@@ -90,7 +117,7 @@ func runExtract(ctx context.Context, cfg *extractConfig) error {
 
 	dbSchema, err := ext.Extract(ctx)
 	if err != nil {
-		return util.WrapError("extract schema", err)
+		return wrapExtractSchemaError(err, cfg.timeout)
 	}
 
 	printExtractionSummary(dbSchema, time.Since(startTime), hasTimescale)
@@ -107,6 +134,18 @@ func runExtract(ctx context.Context, cfg *extractConfig) error {
 	}
 
 	return nil
+}
+
+func wrapExtractSchemaError(err error, timeout time.Duration) error {
+	if errors.Is(err, context.DeadlineExceeded) && timeout > 0 {
+		return fmt.Errorf(
+			"extract schema timed out after %s; increase --timeout or use --timeout=0 to disable it: %w",
+			timeout,
+			err,
+		)
+	}
+
+	return util.WrapError("extract schema", err)
 }
 
 func printExtractionSummary(db any, elapsed time.Duration, hasTimescale bool) {

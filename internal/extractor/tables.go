@@ -3,6 +3,7 @@ package extractor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -52,7 +53,7 @@ func (e *Extractor) extractTables(ctx context.Context) ([]schema.Table, error) {
 
 	for i := range tables {
 		if err := ctx.Err(); err != nil {
-			return nil, err //nolint:wrapcheck
+			return nil, fmt.Errorf("before enriching table %s: %w", tables[i].QualifiedName(), err)
 		}
 
 		if err := e.enrichTable(ctx, &tables[i]); err != nil {
@@ -64,20 +65,23 @@ func (e *Extractor) extractTables(ctx context.Context) ([]schema.Table, error) {
 }
 
 func (e *Extractor) enrichTable(ctx context.Context, table *schema.Table) error {
-	enrichers := []func(context.Context, *schema.Table) error{
-		e.enrichColumns,
-		e.enrichConstraints,
-		e.enrichIndexes,
-		e.enrichPartitions,
+	enrichers := []struct {
+		name string
+		fn   func(context.Context, *schema.Table) error
+	}{
+		{"extract columns", e.enrichColumns},
+		{"extract constraints", e.enrichConstraints},
+		{"extract indexes", e.enrichIndexes},
+		{"extract partition info", e.enrichPartitions},
 	}
 
-	for _, enrich := range enrichers {
+	for _, enricher := range enrichers {
 		if err := ctx.Err(); err != nil {
-			return err //nolint:wrapcheck
+			return fmt.Errorf("%s for table %s: %w", enricher.name, table.QualifiedName(), err)
 		}
 
-		if err := enrich(ctx, table); err != nil {
-			return util.WrapError("enrich table "+table.QualifiedName(), err)
+		if err := enricher.fn(ctx, table); err != nil {
+			return fmt.Errorf("%s for table %s: %w", enricher.name, table.QualifiedName(), err)
 		}
 	}
 

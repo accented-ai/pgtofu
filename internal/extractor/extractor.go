@@ -3,6 +3,7 @@ package extractor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/accented-ai/pgtofu/internal/schema"
@@ -184,7 +185,7 @@ func (e *Extractor) Extract(ctx context.Context) (*schema.Database, error) {
 
 	for _, extractor := range extractors {
 		if err := ctx.Err(); err != nil {
-			return nil, err //nolint:wrapcheck
+			return nil, fmt.Errorf("before extracting %s: %w", extractor.name, err)
 		}
 
 		if err := extractor.fn(ctx); err != nil {
