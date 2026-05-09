@@ -478,7 +478,7 @@ func (g *Generator) isIndexOnNewColumn(
 }
 
 func (g *Generator) sortSchemaChanges(changes []differ.Change) {
-	sort.Slice(changes, func(i, j int) bool {
+	sort.SliceStable(changes, func(i, j int) bool {
 		iIsSchema := changes[i].Type == differ.ChangeTypeAddSchema ||
 			changes[i].Type == differ.ChangeTypeDropSchema
 		jIsSchema := changes[j].Type == differ.ChangeTypeAddSchema ||
@@ -492,20 +492,41 @@ func (g *Generator) sortSchemaChanges(changes []differ.Change) {
 			return false
 		}
 
-		tableNameI := extractTableNameFromChange(&changes[i])
-		tableNameJ := extractTableNameFromChange(&changes[j])
-
-		if tableNameI != "" && tableNameJ != "" && tableNameI == tableNameJ {
-			priorityI := getChangePriorityForTable(changes[i].Type)
-			priorityJ := getChangePriorityForTable(changes[j].Type)
-
-			if priorityI != priorityJ {
-				return priorityI < priorityJ
-			}
-		}
-
 		return changes[i].Order < changes[j].Order
 	})
+
+	// Within consecutive runs of same-table changes, reorder by table priority so
+	// e.g. ADD_COLUMN comes before ADD_CONSTRAINT. Reordering across run boundaries
+	// would risk violating cross-table topological dependencies (e.g. an ADD_CONSTRAINT
+	// FK that references a newly-created table further along).
+	for runStart := 0; runStart < len(changes); {
+		tableName := extractTableNameFromChange(&changes[runStart])
+		if tableName == "" {
+			runStart++
+			continue
+		}
+
+		runEnd := runStart + 1
+		for runEnd < len(changes) && extractTableNameFromChange(&changes[runEnd]) == tableName {
+			runEnd++
+		}
+
+		if runEnd-runStart > 1 {
+			run := changes[runStart:runEnd]
+			sort.SliceStable(run, func(a, b int) bool {
+				priorityA := getChangePriorityForTable(run[a].Type)
+
+				priorityB := getChangePriorityForTable(run[b].Type)
+				if priorityA != priorityB {
+					return priorityA < priorityB
+				}
+
+				return run[a].Order < run[b].Order
+			})
+		}
+
+		runStart = runEnd
+	}
 }
 
 func (g *Generator) separateExtensions(changes []differ.Change) ([]differ.Change, []differ.Change) {
