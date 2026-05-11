@@ -277,25 +277,40 @@ func normalizeInClauses(expr string) string {
 	expr = normalizeArrayConstructorToIn(expr)
 	expr = normalizeArrayLiteralToIn(expr)
 	expr = normalizeInClauseSpacing(expr)
+	expr = normalizeSingleElementIn(expr)
+
+	return expr
+}
+
+func normalizeSingleElementIn(expr string) string {
+	withParens := regexp.MustCompile(`(\w+)\s+in\s*\(([^,)]+)\)`)
+	expr = withParens.ReplaceAllString(expr, "$1 = $2")
+
+	withoutParens := regexp.MustCompile(`(\w+)\s+in\s+('[^']*')`)
+	expr = withoutParens.ReplaceAllString(expr, "$1 = $2")
 
 	return expr
 }
 
 func normalizeArrayConstructorToIn(expr string) string {
 	anyPattern := regexp.MustCompile(
-		`\(?(\w+|"[^"]+")\)?\s*=\s*any\s*\(\s*\(?array\s*\[(.*?)\]\s*\)?\s*\)`,
+		`(?:\((\w+|"[^"]+")\)|(\w+|"[^"]+"))\s*=\s*any\s*\(\s*\(?array\s*\[(.*?)\]\s*\)?\s*\)`,
 	)
 
 	allPattern := regexp.MustCompile(
-		`\(?(\w+|"[^"]+")\)?\s*<>\s*all\s*\(\s*\(?array\s*\[(.*?)\]\s*\)?\s*\)`,
+		`(?:\((\w+|"[^"]+")\)|(\w+|"[^"]+"))\s*<>\s*all\s*\(\s*\(?array\s*\[(.*?)\]\s*\)?\s*\)`,
 	)
 
 	expr = allPattern.ReplaceAllStringFunc(expr, func(match string) string {
 		submatches := allPattern.FindStringSubmatch(match)
-		if len(submatches) == 3 {
+		if len(submatches) == 4 {
 			col := submatches[1]
+			if col == "" {
+				col = submatches[2]
+			}
+
 			col = strings.Trim(col, `"`)
-			values := submatches[2]
+			values := submatches[3]
 			values = strings.ReplaceAll(values, "::text", "")
 			values = strings.ReplaceAll(values, "::integer", "")
 			values = strings.ReplaceAll(values, "::bigint", "")
@@ -309,10 +324,14 @@ func normalizeArrayConstructorToIn(expr string) string {
 
 	expr = anyPattern.ReplaceAllStringFunc(expr, func(match string) string {
 		submatches := anyPattern.FindStringSubmatch(match)
-		if len(submatches) == 3 {
+		if len(submatches) == 4 {
 			col := submatches[1]
+			if col == "" {
+				col = submatches[2]
+			}
+
 			col = strings.Trim(col, `"`)
-			values := submatches[2]
+			values := submatches[3]
 			values = strings.ReplaceAll(values, "::text", "")
 			values = strings.ReplaceAll(values, "::integer", "")
 			values = strings.ReplaceAll(values, "::bigint", "")
@@ -329,19 +348,27 @@ func normalizeArrayConstructorToIn(expr string) string {
 
 func normalizeArrayLiteralToIn(expr string) string {
 	arrayLiteralPattern := regexp.MustCompile(
-		`\(?(\w+|"[^"]+")\)?\s*=\s*any\s*\(?\s*'\{([^}]*)\}'(?:::(?:text|character varying|integer|bigint))?(?:\[\])?\s*\)?`,
+		`(?:\((\w+|"[^"]+")\)|(\w+|"[^"]+"))` +
+			`\s*=\s*any\s*\(?\s*'\{([^}]*)\}'` +
+			`(?:::(?:text|character varying|integer|bigint))?(?:\[\])?\s*\)?`,
 	)
 
 	arrayLiteralAllPattern := regexp.MustCompile(
-		`\(?(\w+|"[^"]+")\)?\s*<>\s*all\s*\(?\s*'\{([^}]*)\}'(?:::(?:text|character varying|integer|bigint))?(?:\[\])?\s*\)?`,
+		`(?:\((\w+|"[^"]+")\)|(\w+|"[^"]+"))` +
+			`\s*<>\s*all\s*\(?\s*'\{([^}]*)\}'` +
+			`(?:::(?:text|character varying|integer|bigint))?(?:\[\])?\s*\)?`,
 	)
 
 	expr = arrayLiteralAllPattern.ReplaceAllStringFunc(expr, func(match string) string {
 		submatches := arrayLiteralAllPattern.FindStringSubmatch(match)
-		if len(submatches) == 3 {
+		if len(submatches) == 4 {
 			col := submatches[1]
+			if col == "" {
+				col = submatches[2]
+			}
+
 			col = strings.Trim(col, `"`)
-			rawValues := submatches[2]
+			rawValues := submatches[3]
 
 			parts := strings.Split(rawValues, ",")
 			quotedParts := make([]string, len(parts))
@@ -363,10 +390,14 @@ func normalizeArrayLiteralToIn(expr string) string {
 
 	expr = arrayLiteralPattern.ReplaceAllStringFunc(expr, func(match string) string {
 		submatches := arrayLiteralPattern.FindStringSubmatch(match)
-		if len(submatches) == 3 {
+		if len(submatches) == 4 {
 			col := submatches[1]
+			if col == "" {
+				col = submatches[2]
+			}
+
 			col = strings.Trim(col, `"`)
-			rawValues := submatches[2]
+			rawValues := submatches[3]
 
 			parts := strings.Split(rawValues, ",")
 			quotedParts := make([]string, len(parts))

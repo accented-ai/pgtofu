@@ -187,6 +187,24 @@ func TestNormalizeExpression_CompareEquivalentConstraints(t *testing.T) {
 			fromSQL:      "CHECK (status NOT IN ('a', 'b', 'c'))",
 			fromPostgres: "CHECK ((status <> ALL ('{a,b,c}'::text[])))",
 		},
+		{
+			name:         "single element IN normalized to equality by PostgreSQL",
+			fromSQL:      "CHECK (mode IN ('batch'))",
+			fromPostgres: "CHECK ((mode = 'batch'::text))",
+		},
+		{
+			name: "complex AND/OR with IN clauses and equality",
+			fromSQL: "CHECK ((status IN ('pending', 'active') " +
+				"AND reason = '') OR " +
+				"(status IN ('skipped', 'failed') " +
+				"AND reason <> ''))",
+			fromPostgres: "CHECK (((status = ANY " +
+				"(ARRAY['pending'::text, 'active'::text])) AND " +
+				"(reason = ''::text)) OR " +
+				"((status = ANY " +
+				"(ARRAY['skipped'::text, 'failed'::text])) AND " +
+				"(reason <> ''::text)))",
+		},
 	}
 
 	for _, tt := range tests {
