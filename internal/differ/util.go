@@ -447,6 +447,7 @@ func normalizeBetweenExpressions(expr string) string {
 	if strings.Contains(expr, " between ") {
 		expr = expandBetween(expr)
 		expr = removeComparisonParens(expr)
+		expr = stripTopLevelAndParens(expr)
 	}
 
 	expr = normalizeOperators(expr)
@@ -455,24 +456,30 @@ func normalizeBetweenExpressions(expr string) string {
 	return expr
 }
 
+func stripTopLevelAndParens(expr string) string {
+	if !strings.HasPrefix(expr, "(") || !strings.HasSuffix(expr, ")") {
+		return expr
+	}
+
+	inner := expr[1 : len(expr)-1]
+	if countParenDepth(inner) < 0 {
+		return expr
+	}
+
+	lower := strings.ToLower(inner)
+	if !strings.Contains(lower, " or ") {
+		return inner
+	}
+
+	return expr
+}
+
 func expandBetween(expr string) string {
-	parts := strings.Split(expr, " between ")
-	if len(parts) != 2 {
-		return expr
-	}
+	betweenPattern := regexp.MustCompile(
+		`(\w+)\s+between\s+(\S+)\s+and\s+(\S+)`,
+	)
 
-	col := strings.TrimSpace(parts[0])
-	rest := strings.TrimSpace(parts[1])
-
-	andParts := strings.Split(rest, " and ")
-	if len(andParts) != 2 {
-		return expr
-	}
-
-	lower := strings.TrimSpace(andParts[0])
-	upper := strings.TrimSpace(andParts[1])
-
-	return fmt.Sprintf("(%s >= %s) and (%s <= %s)", col, lower, col, upper)
+	return betweenPattern.ReplaceAllString(expr, "(($1 >= $2) and ($1 <= $3))")
 }
 
 func normalizeOperators(expr string) string {

@@ -96,6 +96,11 @@ func TestNormalizeExpression_ComparisonParentheses(t *testing.T) {
 			fromSQL:      "CHECK (result = (a + b - c + d))",
 			fromPostgres: "CHECK ((result = (((a + b) - c) + d)))",
 		},
+		{
+			name:         "BETWEEN with OR prefix",
+			fromSQL:      "CHECK (score IS NULL OR score BETWEEN 8 AND 24)",
+			fromPostgres: "CHECK (((score IS NULL) OR ((score >= 8) AND (score <= 24))))",
+		},
 	}
 
 	for _, tt := range tests {
