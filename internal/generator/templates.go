@@ -213,49 +213,59 @@ func formatConstraintDefinition( //nolint:cyclop,gocognit,gocyclo,maintidx
 			lines = nonEmpty
 
 			if len(lines) > 1 {
-				minIndent := -1
+				boundaryIndent := -1
+
+				for i := 1; i < len(lines); i++ {
+					trimmed := strings.TrimSpace(lines[i])
+					if isClauseBoundaryContent(trimmed) {
+						indent := len(lines[i]) - len(strings.TrimLeft(lines[i], " \t"))
+						if boundaryIndent == -1 || indent < boundaryIndent {
+							boundaryIndent = indent
+						}
+					}
+				}
+
+				contentIndent := -1
+
+				for i := 1; i < len(lines); i++ {
+					trimmed := strings.TrimSpace(lines[i])
+					if trimmed == "" || isClauseBoundaryContent(trimmed) {
+						continue
+					}
+
+					indent := len(lines[i]) - len(strings.TrimLeft(lines[i], " \t"))
+					if boundaryIndent >= 0 && indent <= boundaryIndent {
+						continue
+					}
+
+					if contentIndent == -1 || indent < contentIndent {
+						contentIndent = indent
+					}
+				}
+
+				if contentIndent < 0 {
+					contentIndent = 0
+				}
 
 				for i := 1; i < len(lines); i++ {
 					if strings.TrimSpace(lines[i]) == "" {
 						continue
 					}
 
+					trimmed := strings.TrimLeft(lines[i], " \t")
 					indent := len(lines[i]) - len(strings.TrimLeft(lines[i], " \t"))
-					if minIndent == -1 || indent < minIndent {
-						minIndent = indent
-					}
-				}
+					atBoundaryLevel := boundaryIndent >= 0 && indent <= boundaryIndent
 
-				if minIndent > 0 {
-					for i := 1; i < len(lines); i++ {
-						if strings.TrimSpace(lines[i]) == "" {
-							continue
+					if isConstraintClauseBoundary(trimmed, atBoundaryLevel) {
+						lines[i] = trimmed
+					} else {
+						relativeIndent := indent - contentIndent
+
+						if relativeIndent < 0 {
+							relativeIndent = 0
 						}
 
-						if len(lines[i]) >= minIndent {
-							lines[i] = lines[i][minIndent:]
-						}
-
-						trimmed := strings.TrimLeft(lines[i], " \t")
-
-						if strings.TrimSpace(trimmed) == ")" || strings.TrimSpace(trimmed) == "))" {
-							lines[i] = trimmed
-						} else {
-							lines[i] = sqlIndent + trimmed
-						}
-					}
-				} else {
-					for i := 1; i < len(lines); i++ {
-						if strings.TrimSpace(lines[i]) == "" {
-							continue
-						}
-
-						trimmed := strings.TrimLeft(lines[i], " \t")
-						if strings.TrimSpace(trimmed) == ")" || strings.TrimSpace(trimmed) == "))" {
-							lines[i] = trimmed
-						} else {
-							lines[i] = sqlIndent + trimmed
-						}
+						lines[i] = sqlIndent + strings.Repeat(" ", relativeIndent) + trimmed
 					}
 				}
 			}
@@ -327,6 +337,25 @@ func formatConstraintDefinition( //nolint:cyclop,gocognit,gocyclo,maintidx
 	}
 
 	return buf.String(), nil
+}
+
+func isClauseBoundaryContent(trimmed string) bool {
+	return trimmed == ")" || trimmed == "))"
+}
+
+func isConstraintClauseBoundary(trimmed string, atBoundaryLevel bool) bool {
+	if !atBoundaryLevel {
+		return false
+	}
+
+	t := strings.TrimSpace(trimmed)
+	if t == ")" || t == "))" {
+		return true
+	}
+
+	upper := strings.ToUpper(t)
+
+	return strings.HasPrefix(upper, "OR (") || strings.HasPrefix(upper, "OR(")
 }
 
 func quoteColumns(columns []string) string {
