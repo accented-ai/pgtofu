@@ -27,19 +27,21 @@ func NewIdentifierNormalizer(caseSensitive bool) *IdentifierNormalizer {
 func (n *IdentifierNormalizer) Normalize(ident string) string {
 	ident = strings.TrimSpace(ident)
 
+	var name string
+
 	if matches := quotedIdentRe.FindStringSubmatch(ident); matches != nil {
 		if n.caseSensitive {
-			return matches[1]
+			name = matches[1]
+		} else {
+			name = strings.ToLower(matches[1])
 		}
-
-		return strings.ToLower(matches[1])
+	} else if n.caseSensitive {
+		name = ident
+	} else {
+		name = strings.ToLower(ident)
 	}
 
-	if n.caseSensitive {
-		return ident
-	}
-
-	return strings.ToLower(ident)
+	return schema.TruncateIdentifier(name)
 }
 
 func (n *IdentifierNormalizer) SplitQualified(qualified string) (schemaName, objectName string) {

@@ -13,6 +13,10 @@ const (
 
 	ForeignKey = "FOREIGN KEY"
 	NoAction   = "NO ACTION"
+
+	// MaxIdentifierLength is PostgreSQL's identifier length limit (NAMEDATALEN - 1).
+	// Names longer than this are silently truncated when stored in pg_catalog.
+	MaxIdentifierLength = 63
 )
 
 type Database struct {
@@ -242,7 +246,17 @@ func equalStringSlices(a, b []string) bool {
 
 func NormalizeIdentifier(identifier string) string {
 	identifier = strings.Trim(identifier, `"`)
-	return strings.ToLower(identifier)
+	return TruncateIdentifier(strings.ToLower(identifier))
+}
+
+// TruncateIdentifier mirrors PostgreSQL's silent truncation of identifiers
+// to NAMEDATALEN-1 bytes when they are stored in the catalog.
+func TruncateIdentifier(identifier string) string {
+	if len(identifier) > MaxIdentifierLength {
+		return identifier[:MaxIdentifierLength]
+	}
+
+	return identifier
 }
 
 func NormalizeSchemaName(schema string) string {

@@ -1232,11 +1232,7 @@ func (p *Parser) generateConstraintName(tableName string, constraint *schema.Con
 		name = tableName + "_constraint"
 	}
 
-	if len(name) > 63 {
-		name = name[:63]
-	}
-
-	return name
+	return schema.TruncateIdentifier(name)
 }
 
 func (p *Parser) parseAlterTable(stmt string, db *schema.Database) error {
