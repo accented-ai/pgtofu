@@ -148,3 +148,182 @@ func TestDDLBuilder_ConstraintIndentation_FlatOR(t *testing.T) {
 		");"
 	require.Equal(t, expected, stmt.SQL)
 }
+
+func TestDDLBuilder_ConstraintIndentation_FirstLinePredicate(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{}
+	desired := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "items",
+				Columns: []schema.Column{
+					{Name: "score", DataType: "double precision", IsNullable: true, Position: 1},
+				},
+				Constraints: []schema.Constraint{
+					{
+						Name: "items_score_check",
+						Type: "CHECK",
+						Definition: "CHECK (score IS NULL\n" +
+							"        OR (score >= 0 AND score <= 1))",
+						CheckExpression: "score IS NULL\n" +
+							"        OR (score >= 0 AND score <= 1)",
+					},
+				},
+			},
+		},
+	}
+
+	result := &differ.DiffResult{
+		Current: current,
+		Desired: desired,
+		Changes: []differ.Change{
+			{Type: differ.ChangeTypeAddTable, ObjectName: "public.items"},
+		},
+	}
+
+	builder := generator.NewDDLBuilder(result, true)
+	stmt, err := builder.BuildUpStatement(result.Changes[0])
+	require.NoError(t, err)
+
+	expected := "CREATE TABLE public.items (\n" +
+		"    score DOUBLE PRECISION,\n" +
+		"    CONSTRAINT items_score_check CHECK (\n" +
+		"        score IS NULL\n" +
+		"        OR (score >= 0 AND score <= 1)\n" +
+		"    )\n" +
+		");"
+	require.Equal(t, expected, stmt.SQL)
+}
+
+func TestDDLBuilder_ConstraintIndentation_FlatORNestedGroups(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{}
+	desired := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "items",
+				Columns: []schema.Column{
+					{Name: "source_type", DataType: "text", IsNullable: true, Position: 1},
+					{Name: "source_version", DataType: "text", IsNullable: true, Position: 2},
+					{Name: "group_id", DataType: "uuid", IsNullable: true, Position: 3},
+				},
+				Constraints: []schema.Constraint{
+					{
+						Name: "items_source_type_check",
+						Type: "CHECK",
+						Definition: "CHECK (source_type IS NULL\n" +
+							"        OR source_type = 'manual'\n" +
+							"    OR (\n" +
+							"        source_type = 'automated'\n" +
+							"        AND source_version IS NOT NULL\n" +
+							"        AND source_version <> ''\n" +
+							"    )\n" +
+							"    OR (\n" +
+							"        source_type = 'grouped'\n" +
+							"        AND group_id IS NOT NULL\n" +
+							"    ))",
+						CheckExpression: "source_type IS NULL\n" +
+							"        OR source_type = 'manual'\n" +
+							"    OR (\n" +
+							"        source_type = 'automated'\n" +
+							"        AND source_version IS NOT NULL\n" +
+							"        AND source_version <> ''\n" +
+							"    )\n" +
+							"    OR (\n" +
+							"        source_type = 'grouped'\n" +
+							"        AND group_id IS NOT NULL\n" +
+							"    )",
+					},
+				},
+			},
+		},
+	}
+
+	result := &differ.DiffResult{
+		Current: current,
+		Desired: desired,
+		Changes: []differ.Change{
+			{Type: differ.ChangeTypeAddTable, ObjectName: "public.items"},
+		},
+	}
+
+	builder := generator.NewDDLBuilder(result, true)
+	stmt, err := builder.BuildUpStatement(result.Changes[0])
+	require.NoError(t, err)
+
+	expected := "CREATE TABLE public.items (\n" +
+		"    source_type TEXT,\n" +
+		"    source_version TEXT,\n" +
+		"    group_id UUID,\n" +
+		"    CONSTRAINT items_source_type_check CHECK (\n" +
+		"        source_type IS NULL\n" +
+		"        OR source_type = 'manual'\n" +
+		"        OR (\n" +
+		"            source_type = 'automated'\n" +
+		"            AND source_version IS NOT NULL\n" +
+		"            AND source_version <> ''\n" +
+		"        )\n" +
+		"        OR (\n" +
+		"            source_type = 'grouped'\n" +
+		"            AND group_id IS NOT NULL\n" +
+		"        )\n" +
+		"    )\n" +
+		");"
+	require.Equal(t, expected, stmt.SQL)
+}
+
+func TestDDLBuilder_ConstraintIndentation_InListFirstLine(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{}
+	desired := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "items",
+				Columns: []schema.Column{
+					{Name: "category", DataType: "text", IsNullable: false, Position: 1},
+				},
+				Constraints: []schema.Constraint{
+					{
+						Name: "items_category_check",
+						Type: "CHECK",
+						Definition: "CHECK (category IN (\n" +
+							"        '',\n" +
+							"        'alpha'\n" +
+							"    ))",
+						CheckExpression: "category IN (\n" +
+							"        '',\n" +
+							"        'alpha'\n" +
+							"    )",
+					},
+				},
+			},
+		},
+	}
+
+	result := &differ.DiffResult{
+		Current: current,
+		Desired: desired,
+		Changes: []differ.Change{
+			{Type: differ.ChangeTypeAddTable, ObjectName: "public.items"},
+		},
+	}
+
+	builder := generator.NewDDLBuilder(result, true)
+	stmt, err := builder.BuildUpStatement(result.Changes[0])
+	require.NoError(t, err)
+
+	expected := "CREATE TABLE public.items (\n" +
+		"    category TEXT NOT NULL,\n" +
+		"    CONSTRAINT items_category_check CHECK (category IN (\n" +
+		"        '',\n" +
+		"        'alpha'\n" +
+		"    ))\n" +
+		");"
+	require.Equal(t, expected, stmt.SQL)
+}

@@ -126,7 +126,7 @@ func formatColumnDefinition(col *schema.Column) (string, error) {
 	return buf.String(), nil
 }
 
-func formatConstraintDefinition( //nolint:cyclop,gocognit,gocyclo,maintidx
+func formatConstraintDefinition( //nolint:cyclop,gocognit,gocyclo
 	c *schema.Constraint,
 ) (string, error) {
 	if c == nil {
@@ -199,78 +199,8 @@ func formatConstraintDefinition( //nolint:cyclop,gocognit,gocyclo,maintidx
 
 		def = NormalizeCheckConstraint(def)
 
-		if strings.HasPrefix(strings.ToUpper(def), "CHECK") { //nolint:nestif
-			lines := strings.Split(def, "\n")
-
-			nonEmpty := lines[:0]
-			for _, line := range lines {
-				trimmed := strings.TrimRight(line, " \t")
-				if strings.TrimSpace(trimmed) != "" {
-					nonEmpty = append(nonEmpty, trimmed)
-				}
-			}
-
-			lines = nonEmpty
-
-			if len(lines) > 1 {
-				boundaryIndent := -1
-
-				for i := 1; i < len(lines); i++ {
-					trimmed := strings.TrimSpace(lines[i])
-					if isClauseBoundaryContent(trimmed) {
-						indent := len(lines[i]) - len(strings.TrimLeft(lines[i], " \t"))
-						if boundaryIndent == -1 || indent < boundaryIndent {
-							boundaryIndent = indent
-						}
-					}
-				}
-
-				contentIndent := -1
-
-				for i := 1; i < len(lines); i++ {
-					trimmed := strings.TrimSpace(lines[i])
-					if trimmed == "" || isClauseBoundaryContent(trimmed) {
-						continue
-					}
-
-					indent := len(lines[i]) - len(strings.TrimLeft(lines[i], " \t"))
-					if boundaryIndent >= 0 && indent <= boundaryIndent {
-						continue
-					}
-
-					if contentIndent == -1 || indent < contentIndent {
-						contentIndent = indent
-					}
-				}
-
-				if contentIndent < 0 {
-					contentIndent = 0
-				}
-
-				for i := 1; i < len(lines); i++ {
-					if strings.TrimSpace(lines[i]) == "" {
-						continue
-					}
-
-					trimmed := strings.TrimLeft(lines[i], " \t")
-					indent := len(lines[i]) - len(strings.TrimLeft(lines[i], " \t"))
-					atBoundaryLevel := boundaryIndent >= 0 && indent <= boundaryIndent
-
-					if isConstraintClauseBoundary(trimmed, atBoundaryLevel) {
-						lines[i] = trimmed
-					} else {
-						relativeIndent := indent - contentIndent
-
-						if relativeIndent < 0 {
-							relativeIndent = 0
-						}
-
-						lines[i] = sqlIndent + strings.Repeat(" ", relativeIndent) + trimmed
-					}
-				}
-			}
-
-			buf.Write(strings.Join(lines, "\n"))
+		if strings.HasPrefix(strings.ToUpper(def), "CHECK") {
+			buf.Write(formatCheckConstraintDefinition(def))
 		} else {
 			buf.Write("CHECK")
 			buf.Write(def)
@@ -339,23 +269,273 @@ func formatConstraintDefinition( //nolint:cyclop,gocognit,gocyclo,maintidx
 	return buf.String(), nil
 }
 
-func isClauseBoundaryContent(trimmed string) bool {
-	return trimmed == ")" || trimmed == "))"
+func formatCheckConstraintDefinition(def string) string {
+	lines := compactSQLLines(def)
+	if len(lines) <= 1 {
+		if len(lines) == 0 {
+			return ""
+		}
+
+		return lines[0]
+	}
+
+	lines = splitCheckFirstLine(lines)
+	lines = splitLeadingClosingParens(lines)
+	lines = splitAttachedClosingParens(lines)
+
+	// Match SQLFluff's multiline CHECK layout without reflowing single-line checks.
+	return indentCheckConstraintLines(lines)
 }
 
-func isConstraintClauseBoundary(trimmed string, atBoundaryLevel bool) bool {
-	if !atBoundaryLevel {
+func compactSQLLines(sql string) []string {
+	rawLines := strings.Split(sql, "\n")
+	lines := make([]string, 0, len(rawLines))
+
+	for _, line := range rawLines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			lines = append(lines, trimmed)
+		}
+	}
+
+	return lines
+}
+
+func splitCheckFirstLine(lines []string) []string {
+	first := strings.TrimSpace(lines[0])
+
+	openIdx := strings.Index(first, "(")
+	if openIdx == -1 || !strings.HasPrefix(strings.ToUpper(first), "CHECK") {
+		lines[0] = first
+
+		return lines
+	}
+
+	prefixEnd := openIdx + 1
+	for prefixEnd < len(first) && first[prefixEnd] == '(' {
+		prefixEnd++
+	}
+
+	body := strings.TrimSpace(first[prefixEnd:])
+	if body == "" || parenBalance(body) > 0 {
+		lines[0] = first
+
+		return lines
+	}
+
+	split := make([]string, 0, len(lines)+1)
+	split = append(split, strings.TrimSpace(first[:prefixEnd]), body)
+	split = append(split, lines[1:]...)
+
+	return split
+}
+
+func splitLeadingClosingParens(lines []string) []string {
+	split := make([]string, 0, len(lines))
+
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if i == 0 {
+			split = append(split, trimmed)
+
+			continue
+		}
+
+		closingCount := 0
+		for closingCount < len(trimmed) && trimmed[closingCount] == ')' {
+			closingCount++
+		}
+
+		if closingCount > 0 && closingCount < len(trimmed) {
+			split = append(split, strings.Repeat(")", closingCount))
+			split = append(split, strings.TrimSpace(trimmed[closingCount:]))
+		} else {
+			split = append(split, trimmed)
+		}
+	}
+
+	return split
+}
+
+func splitAttachedClosingParens(lines []string) []string {
+	split := make([]string, 0, len(lines))
+
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if i == 0 || isOnlyClosingParens(trimmed) {
+			split = append(split, trimmed)
+
+			continue
+		}
+
+		body, closingParens := trimTrailingClosingParens(trimmed)
+		if body == "" || closingParens == "" {
+			split = append(split, trimmed)
+
+			continue
+		}
+
+		keepClosingCount := parenBalance(body)
+		if keepClosingCount < 0 {
+			keepClosingCount = 0
+		}
+
+		if keepClosingCount > len(closingParens) {
+			keepClosingCount = len(closingParens)
+		}
+
+		split = append(split, body+closingParens[:keepClosingCount])
+
+		if keepClosingCount < len(closingParens) {
+			split = append(split, closingParens[keepClosingCount:])
+		}
+	}
+
+	return split
+}
+
+func trimTrailingClosingParens(line string) (string, string) {
+	end := len(line)
+	for end > 0 && line[end-1] == ')' {
+		end--
+	}
+
+	if end == len(line) {
+		return line, ""
+	}
+
+	return strings.TrimSpace(line[:end]), line[end:]
+}
+
+func indentCheckConstraintLines(lines []string) string {
+	if len(lines) == 0 {
+		return ""
+	}
+
+	formatted := make([]string, 0, len(lines))
+	first := strings.TrimSpace(lines[0])
+	formatted = append(formatted, first)
+
+	baseDepth := parenBalance(first)
+	if baseDepth < 1 {
+		baseDepth = 1
+	}
+
+	depth := baseDepth
+
+	for _, line := range lines[1:] {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+
+		if isOnlyClosingParens(trimmed) {
+			formatted, depth = appendIndentedClosingParens(formatted, trimmed, depth, baseDepth)
+
+			continue
+		}
+
+		indentLevel := depth - baseDepth + 1
+		if indentLevel < 0 {
+			indentLevel = 0
+		}
+
+		formatted = append(formatted, strings.Repeat(sqlIndent, indentLevel)+trimmed)
+
+		depth += parenBalance(trimmed)
+		if depth < 0 {
+			depth = 0
+		}
+	}
+
+	return strings.Join(formatted, "\n")
+}
+
+func appendIndentedClosingParens(
+	formatted []string,
+	closingParens string,
+	depth int,
+	baseDepth int,
+) ([]string, int) {
+	remaining := len(closingParens)
+	for remaining > 0 && depth > baseDepth {
+		indentLevel := depth - baseDepth
+		formatted = append(formatted, strings.Repeat(sqlIndent, indentLevel)+")")
+		depth--
+		remaining--
+	}
+
+	if remaining > 0 {
+		indentLevel := depth - baseDepth
+		if indentLevel < 0 {
+			indentLevel = 0
+		}
+
+		formatted = append(
+			formatted,
+			strings.Repeat(sqlIndent, indentLevel)+strings.Repeat(")", remaining),
+		)
+		depth -= remaining
+	}
+
+	if depth < 0 {
+		depth = 0
+	}
+
+	return formatted, depth
+}
+
+func isOnlyClosingParens(line string) bool {
+	if line == "" {
 		return false
 	}
 
-	t := strings.TrimSpace(trimmed)
-	if t == ")" || t == "))" {
-		return true
+	for _, r := range line {
+		if r != ')' {
+			return false
+		}
 	}
 
-	upper := strings.ToUpper(t)
+	return true
+}
 
-	return strings.HasPrefix(upper, "OR (") || strings.HasPrefix(upper, "OR(")
+func parenBalance(sql string) int {
+	balance := 0
+	inSingleQuote := false
+	inDoubleQuote := false
+
+	for i := 0; i < len(sql); i++ {
+		ch := sql[i]
+
+		switch {
+		case inSingleQuote:
+			if ch == '\'' {
+				if i+1 < len(sql) && sql[i+1] == '\'' {
+					i++
+				} else {
+					inSingleQuote = false
+				}
+			}
+		case inDoubleQuote:
+			if ch == '"' {
+				if i+1 < len(sql) && sql[i+1] == '"' {
+					i++
+				} else {
+					inDoubleQuote = false
+				}
+			}
+		case ch == '\'':
+			inSingleQuote = true
+		case ch == '"':
+			inDoubleQuote = true
+		case ch == '(':
+			balance++
+		case ch == ')':
+			balance--
+		}
+	}
+
+	return balance
 }
 
 func quoteColumns(columns []string) string {
