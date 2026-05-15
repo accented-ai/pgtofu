@@ -271,9 +271,13 @@ func formatConstraintDefinition( //nolint:cyclop,gocognit,gocyclo
 
 func formatCheckConstraintDefinition(def string) string {
 	lines := compactSQLLines(def)
-	if len(lines) <= 1 {
-		if len(lines) == 0 {
-			return ""
+	if len(lines) == 0 {
+		return ""
+	}
+
+	if len(lines) == 1 {
+		if formatted, ok := formatSingleLineCheckConstraintDefinition(lines[0]); ok {
+			return formatted
 		}
 
 		return lines[0]
@@ -285,6 +289,66 @@ func formatCheckConstraintDefinition(def string) string {
 
 	// Match SQLFluff's multiline CHECK layout without reflowing single-line checks.
 	return indentCheckConstraintLines(lines)
+}
+
+func formatSingleLineCheckConstraintDefinition(def string) (string, bool) {
+	content, ok := checkConstraintContent(def)
+	if !ok {
+		return "", false
+	}
+
+	content, _ = unwrapOuterParens(content)
+
+	terms := splitTopLevelKeyword(content, "OR")
+	if len(terms) < 2 || !shouldFormatSingleLineCheckTerms(terms) {
+		return "", false
+	}
+
+	formatted := []string{
+		"CHECK (",
+		sqlIndent + "(",
+	}
+
+	for i, term := range terms {
+		term = strings.TrimSpace(term)
+		if i == 0 {
+			formatted = append(formatted, sqlIndent+sqlIndent+term)
+		} else {
+			formatted = append(formatted, sqlIndent+sqlIndent+"OR "+term)
+		}
+	}
+
+	formatted = append(formatted, sqlIndent+")", ")")
+
+	return strings.Join(formatted, "\n"), true
+}
+
+func checkConstraintContent(def string) (string, bool) {
+	if !strings.HasPrefix(strings.ToUpper(def), "CHECK") {
+		return "", false
+	}
+
+	remainder := strings.TrimSpace(def[len("CHECK"):])
+	if !strings.HasPrefix(remainder, "(") {
+		return "", false
+	}
+
+	closeIdx := matchingParenIndex(remainder, 0)
+	if closeIdx == -1 || strings.TrimSpace(remainder[closeIdx+1:]) != "" {
+		return "", false
+	}
+
+	return strings.TrimSpace(remainder[1:closeIdx]), true
+}
+
+func shouldFormatSingleLineCheckTerms(terms []string) bool {
+	for _, term := range terms {
+		if countKeywordOutsideQuotes(term, "AND") >= 3 {
+			return true
+		}
+	}
+
+	return false
 }
 
 func compactSQLLines(sql string) []string {
@@ -299,6 +363,27 @@ func compactSQLLines(sql string) []string {
 	}
 
 	return lines
+}
+
+func unwrapOuterParens(expr string) (string, int) {
+	unwrapped := strings.TrimSpace(expr)
+	count := 0
+
+	for isWrappedInParens(unwrapped) {
+		unwrapped = strings.TrimSpace(unwrapped[1 : len(unwrapped)-1])
+		count++
+	}
+
+	return unwrapped, count
+}
+
+func isWrappedInParens(expr string) bool {
+	expr = strings.TrimSpace(expr)
+	if len(expr) < 2 || expr[0] != '(' || expr[len(expr)-1] != ')' {
+		return false
+	}
+
+	return matchingParenIndex(expr, 0) == len(expr)-1
 }
 
 func splitCheckFirstLine(lines []string) []string {
@@ -451,6 +536,120 @@ func indentCheckConstraintLines(lines []string) string {
 	return strings.Join(formatted, "\n")
 }
 
+func splitTopLevelKeyword(sql string, keyword string) []string {
+	parts := []string{}
+	start := 0
+	depth := 0
+	inSingleQuote := false
+	inDoubleQuote := false
+
+	for i := 0; i < len(sql); i++ {
+		ch := sql[i]
+
+		switch {
+		case inSingleQuote:
+			if ch == '\'' {
+				if i+1 < len(sql) && sql[i+1] == '\'' {
+					i++
+				} else {
+					inSingleQuote = false
+				}
+			}
+		case inDoubleQuote:
+			if ch == '"' {
+				if i+1 < len(sql) && sql[i+1] == '"' {
+					i++
+				} else {
+					inDoubleQuote = false
+				}
+			}
+		case ch == '\'':
+			inSingleQuote = true
+		case ch == '"':
+			inDoubleQuote = true
+		case ch == '(':
+			depth++
+		case ch == ')':
+			depth--
+		default:
+			if depth == 0 && matchesKeywordAt(sql, i, keyword) {
+				parts = append(parts, strings.TrimSpace(sql[start:i]))
+				i += len(keyword) - 1
+				start = i + 1
+			}
+		}
+	}
+
+	parts = append(parts, strings.TrimSpace(sql[start:]))
+
+	return parts
+}
+
+func countKeywordOutsideQuotes(sql string, keyword string) int {
+	count := 0
+	inSingleQuote := false
+	inDoubleQuote := false
+
+	for i := 0; i < len(sql); i++ {
+		ch := sql[i]
+
+		switch {
+		case inSingleQuote:
+			if ch == '\'' {
+				if i+1 < len(sql) && sql[i+1] == '\'' {
+					i++
+				} else {
+					inSingleQuote = false
+				}
+			}
+		case inDoubleQuote:
+			if ch == '"' {
+				if i+1 < len(sql) && sql[i+1] == '"' {
+					i++
+				} else {
+					inDoubleQuote = false
+				}
+			}
+		case ch == '\'':
+			inSingleQuote = true
+		case ch == '"':
+			inDoubleQuote = true
+		default:
+			if matchesKeywordAt(sql, i, keyword) {
+				count++
+				i += len(keyword) - 1
+			}
+		}
+	}
+
+	return count
+}
+
+func matchesKeywordAt(sql string, idx int, keyword string) bool {
+	if idx < 0 || idx+len(keyword) > len(sql) {
+		return false
+	}
+
+	if !strings.EqualFold(sql[idx:idx+len(keyword)], keyword) {
+		return false
+	}
+
+	return isKeywordBoundary(sql, idx-1) && isKeywordBoundary(sql, idx+len(keyword))
+}
+
+func isKeywordBoundary(sql string, idx int) bool {
+	if idx < 0 || idx >= len(sql) {
+		return true
+	}
+
+	ch := sql[idx]
+
+	return (ch < 'a' || ch > 'z') &&
+		(ch < 'A' || ch > 'Z') &&
+		(ch < '0' || ch > '9') &&
+		ch != '_'
+}
+
 func appendIndentedClosingParens(
 	formatted []string,
 	closingParens string,
@@ -497,6 +696,52 @@ func isOnlyClosingParens(line string) bool {
 	}
 
 	return true
+}
+
+func matchingParenIndex(sql string, openIdx int) int {
+	if openIdx < 0 || openIdx >= len(sql) || sql[openIdx] != '(' {
+		return -1
+	}
+
+	depth := 0
+	inSingleQuote := false
+	inDoubleQuote := false
+
+	for i := openIdx; i < len(sql); i++ {
+		ch := sql[i]
+
+		switch {
+		case inSingleQuote:
+			if ch == '\'' {
+				if i+1 < len(sql) && sql[i+1] == '\'' {
+					i++
+				} else {
+					inSingleQuote = false
+				}
+			}
+		case inDoubleQuote:
+			if ch == '"' {
+				if i+1 < len(sql) && sql[i+1] == '"' {
+					i++
+				} else {
+					inDoubleQuote = false
+				}
+			}
+		case ch == '\'':
+			inSingleQuote = true
+		case ch == '"':
+			inDoubleQuote = true
+		case ch == '(':
+			depth++
+		case ch == ')':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+
+	return -1
 }
 
 func parenBalance(sql string) int {

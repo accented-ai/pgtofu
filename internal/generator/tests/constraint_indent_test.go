@@ -327,3 +327,94 @@ func TestDDLBuilder_ConstraintIndentation_InListFirstLine(t *testing.T) {
 		");"
 	require.Equal(t, expected, stmt.SQL)
 }
+
+func TestDDLBuilder_ConstraintIndentation_DownMigrationExtractedCheck(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "items",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "uuid", IsNullable: false, Position: 1},
+					{Name: "state", DataType: "text", IsNullable: true, Position: 2},
+					{Name: "source", DataType: "text", IsNullable: true, Position: 3},
+					{Name: "source_version", DataType: "text", IsNullable: true, Position: 4},
+					{Name: "score", DataType: "double precision", IsNullable: true, Position: 5},
+					{Name: "metadata", DataType: "jsonb", IsNullable: false, Position: 6},
+					{
+						Name:       "item_ids",
+						DataType:   "uuid",
+						IsArray:    true,
+						IsNullable: false,
+						Position:   7,
+					},
+				},
+				Constraints: []schema.Constraint{
+					{Name: "items_pkey", Type: "PRIMARY KEY", Columns: []string{"id"}},
+					{
+						Name: "items_state_rule_check",
+						Type: "CHECK",
+						Definition: "CHECK ((((state = 'pending') AND (source IS NULL) " +
+							"AND (source_version IS NULL) AND (score IS NULL)) OR " +
+							"((state = 'active') AND (source IS NOT NULL) " +
+							"AND (source_version IS NOT NULL) AND (score IS NOT NULL))))",
+					},
+					{
+						Name: "items_source_check",
+						Type: "CHECK",
+						Definition: "CHECK (((source IS NULL) OR (source = 'manual') OR " +
+							"((source = 'automated') AND (source_version IS NOT NULL))))",
+					},
+					{
+						Name:       "items_metadata_check",
+						Type:       "CHECK",
+						Definition: "CHECK ((jsonb_typeof(metadata) = 'object'))",
+					},
+					{
+						Name:       "items_item_ids_check",
+						Type:       "CHECK",
+						Definition: "CHECK ((cardinality(item_ids) > 0))",
+					},
+				},
+			},
+		},
+	}
+	desired := &schema.Database{}
+
+	result := &differ.DiffResult{
+		Current: current,
+		Desired: desired,
+		Changes: []differ.Change{
+			{Type: differ.ChangeTypeDropTable, ObjectName: "public.items"},
+		},
+	}
+
+	builder := generator.NewDDLBuilder(result, true)
+	stmt, err := builder.BuildDownStatement(result.Changes[0])
+	require.NoError(t, err)
+
+	expected := "CREATE TABLE public.items (\n" +
+		"    id UUID NOT NULL,\n" +
+		"    state TEXT,\n" +
+		"    source TEXT,\n" +
+		"    source_version TEXT,\n" +
+		"    score DOUBLE PRECISION,\n" +
+		"    metadata JSONB NOT NULL,\n" +
+		"    item_ids UUID[] NOT NULL,\n" +
+		"    CONSTRAINT items_pkey PRIMARY KEY (id),\n" +
+		"    CONSTRAINT items_state_rule_check CHECK (\n" +
+		"        (\n" +
+		"            ((state = 'pending') AND (source IS NULL) AND (source_version IS NULL) AND (score IS NULL))\n" +
+		"            OR ((state = 'active') AND (source IS NOT NULL) " +
+		"AND (source_version IS NOT NULL) AND (score IS NOT NULL))\n" +
+		"        )\n" +
+		"    ),\n" +
+		"    CONSTRAINT items_source_check CHECK (((source IS NULL) OR (source = 'manual') OR " +
+		"((source = 'automated') AND (source_version IS NOT NULL)))),\n" +
+		"    CONSTRAINT items_metadata_check CHECK ((JSONB_TYPEOF(metadata) = 'object')),\n" +
+		"    CONSTRAINT items_item_ids_check CHECK ((CARDINALITY(item_ids) > 0))\n" +
+		");"
+	require.Equal(t, expected, stmt.SQL)
+}
