@@ -210,6 +210,26 @@ func TestNormalizeExpression_CompareEquivalentConstraints(t *testing.T) {
 				"(ARRAY['skipped'::text, 'failed'::text])) AND " +
 				"(reason <> ''::text)))",
 		},
+		{
+			name:         "LIKE rendered as ~~ operator by PostgreSQL",
+			fromSQL:      "CHECK (slug = '' OR slug LIKE 'a%')",
+			fromPostgres: "CHECK (((slug = ''::text) OR (slug ~~ 'a%'::text)))",
+		},
+		{
+			name:         "NOT LIKE rendered as !~~ operator by PostgreSQL",
+			fromSQL:      "CHECK (code NOT LIKE 'a%')",
+			fromPostgres: "CHECK ((code !~~ 'a%'::text))",
+		},
+		{
+			name:         "ILIKE rendered as ~~* operator by PostgreSQL",
+			fromSQL:      "CHECK (label ILIKE 'a%')",
+			fromPostgres: "CHECK ((label ~~* 'a%'::text))",
+		},
+		{
+			name:         "NOT ILIKE rendered as !~~* operator by PostgreSQL",
+			fromSQL:      "CHECK (label NOT ILIKE 'a%')",
+			fromPostgres: "CHECK ((label !~~* 'a%'::text))",
+		},
 	}
 
 	for _, tt := range tests {

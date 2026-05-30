@@ -14,6 +14,7 @@ func normalizeExpression(expr string) string {
 	expr = strings.TrimPrefix(expr, "CHECK (")
 	expr = strings.Join(strings.Fields(expr), " ")
 	expr = strings.ToLower(expr)
+	expr = normalizeLikeOperators(expr)
 
 	for strings.HasPrefix(expr, "(") && strings.HasSuffix(expr, ")") {
 		inner := expr[1 : len(expr)-1]
@@ -499,6 +500,23 @@ func normalizeOperators(expr string) string {
 	expr = strings.ReplaceAll(expr, "§EQ§", " = ")
 
 	return expr
+}
+
+// normalizeLikeOperators rewrites PostgreSQL's ~~/~~* operators to LIKE/ILIKE
+// keywords so a parsed `LIKE` matches the `~~` from pg_get_constraintdef.
+// Longest operators first so `~~` does not clobber `!~~*`.
+func normalizeLikeOperators(expr string) string {
+	replacements := []struct{ op, keyword string }{
+		{"!~~*", " not ilike "},
+		{"~~*", " ilike "},
+		{"!~~", " not like "},
+		{"~~", " like "},
+	}
+	for _, r := range replacements {
+		expr = strings.ReplaceAll(expr, r.op, r.keyword)
+	}
+
+	return strings.Join(strings.Fields(expr), " ")
 }
 
 func normalizeComment(comment string) string {
