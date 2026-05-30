@@ -137,12 +137,13 @@ func (g *Generator) GroupChangesBySchema(changes []differ.Change) [][]differ.Cha
 
 	var batches [][]differ.Change
 
-	schemaCreationChanges, nonSchemaCreationChanges := g.separateSchemaCreation(changes)
-	if len(schemaCreationChanges) > 0 {
-		batches = append(batches, schemaCreationChanges)
+	addSchemaChanges, dropSchemaChanges, nonSchemaChanges := g.separateSchemaChanges(changes)
+
+	if len(addSchemaChanges) > 0 {
+		batches = append(batches, addSchemaChanges)
 	}
 
-	extensionChanges, nonExtensionChanges := g.separateExtensions(nonSchemaCreationChanges)
+	extensionChanges, nonExtensionChanges := g.separateExtensions(nonSchemaChanges)
 	if len(extensionChanges) > 0 {
 		batches = append(batches, extensionChanges)
 	}
@@ -154,6 +155,11 @@ func (g *Generator) GroupChangesBySchema(changes []differ.Change) [][]differ.Cha
 		schemaChanges := schemaGroups[schema]
 		g.sortSchemaChanges(schemaChanges)
 		batches = append(batches, g.splitIntoBatches(schemaChanges)...)
+	}
+
+	// DROP SCHEMA must run after every object inside it has been dropped.
+	if len(dropSchemaChanges) > 0 {
+		batches = append(batches, dropSchemaChanges)
 	}
 
 	return batches
@@ -548,23 +554,21 @@ func (g *Generator) separateExtensions(changes []differ.Change) ([]differ.Change
 	return extensions, other
 }
 
-func (g *Generator) separateSchemaCreation(
+func (g *Generator) separateSchemaChanges(
 	changes []differ.Change,
-) ([]differ.Change, []differ.Change) {
-	var (
-		schemaCreation []differ.Change
-		other          []differ.Change
-	)
-
+) (addSchema, dropSchema, other []differ.Change) {
 	for _, change := range changes {
-		if change.Type == differ.ChangeTypeAddSchema || change.Type == differ.ChangeTypeDropSchema {
-			schemaCreation = append(schemaCreation, change)
-		} else {
+		switch change.Type {
+		case differ.ChangeTypeAddSchema:
+			addSchema = append(addSchema, change)
+		case differ.ChangeTypeDropSchema:
+			dropSchema = append(dropSchema, change)
+		default:
 			other = append(other, change)
 		}
 	}
 
-	return schemaCreation, other
+	return addSchema, dropSchema, other
 }
 
 func (g *Generator) generateMigration(

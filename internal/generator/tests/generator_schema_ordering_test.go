@@ -82,6 +82,67 @@ func TestSchemaCreationBeforeTableCreation(t *testing.T) {
 	}
 }
 
+func TestSchemaDropAfterTableDrop(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{
+		Schemas: []schema.Schema{
+			{Name: "legacy"},
+		},
+		Tables: []schema.Table{
+			{
+				Schema: "legacy",
+				Name:   "records",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
+				},
+			},
+		},
+	}
+	desired := &schema.Database{}
+
+	d := differ.New(differ.DefaultOptions())
+	diffResult, err := d.Compare(current, desired)
+	require.NoError(t, err)
+
+	opts := testOptions()
+	opts.MaxOperationsPerFile = 10
+	gen := generator.New(opts)
+
+	genResult, err := gen.Generate(diffResult)
+	require.NoError(t, err)
+
+	dropTableIndex := -1
+	dropSchemaIndex := -1
+
+	for i, migration := range genResult.Migrations {
+		if migration.UpFile == nil {
+			continue
+		}
+
+		upSQL := migration.UpFile.Content
+		if strings.Contains(upSQL, "DROP TABLE") && strings.Contains(upSQL, "legacy.records") {
+			dropTableIndex = i
+		}
+
+		if strings.Contains(upSQL, "DROP SCHEMA") && strings.Contains(upSQL, "legacy") {
+			dropSchemaIndex = i
+		}
+	}
+
+	require.NotEqual(t, -1, dropTableIndex, "expected a DROP TABLE migration for legacy.records")
+	require.NotEqual(t, -1, dropSchemaIndex, "expected a DROP SCHEMA migration for legacy")
+	assert.Less(t, dropTableIndex, dropSchemaIndex,
+		"DROP TABLE must come before DROP SCHEMA so the schema is dropped after its objects")
+
+	// On rollback golang-migrate runs down files in descending version order, so the
+	// DROP SCHEMA migration (highest version) must recreate the schema first.
+	downFile := genResult.Migrations[dropSchemaIndex].DownFile
+	require.NotNil(t, downFile, "DROP SCHEMA migration should have a down file")
+	assert.Contains(t, downFile.Content, "CREATE SCHEMA",
+		"the DROP SCHEMA migration's down file should recreate the schema")
+}
+
 func TestSchemaCreationWithExtensionDrop(t *testing.T) {
 	t.Parallel()
 
