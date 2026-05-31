@@ -74,6 +74,7 @@ seqrelid
 sIndex
 spgist
 testdb
+tgattr
 tgfoid
 tgisinternal
 tgname

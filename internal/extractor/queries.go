@@ -359,6 +359,11 @@ const (
 				CASE WHEN t.tgtype & 16 = 16 THEN 'UPDATE' END,
 				CASE WHEN t.tgtype & 32 = 32 THEN 'TRUNCATE' END
 			], NULL),
+			COALESCE((
+				SELECT array_agg(a.attname ORDER BY cols.ord)
+				FROM unnest(t.tgattr) WITH ORDINALITY AS cols(attnum, ord)
+				JOIN pg_attribute a ON a.attrelid = t.tgrelid AND a.attnum = cols.attnum
+			), ARRAY[]::text[]),
 			(t.tgtype & 1 = 1),
 			pg_get_triggerdef(t.oid),
 			pn.nspname,

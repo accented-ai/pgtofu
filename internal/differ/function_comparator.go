@@ -290,6 +290,10 @@ func areTriggersEqual(t1, t2 *schema.Trigger) bool {
 		return false
 	}
 
+	if !equalStringSlicesSorted(t1.UpdateColumns, t2.UpdateColumns) {
+		return false
+	}
+
 	if t1.ForEachRow != t2.ForEachRow {
 		return false
 	}

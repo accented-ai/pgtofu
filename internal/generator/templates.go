@@ -1023,7 +1023,7 @@ func formatTriggerDefinition(t *schema.Trigger) (string, error) {
 	sb.WriteString("\n")
 	sb.WriteString(t.Timing)
 	sb.WriteString(" ")
-	sb.WriteString(strings.Join(t.Events, " OR "))
+	sb.WriteString(t.EventList())
 	sb.WriteString(" ON ")
 	sb.WriteString(QualifiedName(t.Schema, t.TableName))
 	sb.WriteString("\n")

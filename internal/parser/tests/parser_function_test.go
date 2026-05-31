@@ -1,6 +1,7 @@
 package parser_test
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -102,5 +103,32 @@ func TestParseTriggers(t *testing.T) {
 				)
 			}
 		})
+	}
+}
+
+func TestParseTrigger_UpdateOfColumns(t *testing.T) {
+	t.Parallel()
+
+	setupSQL := `CREATE TABLE items (id BIGINT, status TEXT, shipped_at TIMESTAMPTZ);
+		CREATE FUNCTION notify() RETURNS TRIGGER AS $$ BEGIN RETURN NEW; END; $$ LANGUAGE plpgsql;`
+	triggerSQL := `CREATE TRIGGER notify_changes
+		AFTER INSERT OR UPDATE OF status, shipped_at ON items
+		FOR EACH ROW
+		EXECUTE FUNCTION notify();`
+
+	db := parseSQLWithSetup(t, setupSQL, triggerSQL)
+
+	if len(db.Triggers) != 1 {
+		t.Fatalf("expected 1 trigger, got %d", len(db.Triggers))
+	}
+
+	trigger := db.Triggers[0]
+
+	if got := strings.Join(trigger.Events, ","); got != "INSERT,UPDATE" {
+		t.Errorf("events = %q, want \"INSERT,UPDATE\"", got)
+	}
+
+	if got := strings.Join(trigger.UpdateColumns, ","); got != "status,shipped_at" {
+		t.Errorf("update columns = %q, want \"status,shipped_at\"", got)
 	}
 }

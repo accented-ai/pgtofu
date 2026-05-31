@@ -141,6 +141,30 @@ func TestDDLBuilder_TriggerOperations(t *testing.T) {
 			wantRequiresTx: true,
 		},
 		{
+			name:       "add trigger scoped to UPDATE OF columns",
+			changeType: differ.ChangeTypeAddTrigger,
+			trigger: &schema.Trigger{
+				Schema:         schema.DefaultSchema,
+				Name:           "notify_changes",
+				TableName:      "items",
+				Timing:         "AFTER",
+				Events:         []string{"INSERT", "UPDATE"},
+				UpdateColumns:  []string{"status", "shipped_at"},
+				ForEachRow:     true,
+				FunctionSchema: schema.DefaultSchema,
+				FunctionName:   "notify",
+			},
+			wantSQL: []string{
+				"CREATE TRIGGER",
+				"notify_changes",
+				"AFTER INSERT OR UPDATE OF status, shipped_at",
+				"FOR EACH ROW",
+				"EXECUTE FUNCTION public.NOTIFY",
+			},
+			wantUnsafe:     false,
+			wantRequiresTx: true,
+		},
+		{
 			name:       "add trigger with schema-qualified table",
 			changeType: differ.ChangeTypeAddTrigger,
 			trigger: &schema.Trigger{

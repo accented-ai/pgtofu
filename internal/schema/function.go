@@ -37,6 +37,7 @@ type Trigger struct {
 	TableName      string   `json:"table_name"`
 	Timing         string   `json:"timing"`
 	Events         []string `json:"events"`
+	UpdateColumns  []string `json:"update_columns,omitempty"`
 	ForEachRow     bool     `json:"for_each_row"`
 	WhenCondition  string   `json:"when_condition,omitempty"`
 	FunctionSchema string   `json:"function_schema"`
@@ -85,6 +86,17 @@ func (t *Trigger) QualifiedFunctionName() string {
 	return QualifiedName(t.FunctionSchema, t.FunctionName)
 }
 
+// EventList renders the trigger's event clause, expanding UPDATE to
+// "UPDATE OF col, ..." when the trigger is scoped to specific columns.
 func (t *Trigger) EventList() string {
-	return strings.Join(t.Events, " OR ")
+	parts := make([]string, 0, len(t.Events))
+	for _, event := range t.Events {
+		if strings.EqualFold(event, "UPDATE") && len(t.UpdateColumns) > 0 {
+			parts = append(parts, event+" OF "+strings.Join(t.UpdateColumns, ", "))
+		} else {
+			parts = append(parts, event)
+		}
+	}
+
+	return strings.Join(parts, " OR ")
 }

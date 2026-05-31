@@ -79,6 +79,7 @@ func (e *Extractor) extractTriggers(ctx context.Context) ([]schema.Trigger, erro
 			&trig.TableName,
 			&trig.Timing,
 			&trig.Events,
+			&trig.UpdateColumns,
 			&trig.ForEachRow,
 			&trig.Definition,
 			&trig.FunctionSchema,

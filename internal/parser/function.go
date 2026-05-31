@@ -271,6 +271,7 @@ type triggerStatement struct {
 	name           string
 	timing         string
 	events         []string
+	updateColumns  []string
 	tableSchema    string
 	tableName      string
 	forEachRow     bool
@@ -292,6 +293,7 @@ func (p *Parser) parseCreateTrigger(stmt string, db *schema.Database) error {
 		TableName:      parsed.tableName,
 		Timing:         parsed.timing,
 		Events:         parsed.events,
+		UpdateColumns:  parsed.updateColumns,
 		ForEachRow:     parsed.forEachRow,
 		WhenCondition:  parsed.whenCondition,
 		FunctionSchema: parsed.functionSchema,
@@ -379,7 +381,9 @@ func (p *Parser) parseTriggerStatement( //nolint:cyclop,gocognit,gocyclo,maintid
 		return nil, NewParseError("missing trigger events")
 	}
 
-	eventTokens := []string{}
+	events := make([]string, 0)
+
+	var updateColumns []string
 
 	for idx < len(tokens) {
 		word = upperLiteral(tokens, idx)
@@ -387,26 +391,29 @@ func (p *Parser) parseTriggerStatement( //nolint:cyclop,gocognit,gocyclo,maintid
 			break
 		}
 
-		if word != "" {
-			eventTokens = append(eventTokens, word)
-		}
+		switch word {
+		case "INSERT", "DELETE", "TRUNCATE":
+			events = append(events, word)
+			idx = nextNonCommentIndex(tokens, idx+1)
+		case "UPDATE":
+			events = append(events, word)
 
-		idx = nextNonCommentIndex(tokens, idx+1)
+			idx = nextNonCommentIndex(tokens, idx+1)
+			if idx < len(tokens) && upperLiteral(tokens, idx) == "OF" {
+				idx = p.collectTriggerUpdateColumns(
+					tokens,
+					nextNonCommentIndex(tokens, idx+1),
+					&updateColumns,
+				)
+			}
+		default:
+			// OR separators and any stray tokens.
+			idx = nextNonCommentIndex(tokens, idx+1)
+		}
 	}
 
 	if idx >= len(tokens) || upperLiteral(tokens, idx) != "ON" {
 		return nil, NewParseError("missing ON clause")
-	}
-
-	events := make([]string, 0, len(eventTokens))
-	for _, tok := range eventTokens {
-		if tok == "OR" {
-			continue
-		}
-
-		if tok != "" {
-			events = append(events, tok)
-		}
 	}
 
 	if len(events) == 0 {
@@ -499,6 +506,7 @@ func (p *Parser) parseTriggerStatement( //nolint:cyclop,gocognit,gocyclo,maintid
 		name:           triggerName,
 		timing:         timing,
 		events:         events,
+		updateColumns:  updateColumns,
 		tableSchema:    tableSchema,
 		tableName:      tableName,
 		forEachRow:     forEachRow,
@@ -507,6 +515,29 @@ func (p *Parser) parseTriggerStatement( //nolint:cyclop,gocognit,gocyclo,maintid
 		functionName:   funcName,
 		definition:     stmt,
 	}, nil
+}
+
+// collectTriggerUpdateColumns reads the identifiers in an "UPDATE OF col, ..."
+// event, stopping at the next OR or ON keyword and returning that token's index.
+func (p *Parser) collectTriggerUpdateColumns(
+	tokens []Token,
+	idx int,
+	columns *[]string,
+) int {
+	for idx < len(tokens) {
+		word := upperLiteral(tokens, idx)
+		if word == "ON" || word == "OR" {
+			break
+		}
+
+		if t := tokens[idx].Type; t == TokenIdentifier || t == TokenQuotedIdentifier {
+			*columns = append(*columns, p.normalizeIdent(tokens[idx].Literal))
+		}
+
+		idx = nextNonCommentIndex(tokens, idx+1)
+	}
+
+	return idx
 }
 
 func parseTriggerFunctionReference(p *Parser, literal string) (string, string, error) {
