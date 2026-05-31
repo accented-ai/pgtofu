@@ -348,10 +348,11 @@ const (
 			n.nspname,
 			t.tgname,
 			c.relname,
+			-- tgtype bits: 1=ROW, 2=BEFORE, 64=INSTEAD OF; AFTER is neither.
 			CASE
-				WHEN t.tgtype & 1 = 1 THEN 'BEFORE'
-				WHEN t.tgtype & 2 = 2 THEN 'AFTER'
+				WHEN t.tgtype & 2 = 2 THEN 'BEFORE'
 				WHEN t.tgtype & 64 = 64 THEN 'INSTEAD OF'
+				ELSE 'AFTER'
 			END,
 			array_remove(ARRAY[
 				CASE WHEN t.tgtype & 4 = 4 THEN 'INSERT' END,
