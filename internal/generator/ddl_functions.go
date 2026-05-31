@@ -289,3 +289,67 @@ func (b *DDLBuilder) buildDropTrigger(change differ.Change) (DDLStatement, error
 		RequiresTx:  true,
 	}, nil
 }
+
+// A trigger's timing, events, columns, condition, or function cannot be altered
+// in place, so a modification drops the old form and recreates the new one.
+func (b *DDLBuilder) buildModifyTrigger(change differ.Change) (DDLStatement, error) {
+	current, err := getCurrentTrigger(change.Details)
+	if err != nil {
+		return DDLStatement{}, newGeneratorError("buildModifyTrigger", &change, err)
+	}
+
+	desired, err := getDesiredTrigger(change.Details)
+	if err != nil {
+		return DDLStatement{}, newGeneratorError("buildModifyTrigger", &change, err)
+	}
+
+	sql, err := b.buildTriggerReplacement(current, desired)
+	if err != nil {
+		return DDLStatement{}, newGeneratorError("buildModifyTrigger", &change, err)
+	}
+
+	return DDLStatement{
+		SQL:         sql,
+		Description: "Modify trigger " + desired.Name,
+		IsUnsafe:    true,
+		RequiresTx:  true,
+	}, nil
+}
+
+func (b *DDLBuilder) buildReverseModifyTrigger(change differ.Change) (DDLStatement, error) {
+	current, err := getCurrentTrigger(change.Details)
+	if err != nil {
+		return DDLStatement{}, newGeneratorError("buildReverseModifyTrigger", &change, err)
+	}
+
+	desired, err := getDesiredTrigger(change.Details)
+	if err != nil {
+		return DDLStatement{}, newGeneratorError("buildReverseModifyTrigger", &change, err)
+	}
+
+	sql, err := b.buildTriggerReplacement(desired, current)
+	if err != nil {
+		return DDLStatement{}, newGeneratorError("buildReverseModifyTrigger", &change, err)
+	}
+
+	return DDLStatement{
+		SQL:         sql,
+		Description: "Revert trigger " + desired.Name,
+		IsUnsafe:    true,
+		RequiresTx:  true,
+	}, nil
+}
+
+func (b *DDLBuilder) buildTriggerReplacement(toDrop, toCreate *schema.Trigger) (string, error) {
+	dropSQL := fmt.Sprintf("DROP TRIGGER %s%s ON %s;",
+		b.ifExists(),
+		QuoteIdentifier(toDrop.Name),
+		QualifiedName(toDrop.Schema, toDrop.TableName))
+
+	definition, err := formatTriggerDefinition(toCreate)
+	if err != nil {
+		return "", err
+	}
+
+	return dropSQL + "\n" + ensureStatementTerminated(definition), nil
+}

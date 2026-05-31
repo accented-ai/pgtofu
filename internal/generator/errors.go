@@ -158,6 +158,14 @@ func getDesiredConstraint(details map[string]any) (*schema.Constraint, error) {
 	return requireDetail[*schema.Constraint](details, DetailKeyDesired)
 }
 
+func getCurrentTrigger(details map[string]any) (*schema.Trigger, error) {
+	return requireDetail[*schema.Trigger](details, DetailKeyCurrent)
+}
+
+func getDesiredTrigger(details map[string]any) (*schema.Trigger, error) {
+	return requireDetail[*schema.Trigger](details, DetailKeyDesired)
+}
+
 func getDetailIndex(details map[string]any) (*schema.Index, error) {
 	return requireDetail[*schema.Index](details, DetailKeyIndex)
 }

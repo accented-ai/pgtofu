@@ -369,22 +369,28 @@ func (b *triggerBuilder) BuildUp(
 	change differ.Change,
 	ddlBuilder *DDLBuilder,
 ) (DDLStatement, error) {
-	if change.Type == differ.ChangeTypeAddTrigger {
+	switch change.Type {
+	case differ.ChangeTypeAddTrigger:
 		return ddlBuilder.buildAddTrigger(change)
+	case differ.ChangeTypeModifyTrigger:
+		return ddlBuilder.buildModifyTrigger(change)
+	default:
+		return ddlBuilder.buildDropTrigger(change)
 	}
-
-	return ddlBuilder.buildDropTrigger(change)
 }
 
 func (b *triggerBuilder) BuildDown(
 	change differ.Change,
 	ddlBuilder *DDLBuilder,
 ) (DDLStatement, error) {
-	if change.Type == differ.ChangeTypeAddTrigger {
+	switch change.Type {
+	case differ.ChangeTypeAddTrigger:
 		return ddlBuilder.buildDropTrigger(change)
+	case differ.ChangeTypeModifyTrigger:
+		return ddlBuilder.buildReverseModifyTrigger(change)
+	default:
+		return ddlBuilder.buildAddTrigger(change)
 	}
-
-	return ddlBuilder.buildAddTrigger(change)
 }
 
 type hypertableBuilder struct{}

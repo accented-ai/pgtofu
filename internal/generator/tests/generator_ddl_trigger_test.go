@@ -287,6 +287,60 @@ func TestDDLBuilder_TriggerOperations(t *testing.T) {
 	}
 }
 
+func TestDDLBuilder_ModifyTrigger(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Trigger{
+		Schema:         schema.DefaultSchema,
+		Name:           "notify_changes",
+		TableName:      "items",
+		Timing:         "AFTER",
+		Events:         []string{"INSERT", "UPDATE"},
+		ForEachRow:     true,
+		FunctionSchema: schema.DefaultSchema,
+		FunctionName:   "notify",
+	}
+	desired := &schema.Trigger{
+		Schema:         schema.DefaultSchema,
+		Name:           "notify_changes",
+		TableName:      "items",
+		Timing:         "AFTER",
+		Events:         []string{"INSERT", "UPDATE"},
+		UpdateColumns:  []string{"status"},
+		ForEachRow:     true,
+		FunctionSchema: schema.DefaultSchema,
+		FunctionName:   "notify",
+	}
+
+	result := &differ.DiffResult{
+		Current: &schema.Database{Triggers: []schema.Trigger{*current}},
+		Desired: &schema.Database{Triggers: []schema.Trigger{*desired}},
+		Changes: []differ.Change{{
+			Type:       differ.ChangeTypeModifyTrigger,
+			ObjectName: "support.items.notify_changes",
+			Details:    map[string]any{"current": current, "desired": desired},
+		}},
+	}
+
+	builder := generator.NewDDLBuilder(result, true)
+
+	up, err := builder.BuildUpStatement(result.Changes[0])
+	require.NoError(t, err)
+	// Up drops the old trigger and recreates it with the new column scope.
+	assert.Contains(t, up.SQL, "DROP TRIGGER")
+	assert.Contains(t, up.SQL, "notify_changes")
+	assert.Contains(t, up.SQL, "ON public.items")
+	assert.Contains(t, up.SQL, "AFTER INSERT OR UPDATE OF status")
+	assert.True(t, up.IsUnsafe)
+
+	down, err := builder.BuildDownStatement(result.Changes[0])
+	require.NoError(t, err)
+	// Down restores the unscoped form.
+	assert.Contains(t, down.SQL, "DROP TRIGGER")
+	assert.Contains(t, down.SQL, "AFTER INSERT OR UPDATE ON public.items")
+	assert.NotContains(t, down.SQL, "OF status")
+}
+
 func TestDDLBuilder_TriggerIdempotent(t *testing.T) {
 	t.Parallel()
 

@@ -58,6 +58,7 @@ func NewDDLBuilderRegistry() *DDLBuilderRegistry {
 	r.Register(differ.ChangeTypeModifyFunction, &functionBuilder{})
 	r.Register(differ.ChangeTypeAddTrigger, &triggerBuilder{})
 	r.Register(differ.ChangeTypeDropTrigger, &triggerBuilder{})
+	r.Register(differ.ChangeTypeModifyTrigger, &triggerBuilder{})
 	r.Register(differ.ChangeTypeAddHypertable, &hypertableBuilder{})
 	r.Register(differ.ChangeTypeDropHypertable, &hypertableBuilder{})
 	r.Register(differ.ChangeTypeAddCompressionPolicy, &timescalePolicyBuilder{})
@@ -147,6 +148,7 @@ func (r *DDLBuilderRegistry) BuildDown(
 		differ.ChangeTypeModifyContinuousAggregate: differ.ChangeTypeModifyContinuousAggregate,
 		differ.ChangeTypeModifyConstraint:          differ.ChangeTypeModifyConstraint,
 		differ.ChangeTypeModifyIndex:               differ.ChangeTypeModifyIndex,
+		differ.ChangeTypeModifyTrigger:             differ.ChangeTypeModifyTrigger,
 	}
 
 	var targetType differ.ChangeType
