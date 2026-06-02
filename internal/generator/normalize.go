@@ -60,6 +60,7 @@ func NormalizeDefaultValue(defaultVal string) string {
 	}
 
 	result = normalizeTypeCasts(result)
+	result = uppercaseDefaultCasts(result)
 	result = normalizeFunctionNames(result)
 
 	return result
@@ -111,22 +112,87 @@ func normalizeTypeCasts(s string) string {
 	stringCastPattern := regexp.MustCompile(`('(?:[^']*|'')*')::[a-zA-Z_][a-zA-Z0-9_\s]*(?:\[\])?`)
 	result = stringCastPattern.ReplaceAllString(result, "$1")
 
-	numericTypeCasts := []string{
-		"::double precision",
-		"::real",
-		"::numeric",
-		"::integer",
-		"::bigint",
-		"::smallint",
-	}
-	for _, cast := range numericTypeCasts {
-		result = strings.ReplaceAll(result, cast, "")
-	}
+	numericCastPattern := regexp.MustCompile(
+		`::(?:double precision|real|numeric|integer|bigint|smallint)\b(?:\[\])?`,
+	)
+	result = numericCastPattern.ReplaceAllStringFunc(result, func(match string) string {
+		if strings.HasSuffix(match, "[]") {
+			return match
+		}
+
+		return ""
+	})
 
 	numericParenPattern := regexp.MustCompile(`\((-?\d+(?:\.\d+)?)\)`)
 	result = numericParenPattern.ReplaceAllString(result, "$1")
 
 	return result
+}
+
+func uppercaseDefaultCasts(s string) string {
+	castPattern := regexp.MustCompile(
+		`(?i)::\s*(timestamp without time zone|timestamp with time zone|` +
+			`time without time zone|time with time zone|character varying|` +
+			`double precision|bit varying|[a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)*)` +
+			`\s*(\[\s*\])?`,
+	)
+
+	return mapOutsideStringLiterals(s, func(segment string) string {
+		return castPattern.ReplaceAllStringFunc(segment, func(match string) string {
+			groups := castPattern.FindStringSubmatch(match)
+
+			dataType := strings.TrimSpace(groups[1])
+			if groups[2] != "" {
+				dataType += "[]"
+			}
+
+			return "::" + NormalizeDataType(dataType)
+		})
+	})
+}
+
+func mapOutsideStringLiterals(s string, fn func(string) string) string {
+	var out, run strings.Builder
+
+	flush := func() {
+		if run.Len() > 0 {
+			out.WriteString(fn(run.String()))
+			run.Reset()
+		}
+	}
+
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c != '\'' && c != '"' {
+			run.WriteByte(c)
+
+			continue
+		}
+
+		flush()
+		out.WriteByte(c)
+
+		for i++; i < len(s); i++ {
+			out.WriteByte(s[i])
+
+			if s[i] != c {
+				continue
+			}
+
+			if i+1 < len(s) && s[i+1] == c {
+				out.WriteByte(s[i+1])
+				i++
+
+				continue
+			}
+
+			break
+		}
+	}
+
+	flush()
+
+	return out.String()
 }
 
 func normalizeFunctionNames(s string) string {

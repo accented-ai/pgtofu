@@ -332,6 +332,8 @@ func (b *DDLBuilder) buildColumnDefaultChange(
 		return DDLStatement{}, newGeneratorError("buildColumnDefaultChange", &change, err)
 	}
 
+	defaultValue = NormalizeDefaultValue(defaultValue)
+
 	table := b.getTable(tableName, db)
 	if table == nil {
 		return DDLStatement{}, newGeneratorError(
