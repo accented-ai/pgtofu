@@ -55,6 +55,10 @@ func (f *Function) Signature() string {
 	return fmt.Sprintf("%s(%s)", f.QualifiedName(), argTypes)
 }
 
+func (f *Function) ArgumentSignature() string {
+	return "(" + f.ArgumentList() + ")"
+}
+
 func (f *Function) ArgumentList() string {
 	if len(f.ArgumentNames) == 0 {
 		return strings.Join(f.ArgumentTypes, ", ")

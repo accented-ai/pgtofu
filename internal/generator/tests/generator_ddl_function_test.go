@@ -341,6 +341,53 @@ func TestDDLBuilder_FunctionModifyWithCommentChange(t *testing.T) {
 	assert.NotContains(t, stmt.SQL, "CREATE OR REPLACE")
 }
 
+func TestDDLBuilder_FunctionModifyCommentWithArguments(t *testing.T) {
+	t.Parallel()
+
+	makeFn := func(comment string) schema.Function {
+		return schema.Function{
+			Schema:        "app",
+			Name:          "format_label",
+			ArgumentTypes: []string{"text", "jsonb", "text"},
+			ArgumentNames: []string{"kind", "attributes", "fallback"},
+			ReturnType:    "text",
+			Language:      "sql",
+			Comment:       comment,
+			Body:          "$$ SELECT fallback $$",
+		}
+	}
+
+	current := &schema.Database{Functions: []schema.Function{makeFn("Old comment")}}
+	desired := &schema.Database{Functions: []schema.Function{makeFn("New comment")}}
+
+	result := &differ.DiffResult{
+		Current: current,
+		Desired: desired,
+		Changes: []differ.Change{
+			{
+				Type: differ.ChangeTypeModifyFunction,
+				ObjectName: differ.FunctionKey(
+					"app",
+					"format_label",
+					[]string{"text", "jsonb", "text"},
+				),
+				Details: map[string]any{
+					"old_comment": "Old comment",
+					"new_comment": "New comment",
+				},
+			},
+		},
+	}
+
+	builder := generator.NewDDLBuilder(result, true)
+	stmt, err := builder.BuildUpStatement(result.Changes[0])
+
+	require.NoError(t, err)
+	assert.Contains(t, stmt.SQL,
+		"COMMENT ON FUNCTION app.FORMAT_LABEL(kind text, attributes jsonb, fallback text) IS")
+	assert.NotContains(t, stmt.SQL, "FORMAT_LABELkind")
+}
+
 func TestDDLBuilder_FunctionDropComment(t *testing.T) {
 	t.Parallel()
 

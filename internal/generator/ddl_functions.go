@@ -214,13 +214,13 @@ func functionCommentTargets(fn *schema.Function) (string, string) {
 		schemaName = schema.DefaultSchema
 	}
 
-	qualified := QualifiedName(schemaName, fn.Name) + fn.ArgumentList()
+	qualified := QualifiedName(schemaName, fn.Name) + fn.ArgumentSignature()
 
 	return qualified, fmt.Sprintf(
 		"%s.%s%s",
 		QuoteIdentifier(schemaName),
 		strings.ToUpper(fn.Name),
-		fn.ArgumentList(),
+		fn.ArgumentSignature(),
 	)
 }
 

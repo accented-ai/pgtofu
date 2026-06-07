@@ -945,12 +945,7 @@ func formatFunctionDefinition(f *schema.Function) (string, error) {
 
 	funcSignature := fmt.Sprintf("%s.%s", QuoteIdentifier(schemaName), nameUpper)
 
-	argList := f.ArgumentList()
-	if argList == "" {
-		funcSignature += "()"
-	} else {
-		funcSignature += "(" + argList + ")"
-	}
+	funcSignature += f.ArgumentSignature()
 
 	body := strings.TrimSpace(f.Body)
 	if strings.HasPrefix(body, "$$") && strings.HasSuffix(body, "$$") && len(body) >= 4 {
