@@ -149,10 +149,14 @@ func (g *Generator) GroupChangesBySchema(changes []differ.Change) [][]differ.Cha
 	}
 
 	schemaGroups := g.groupBySchema(nonExtensionChanges)
-	orderedSchemas := g.orderSchemasByDependencies(schemaGroups, nonExtensionChanges)
+	orderedSchemaSets := g.orderSchemasByDependencies(schemaGroups, nonExtensionChanges)
 
-	for _, schema := range orderedSchemas {
-		schemaChanges := schemaGroups[schema]
+	for _, schemaSet := range orderedSchemaSets {
+		var schemaChanges []differ.Change
+		for _, schema := range schemaSet {
+			schemaChanges = append(schemaChanges, schemaGroups[schema]...)
+		}
+
 		g.sortSchemaChanges(schemaChanges)
 		batches = append(batches, g.splitIntoBatches(schemaChanges)...)
 	}
@@ -179,7 +183,7 @@ func (g *Generator) groupBySchema(changes []differ.Change) map[string][]differ.C
 func (g *Generator) orderSchemasByDependencies( //nolint:gocognit
 	schemaGroups map[string][]differ.Change,
 	allChanges []differ.Change,
-) []string {
+) [][]string {
 	dg := graph.NewDirectedGraph[string]()
 
 	for schema := range schemaGroups {
@@ -245,63 +249,7 @@ func (g *Generator) orderSchemasByDependencies( //nolint:gocognit
 		}
 	}
 
-	ordered, err := dg.TopologicalSort()
-	if err != nil {
-		return g.getSchemaOrderFallback(schemaGroups)
-	}
-
-	return g.prioritizeSchemaCreation(ordered, schemaGroups)
-}
-
-func (g *Generator) prioritizeSchemaCreation(
-	ordered []string,
-	schemaGroups map[string][]differ.Change,
-) []string {
-	var (
-		withSchemaCreation    []string
-		withoutSchemaCreation []string
-	)
-
-	for _, schema := range ordered {
-		hasSchemaCreation := false
-
-		for _, change := range schemaGroups[schema] {
-			if change.Type == differ.ChangeTypeAddSchema ||
-				change.Type == differ.ChangeTypeDropSchema {
-				hasSchemaCreation = true
-				break
-			}
-		}
-
-		if hasSchemaCreation {
-			withSchemaCreation = append(withSchemaCreation, schema)
-		} else {
-			withoutSchemaCreation = append(withoutSchemaCreation, schema)
-		}
-	}
-
-	return append(withSchemaCreation, withoutSchemaCreation...)
-}
-
-func (g *Generator) getSchemaOrderFallback(schemaGroups map[string][]differ.Change) []string {
-	schemas := make([]string, 0, len(schemaGroups))
-	for schema := range schemaGroups {
-		schemas = append(schemas, schema)
-	}
-
-	if len(schemas) == 0 {
-		return schemas
-	}
-
-	for i := range len(schemas) - 1 {
-		for j := i + 1; j < len(schemas); j++ {
-			if schemas[i] > schemas[j] {
-				schemas[i], schemas[j] = schemas[j], schemas[i]
-			}
-		}
-	}
-
-	return g.prioritizeSchemaCreation(schemas, schemaGroups)
+	return dg.CondensationOrder()
 }
 
 func (g *Generator) splitIntoBatches(changes []differ.Change) [][]differ.Change {
