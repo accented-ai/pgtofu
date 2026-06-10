@@ -11,16 +11,16 @@ func TestCommentOnColumnWithKeywordName(t *testing.T) {
 	t.Parallel()
 
 	sql := `
-		CREATE TABLE kb.association_types (
+		CREATE TABLE app.item_types (
 			type TEXT PRIMARY KEY,
 			description TEXT NOT NULL
 		);
 
-		COMMENT ON COLUMN kb.association_types.type IS
-		'Primary identifier for the association type.';
+		COMMENT ON COLUMN app.item_types.type IS
+		'Primary identifier for the item type.';
 
-		COMMENT ON COLUMN kb.association_types.description IS
-		'Description of the association type.';
+		COMMENT ON COLUMN app.item_types.description IS
+		'Description of the item type.';
 	`
 
 	parsed := parseSQL(t, sql)
@@ -36,7 +36,7 @@ func TestCommentOnColumnWithKeywordName(t *testing.T) {
 		t.Fatal("column 'type' not found")
 	}
 
-	if typeCol.Comment != "Primary identifier for the association type." {
+	if typeCol.Comment != "Primary identifier for the item type." {
 		t.Errorf("expected comment on 'type' column, got %q", typeCol.Comment)
 	}
 
@@ -45,7 +45,7 @@ func TestCommentOnColumnWithKeywordName(t *testing.T) {
 		t.Fatal("column 'description' not found")
 	}
 
-	if descCol.Comment != "Description of the association type." {
+	if descCol.Comment != "Description of the item type." {
 		t.Errorf("expected comment on 'description' column, got %q", descCol.Comment)
 	}
 }

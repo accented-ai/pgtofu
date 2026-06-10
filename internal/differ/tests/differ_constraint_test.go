@@ -117,12 +117,12 @@ func TestDiffer_CompareConstraints(t *testing.T) { //nolint:maintidx
 				Tables: []schema.Table{
 					{
 						Schema: schema.DefaultSchema,
-						Name:   "entities",
+						Name:   "items",
 						Columns: []schema.Column{
 							{Name: "id", DataType: "uuid", IsNullable: false, Position: 1},
 							{Name: "type", DataType: "text", IsNullable: false, Position: 2},
 							{
-								Name:       "canonical_form",
+								Name:       "label",
 								DataType:   "text",
 								IsNullable: false,
 								Position:   3,
@@ -135,12 +135,12 @@ func TestDiffer_CompareConstraints(t *testing.T) { //nolint:maintidx
 				Tables: []schema.Table{
 					{
 						Schema: schema.DefaultSchema,
-						Name:   "entities",
+						Name:   "items",
 						Columns: []schema.Column{
 							{Name: "id", DataType: "uuid", IsNullable: false, Position: 1},
 							{Name: "type", DataType: "text", IsNullable: false, Position: 2},
 							{
-								Name:       "canonical_form",
+								Name:       "label",
 								DataType:   "text",
 								IsNullable: false,
 								Position:   3,
@@ -148,9 +148,9 @@ func TestDiffer_CompareConstraints(t *testing.T) { //nolint:maintidx
 						},
 						Constraints: []schema.Constraint{
 							{
-								Name:              "entities_unique",
+								Name:              "items_unique",
 								Type:              "UNIQUE",
-								Columns:           []string{"type", "canonical_form"},
+								Columns:           []string{"type", "label"},
 								IsDeferrable:      true,
 								InitiallyDeferred: true,
 							},

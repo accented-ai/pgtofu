@@ -37,7 +37,7 @@ func TestDDLBuilder_FunctionOperations(t *testing.T) { //nolint:maintidx
 			wantSQL: []string{
 				"CREATE OR REPLACE FUNCTION",
 				"public.UPDATE_TIMESTAMP",
-				"RETURNS trigger",
+				"RETURNS TRIGGER",
 				"LANGUAGE plpgsql",
 			},
 			wantUnsafe:     false,
@@ -60,7 +60,7 @@ func TestDDLBuilder_FunctionOperations(t *testing.T) { //nolint:maintidx
 				"public.CALCULATE_TOTAL",
 				"price",
 				"tax",
-				"RETURNS numeric",
+				"RETURNS NUMERIC",
 			},
 			wantUnsafe:     false,
 			wantRequiresTx: true,
@@ -197,7 +197,7 @@ func TestDDLBuilder_FunctionOperations(t *testing.T) { //nolint:maintidx
 				"DROP FUNCTION",
 				"IF EXISTS",
 				"public.overloaded_function",
-				"text",
+				"TEXT",
 			},
 			wantUnsafe:     true,
 			wantRequiresTx: true,
@@ -384,8 +384,73 @@ func TestDDLBuilder_FunctionModifyCommentWithArguments(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Contains(t, stmt.SQL,
-		"COMMENT ON FUNCTION app.FORMAT_LABEL(kind text, attributes jsonb, fallback text) IS")
+		"COMMENT ON FUNCTION app.FORMAT_LABEL(kind TEXT, attributes JSONB, fallback TEXT) IS")
 	assert.NotContains(t, stmt.SQL, "FORMAT_LABELkind")
+}
+
+func TestDDLBuilder_FunctionDefinitionFormatsDataTypesUppercase(t *testing.T) {
+	t.Parallel()
+
+	fn := &schema.Function{
+		Schema: "app",
+		Name:   "format_item_label",
+		ArgumentTypes: []string{
+			"text",
+			"jsonb",
+			"text",
+			"text",
+			"text",
+		},
+		ArgumentNames: []string{
+			"category",
+			"attributes",
+			"item_type",
+			"display_name",
+			"fallback_name",
+		},
+		ReturnType: "text",
+		Language:   "sql",
+		Volatility: "IMMUTABLE",
+		Comment:    "Formats a display label.",
+		Body:       "$$ SELECT fallback_name::TEXT; $$",
+	}
+
+	current := &schema.Database{}
+	desired := &schema.Database{Functions: []schema.Function{*fn}}
+
+	result := &differ.DiffResult{
+		Current: current,
+		Desired: desired,
+		Changes: []differ.Change{
+			{
+				Type:       differ.ChangeTypeAddFunction,
+				ObjectName: differ.FunctionKey(fn.Schema, fn.Name, fn.ArgumentTypes),
+			},
+			{
+				Type:       differ.ChangeTypeModifyFunction,
+				ObjectName: differ.FunctionKey(fn.Schema, fn.Name, fn.ArgumentTypes),
+				Details: map[string]any{
+					"old_comment": "",
+					"new_comment": fn.Comment,
+				},
+			},
+		},
+	}
+
+	builder := generator.NewDDLBuilder(result, true)
+	addStmt, err := builder.BuildUpStatement(result.Changes[0])
+	require.NoError(t, err)
+
+	commentStmt, err := builder.BuildUpStatement(result.Changes[1])
+	require.NoError(t, err)
+
+	signature := "app.FORMAT_ITEM_LABEL(category TEXT, attributes JSONB, " +
+		"item_type TEXT, display_name TEXT, fallback_name TEXT)"
+
+	assert.Contains(t, addStmt.SQL, signature)
+	assert.Contains(t, addStmt.SQL, "RETURNS TEXT AS $$")
+	assert.Contains(t, addStmt.SQL, "fallback_name::TEXT")
+	assert.Contains(t, commentStmt.SQL, "COMMENT ON FUNCTION "+signature+" IS")
 }
 
 func TestDDLBuilder_FunctionDropComment(t *testing.T) {

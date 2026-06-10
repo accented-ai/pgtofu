@@ -41,7 +41,7 @@ func (b *DDLBuilder) buildDropFunction(change differ.Change) (DDLStatement, erro
 
 	argTypes := "()"
 	if len(fn.ArgumentTypes) > 0 {
-		argTypes = "(" + strings.Join(fn.ArgumentTypes, ", ") + ")"
+		argTypes = "(" + strings.Join(formatFunctionDataTypes(fn.ArgumentTypes), ", ") + ")"
 	}
 
 	sql := fmt.Sprintf("DROP FUNCTION %s%s%s CASCADE;",
@@ -214,13 +214,14 @@ func functionCommentTargets(fn *schema.Function) (string, string) {
 		schemaName = schema.DefaultSchema
 	}
 
-	qualified := QualifiedName(schemaName, fn.Name) + fn.ArgumentSignature()
+	argSignature := formatFunctionArgumentSignature(fn)
+	qualified := QualifiedName(schemaName, fn.Name) + argSignature
 
 	return qualified, fmt.Sprintf(
 		"%s.%s%s",
 		QuoteIdentifier(schemaName),
 		strings.ToUpper(fn.Name),
-		fn.ArgumentSignature(),
+		argSignature,
 	)
 }
 

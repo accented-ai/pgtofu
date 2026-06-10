@@ -945,7 +945,7 @@ func formatFunctionDefinition(f *schema.Function) (string, error) {
 
 	funcSignature := fmt.Sprintf("%s.%s", QuoteIdentifier(schemaName), nameUpper)
 
-	funcSignature += f.ArgumentSignature()
+	funcSignature += formatFunctionArgumentSignature(f)
 
 	body := strings.TrimSpace(f.Body)
 	if strings.HasPrefix(body, "$$") && strings.HasSuffix(body, "$$") && len(body) >= 4 {
@@ -959,7 +959,7 @@ func formatFunctionDefinition(f *schema.Function) (string, error) {
 	sb.WriteString(funcSignature)
 	sb.WriteString("\n\n")
 	sb.WriteString("RETURNS ")
-	sb.WriteString(f.ReturnType)
+	sb.WriteString(formatFunctionDataType(f.ReturnType))
 	sb.WriteString(" AS $$\n")
 
 	if body != "" {
