@@ -15,6 +15,7 @@ func normalizeExpression(expr string) string {
 	expr = strings.Join(strings.Fields(expr), " ")
 	expr = strings.ToLower(expr)
 	expr = normalizeLikeOperators(expr)
+	expr = normalizeQuotedIdentifiers(expr)
 
 	for strings.HasPrefix(expr, "(") && strings.HasSuffix(expr, ")") {
 		inner := expr[1 : len(expr)-1]
@@ -30,6 +31,110 @@ func normalizeExpression(expr string) string {
 	expr = normalizeBetweenExpressions(expr)
 
 	return expr
+}
+
+func normalizeQuotedIdentifiers(expr string) string {
+	var result strings.Builder
+
+	for i := 0; i < len(expr); {
+		switch expr[i] {
+		case '\'':
+			i = copySingleQuotedString(&result, expr, i)
+
+		case '"':
+			end, ident, ok := readQuotedIdentifier(expr, i)
+			if !ok {
+				result.WriteString(expr[i:])
+				return result.String()
+			}
+
+			if isSimpleIdentifierText(ident) {
+				result.WriteString(ident)
+			} else {
+				result.WriteString(expr[i:end])
+			}
+
+			i = end
+
+		default:
+			result.WriteByte(expr[i])
+			i++
+		}
+	}
+
+	return result.String()
+}
+
+func copySingleQuotedString(result *strings.Builder, expr string, start int) int {
+	result.WriteByte(expr[start])
+
+	for i := start + 1; i < len(expr); i++ {
+		result.WriteByte(expr[i])
+
+		if expr[i] != '\'' {
+			continue
+		}
+
+		if i+1 < len(expr) && expr[i+1] == '\'' {
+			i++
+			result.WriteByte(expr[i])
+
+			continue
+		}
+
+		return i + 1
+	}
+
+	return len(expr)
+}
+
+func readQuotedIdentifier(expr string, start int) (int, string, bool) {
+	var ident strings.Builder
+
+	for i := start + 1; i < len(expr); i++ {
+		if expr[i] != '"' {
+			ident.WriteByte(expr[i])
+			continue
+		}
+
+		if i+1 < len(expr) && expr[i+1] == '"' {
+			ident.WriteByte('"')
+
+			i++
+
+			continue
+		}
+
+		return i + 1, ident.String(), true
+	}
+
+	return start, "", false
+}
+
+func isSimpleIdentifierText(ident string) bool {
+	if ident == "" {
+		return false
+	}
+
+	if !isLowerIdentifierStart(ident[0]) {
+		return false
+	}
+
+	for i := 1; i < len(ident); i++ {
+		if !isLowerIdentifierPart(ident[i]) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func isLowerIdentifierStart(ch byte) bool {
+	return ch == '_' || (ch >= 'a' && ch <= 'z')
+}
+
+func isLowerIdentifierPart(ch byte) bool {
+	return isLowerIdentifierStart(ch) || (ch >= '0' && ch <= '9')
 }
 
 func countParenDepth(s string) int {
