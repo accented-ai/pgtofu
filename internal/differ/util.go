@@ -399,57 +399,262 @@ func normalizeSingleElementIn(expr string) string {
 }
 
 func normalizeArrayConstructorToIn(expr string) string {
-	anyPattern := regexp.MustCompile(
-		`(?:\((\w+|"[^"]+")\)|(\w+|"[^"]+"))\s*=\s*any\s*\(\s*\(?array\s*\[(.*?)\]\s*\)?\s*\)`,
+	arrayComparisonPattern := regexp.MustCompile(
+		`\s*(=|<>)\s*(any|all)\s*\(\s*\(?array\s*\[(.*?)\]\s*\)?\s*\)`,
 	)
 
-	allPattern := regexp.MustCompile(
-		`(?:\((\w+|"[^"]+")\)|(\w+|"[^"]+"))\s*<>\s*all\s*\(\s*\(?array\s*\[(.*?)\]\s*\)?\s*\)`,
-	)
-
-	expr = allPattern.ReplaceAllStringFunc(expr, func(match string) string {
-		submatches := allPattern.FindStringSubmatch(match)
-		if len(submatches) == 4 {
-			col := submatches[1]
-			if col == "" {
-				col = submatches[2]
-			}
-
-			col = strings.Trim(col, `"`)
-			values := submatches[3]
-			values = strings.ReplaceAll(values, "::text", "")
-			values = strings.ReplaceAll(values, "::integer", "")
-			values = strings.ReplaceAll(values, "::bigint", "")
-			values = strings.ReplaceAll(values, "::character varying", "")
-
-			return fmt.Sprintf("%s not in (%s)", col, values)
+	for {
+		match := findArrayConstructorComparison(expr, arrayComparisonPattern)
+		if match == nil {
+			return expr
 		}
 
-		return match
-	})
+		operator := expr[match.operatorStart:match.operatorEnd]
+		quantifier := expr[match.quantifierStart:match.quantifierEnd]
 
-	expr = anyPattern.ReplaceAllStringFunc(expr, func(match string) string {
-		submatches := anyPattern.FindStringSubmatch(match)
-		if len(submatches) == 4 {
-			col := submatches[1]
-			if col == "" {
-				col = submatches[2]
-			}
-
-			col = strings.Trim(col, `"`)
-			values := submatches[3]
-			values = strings.ReplaceAll(values, "::text", "")
-			values = strings.ReplaceAll(values, "::integer", "")
-			values = strings.ReplaceAll(values, "::bigint", "")
-			values = strings.ReplaceAll(values, "::character varying", "")
-
-			return fmt.Sprintf("%s in (%s)", col, values)
+		replacementOperator := "not in"
+		if operator == "=" && quantifier == "any" {
+			replacementOperator = "in"
 		}
 
-		return match
-	})
+		lhsStart := findArrayComparisonLHSStart(expr, match.operatorStart)
+		lhs := normalizeArrayComparisonLHS(expr[lhsStart:match.operatorStart])
+		values := normalizeArrayComparisonValues(
+			expr[match.valuesStart:match.valuesEnd],
+		)
 
-	return expr
+		expr = expr[:lhsStart] +
+			fmt.Sprintf("%s %s (%s)", lhs, replacementOperator, values) +
+			expr[match.end:]
+	}
+}
+
+type arrayConstructorComparisonMatch struct {
+	operatorStart   int
+	operatorEnd     int
+	quantifierStart int
+	quantifierEnd   int
+	valuesStart     int
+	valuesEnd       int
+	end             int
+}
+
+func findArrayConstructorComparison(
+	expr string,
+	pattern *regexp.Regexp,
+) *arrayConstructorComparisonMatch {
+	searchStart := 0
+
+	for searchStart < len(expr) {
+		loc := pattern.FindStringSubmatchIndex(expr[searchStart:])
+		if loc == nil {
+			return nil
+		}
+
+		match := &arrayConstructorComparisonMatch{
+			operatorStart:   searchStart + loc[2],
+			operatorEnd:     searchStart + loc[3],
+			quantifierStart: searchStart + loc[4],
+			quantifierEnd:   searchStart + loc[5],
+			valuesStart:     searchStart + loc[6],
+			valuesEnd:       searchStart + loc[7],
+			end:             searchStart + loc[1],
+		}
+
+		operator := expr[match.operatorStart:match.operatorEnd]
+
+		quantifier := expr[match.quantifierStart:match.quantifierEnd]
+		if (operator == "=" && quantifier == "any") ||
+			(operator == "<>" && quantifier == "all") {
+			return match
+		}
+
+		searchStart += loc[1]
+	}
+
+	return nil
+}
+
+func findArrayComparisonLHSStart(expr string, operatorStart int) int {
+	depth := 0
+
+	for i := operatorStart - 1; i >= 0; i-- {
+		switch expr[i] {
+		case ')':
+			depth++
+			continue
+		case '(':
+			if depth == 0 {
+				return i + 1
+			}
+
+			depth--
+
+			continue
+		}
+
+		if depth != 0 {
+			continue
+		}
+
+		if isArrayComparisonBoundaryWordEndingAt(expr, i) {
+			return skipLeadingSpaces(expr, i+1)
+		}
+	}
+
+	return 0
+}
+
+func isArrayComparisonBoundaryWordEndingAt(expr string, end int) bool {
+	for _, word := range []string{"and", "or", "when", "then", "else", "where"} {
+		if isLogicalWordEndingAt(expr, end, word) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isLogicalWordEndingAt(expr string, end int, word string) bool {
+	start := end - len(word) + 1
+	if start < 0 || expr[start:end+1] != word {
+		return false
+	}
+
+	before := start - 1
+	after := end + 1
+
+	return isExpressionBoundary(expr, before) && isExpressionBoundary(expr, after)
+}
+
+func isExpressionBoundary(expr string, idx int) bool {
+	if idx < 0 || idx >= len(expr) {
+		return true
+	}
+
+	ch := expr[idx]
+
+	return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' ||
+		ch == '(' || ch == ')'
+}
+
+func skipLeadingSpaces(expr string, start int) int {
+	for start < len(expr) {
+		switch expr[start] {
+		case ' ', '\t', '\n', '\r':
+			start++
+		default:
+			return start
+		}
+	}
+
+	return start
+}
+
+func normalizeArrayComparisonLHS(lhs string) string {
+	lhs = strings.TrimSpace(lhs)
+
+	for strings.HasPrefix(lhs, "(") && strings.HasSuffix(lhs, ")") {
+		inner := strings.TrimSpace(lhs[1 : len(lhs)-1])
+		if countParenDepth(inner) != 0 {
+			break
+		}
+
+		lhs = inner
+	}
+
+	for strings.HasPrefix(lhs, "(") && countParenDepth(lhs) > 0 {
+		lhs = strings.TrimSpace(lhs[1:])
+	}
+
+	return strings.Trim(lhs, `"`)
+}
+
+func normalizeArrayComparisonValues(values string) string {
+	values = strings.ReplaceAll(values, "::text", "")
+	values = strings.ReplaceAll(values, "::integer", "")
+	values = strings.ReplaceAll(values, "::bigint", "")
+	values = strings.ReplaceAll(values, "::character varying", "")
+
+	parts := splitExpressionList(values)
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+	}
+
+	return strings.Join(parts, ", ")
+}
+
+func splitExpressionList(values string) []string {
+	parts := []string{}
+
+	var current strings.Builder
+
+	depth := 0
+	inSingleQuote := false
+	inDoubleQuote := false
+
+	for i := 0; i < len(values); i++ {
+		ch := values[i]
+
+		switch {
+		case inSingleQuote:
+			current.WriteByte(ch)
+
+			if ch == '\'' {
+				if i+1 < len(values) && values[i+1] == '\'' {
+					i++
+					current.WriteByte(values[i])
+				} else {
+					inSingleQuote = false
+				}
+			}
+
+		case inDoubleQuote:
+			current.WriteByte(ch)
+
+			if ch == '"' {
+				if i+1 < len(values) && values[i+1] == '"' {
+					i++
+					current.WriteByte(values[i])
+				} else {
+					inDoubleQuote = false
+				}
+			}
+
+		case ch == '\'':
+			inSingleQuote = true
+
+			current.WriteByte(ch)
+
+		case ch == '"':
+			inDoubleQuote = true
+
+			current.WriteByte(ch)
+
+		case ch == '(':
+			depth++
+
+			current.WriteByte(ch)
+
+		case ch == ')':
+			if depth > 0 {
+				depth--
+			}
+
+			current.WriteByte(ch)
+
+		case ch == ',' && depth == 0:
+			parts = append(parts, current.String())
+			current.Reset()
+
+		default:
+			current.WriteByte(ch)
+		}
+	}
+
+	parts = append(parts, current.String())
+
+	return parts
 }
 
 func normalizeArrayLiteralToIn(expr string) string {

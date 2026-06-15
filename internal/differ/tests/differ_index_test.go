@@ -334,6 +334,55 @@ func TestDiffer_CompareIndexes(t *testing.T) { //nolint:maintidx
 			expectedTypes:   nil,
 		},
 		{
+			name: "no change when partial index predicate has expression not in",
+			current: &schema.Database{
+				Tables: []schema.Table{
+					{
+						Schema: schema.DefaultSchema,
+						Name:   "tasks",
+						Indexes: []schema.Index{
+							{
+								Schema:    schema.DefaultSchema,
+								TableName: "tasks",
+								Name:      "idx_tasks_active_interactive",
+								Columns:   []string{"account_id", "resource_id"},
+								Type:      "btree",
+								IsUnique:  true,
+								Where: "((state = ANY (ARRAY['queued'::text, 'running'::text, " +
+									"'blocked'::text])) AND (COALESCE((metadata ->> 'mode'::text), " +
+									"'interactive'::text) = 'interactive'::text) AND " +
+									"(COALESCE((metadata ->> 'source'::text), ''::text) <> ALL " +
+									"(ARRAY['batch'::text, 'system'::text])))",
+							},
+						},
+					},
+				},
+			},
+			desired: &schema.Database{
+				Tables: []schema.Table{
+					{
+						Schema: schema.DefaultSchema,
+						Name:   "tasks",
+						Indexes: []schema.Index{
+							{
+								Schema:    schema.DefaultSchema,
+								TableName: "tasks",
+								Name:      "idx_tasks_active_interactive",
+								Columns:   []string{"account_id", "resource_id"},
+								Type:      "btree",
+								IsUnique:  true,
+								Where: "state IN ('queued', 'running', 'blocked') " +
+									"AND COALESCE(metadata ->> 'mode', 'interactive') = 'interactive' " +
+									"AND COALESCE(metadata ->> 'source', '') NOT IN ('batch', 'system')",
+							},
+						},
+					},
+				},
+			},
+			expectedChanges: 0,
+			expectedTypes:   nil,
+		},
+		{
 			name: "no change when NullsNotDistinct matches",
 			current: &schema.Database{
 				Tables: []schema.Table{
