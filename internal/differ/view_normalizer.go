@@ -629,10 +629,7 @@ func (n *sqlNormalizer) parseExpression(stopAtComma bool) map[string]any {
 				break
 			}
 
-			if n.matchKeyword("FROM") || n.matchKeyword("WHERE") ||
-				n.matchKeyword("GROUP") || n.matchKeyword("ORDER") ||
-				n.matchKeyword("HAVING") || n.matchKeyword("LIMIT") ||
-				n.matchKeyword("OFFSET") {
+			if n.isExpressionClauseBoundary() {
 				break
 			}
 
@@ -715,6 +712,62 @@ func (n *sqlNormalizer) normalizeTokenLiteral(tok parser.Token) string {
 	default:
 		return tok.Literal
 	}
+}
+
+func (n *sqlNormalizer) isExpressionClauseBoundary() bool {
+	if n.matchKeyword("FROM") && n.isDistinctFromOperator() {
+		return false
+	}
+
+	return n.matchKeyword("FROM") || n.matchKeyword("WHERE") ||
+		n.matchKeyword("GROUP") || n.matchKeyword("ORDER") ||
+		n.matchKeyword("HAVING") || n.matchKeyword("LIMIT") ||
+		n.matchKeyword("OFFSET")
+}
+
+func (n *sqlNormalizer) isDistinctFromOperator() bool {
+	if !n.matchKeyword("FROM") {
+		return false
+	}
+
+	prev := n.previousNonComment(n.pos - 1)
+	if prev == -1 || !tokenLiteralEqual(n.tokens[prev], "DISTINCT") {
+		return false
+	}
+
+	beforeDistinct := n.previousNonComment(prev - 1)
+	if beforeDistinct == -1 {
+		return false
+	}
+
+	if tokenLiteralEqual(n.tokens[beforeDistinct], "IS") {
+		return true
+	}
+
+	if !tokenLiteralEqual(n.tokens[beforeDistinct], "NOT") {
+		return false
+	}
+
+	beforeNot := n.previousNonComment(beforeDistinct - 1)
+
+	return beforeNot != -1 && tokenLiteralEqual(n.tokens[beforeNot], "IS")
+}
+
+func (n *sqlNormalizer) previousNonComment(pos int) int {
+	for pos >= 0 {
+		tok := n.tokens[pos]
+		if tok.Type != parser.TokenComment {
+			return pos
+		}
+
+		pos--
+	}
+
+	return -1
+}
+
+func tokenLiteralEqual(tok parser.Token, literal string) bool {
+	return strings.EqualFold(tok.Literal, literal)
 }
 
 func (n *sqlNormalizer) normalizeParentheses(s string) string {
