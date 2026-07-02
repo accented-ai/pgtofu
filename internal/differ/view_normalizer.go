@@ -11,8 +11,10 @@ import (
 )
 
 type viewNormalizer struct {
-	typeCastPattern *regexp.Regexp
-	intervalPattern *regexp.Regexp
+	typeCastPattern              *regexp.Regexp
+	intervalPattern              *regexp.Regexp
+	anyArrayPattern              *regexp.Regexp
+	parenthesizedAnyArrayPattern *regexp.Regexp
 }
 
 func NewViewNormalizer() *viewNormalizer {
@@ -21,6 +23,12 @@ func NewViewNormalizer() *viewNormalizer {
 			`::(?:numeric|text|bigint|integer|smallint|real|double precision|character varying|varchar|timestamp|timestamptz|interval|boolean|jsonb|json)(?:\[\])?`, //nolint:lll
 		),
 		intervalPattern: regexp.MustCompile(`\binterval\s+('[0-9:]+')`),
+		anyArrayPattern: regexp.MustCompile(
+			`=\s*any\s*\(\s*array\s*\[([^\]]*)\]\s*\)`,
+		),
+		parenthesizedAnyArrayPattern: regexp.MustCompile(
+			`=\s*any\s*\(\s*\(\s*array\s*\[([^\]]*)\]\s*\)\s*\)`,
+		),
 	}
 }
 
@@ -160,10 +168,14 @@ func isHHMMSSFormat(s string) bool {
 }
 
 func (vn *viewNormalizer) normalizeAnyArray(s string) string {
-	anyArrayPattern := regexp.MustCompile(`=\s*any\s*\(\s*\(?\s*array\s*\[([^\]]*)\]\s*\)?\s*\)`)
+	s = vn.replaceAnyArray(s, vn.parenthesizedAnyArrayPattern)
 
-	return anyArrayPattern.ReplaceAllStringFunc(s, func(match string) string {
-		submatch := anyArrayPattern.FindStringSubmatch(match)
+	return vn.replaceAnyArray(s, vn.anyArrayPattern)
+}
+
+func (vn *viewNormalizer) replaceAnyArray(s string, pattern *regexp.Regexp) string {
+	return pattern.ReplaceAllStringFunc(s, func(match string) string {
+		submatch := pattern.FindStringSubmatch(match)
 		if len(submatch) < 2 {
 			return match
 		}

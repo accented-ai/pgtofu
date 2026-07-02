@@ -125,6 +125,71 @@ WHERE
 	assertNormalizedEqual(t, source, formatted)
 }
 
+func TestNormalizeViewDefinitionHandlesAnyArrayInPostgresView(t *testing.T) {
+	t.Parallel()
+
+	source := `
+SELECT
+    link.id,
+    link.item_id,
+    link.record_id,
+    link.note,
+    link.status,
+    link.link_type,
+    link.source,
+    link.created_at
+FROM app.item_links AS link
+INNER JOIN app.items AS item ON link.item_id = item.id
+INNER JOIN app.item_versions AS version ON item.version_id = version.id
+INNER JOIN app.collections AS collection ON version.collection_id = collection.id
+INNER JOIN catalog.records AS record ON link.record_id = record.id
+WHERE
+    item.visibility IN ('public', 'preview')
+    AND record.status = 'published'
+    AND collection.category IS DISTINCT FROM 'internal'
+    AND (
+        link.link_type = 'primary'
+        OR EXISTS (
+            SELECT 1
+            FROM app.item_links AS parent_link
+            INNER JOIN catalog.records AS parent_record
+                ON parent_link.record_id = parent_record.id
+            WHERE
+                parent_link.item_id = link.item_id
+                AND parent_link.link_type = 'primary'
+                AND parent_record.status = 'published'
+        )
+    );
+`
+
+	formatted := `
+ SELECT link.id,
+    link.item_id,
+    link.record_id,
+    link.note,
+    link.status,
+    link.link_type,
+    link.source,
+    link.created_at
+   FROM ((((app.item_links link
+     JOIN app.items item ON ((link.item_id = item.id)))
+     JOIN app.item_versions version ON ((item.version_id = version.id)))
+     JOIN app.collections collection ON ((version.collection_id = collection.id)))
+     JOIN catalog.records record ON ((link.record_id = record.id)))
+  WHERE ((item.visibility = ANY (ARRAY['public'::text, 'preview'::text]))
+    AND (record.status = 'published'::text)
+    AND (collection.category IS DISTINCT FROM 'internal'::text)
+    AND ((link.link_type = 'primary'::text) OR (EXISTS ( SELECT 1
+           FROM (app.item_links parent_link
+             JOIN catalog.records parent_record ON ((parent_link.record_id = parent_record.id)))
+          WHERE ((parent_link.item_id = link.item_id)
+            AND (parent_link.link_type = 'primary'::text)
+            AND (parent_record.status = 'published'::text))))));
+`
+
+	assertNormalizedEqual(t, source, formatted)
+}
+
 func TestNormalizeViewDefinitionHandlesOrderByAlias(t *testing.T) {
 	t.Parallel()
 
