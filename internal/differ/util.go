@@ -29,6 +29,8 @@ func normalizeExpression(expr string) string {
 	expr = removeTypeCasts(expr)
 	expr = normalizeInClauses(expr)
 	expr = normalizeBetweenExpressions(expr)
+	expr = removeRedundantBooleanParens(expr)
+	expr = strings.Join(strings.Fields(expr), " ")
 
 	return expr
 }
@@ -307,6 +309,205 @@ func removeComparisonParens(expr string) string {
 	expr = strings.ReplaceAll(expr, "\x01", ")")
 
 	return expr
+}
+
+func removeRedundantBooleanParens(expr string) string {
+	for {
+		start, end, ok := findRedundantBooleanParens(expr)
+		if !ok {
+			return expr
+		}
+
+		inner := strings.TrimSpace(expr[start+1 : end])
+		expr = expr[:start] + inner + expr[end+1:]
+	}
+}
+
+func findRedundantBooleanParens(expr string) (int, int, bool) {
+	var stack []int
+
+	inSingleQuote := false
+	inDoubleQuote := false
+
+	for i := 0; i < len(expr); i++ {
+		ch := expr[i]
+
+		switch {
+		case inSingleQuote:
+			if ch == '\'' {
+				if i+1 < len(expr) && expr[i+1] == '\'' {
+					i++
+				} else {
+					inSingleQuote = false
+				}
+			}
+
+			continue
+
+		case inDoubleQuote:
+			if ch == '"' {
+				if i+1 < len(expr) && expr[i+1] == '"' {
+					i++
+				} else {
+					inDoubleQuote = false
+				}
+			}
+
+			continue
+		}
+
+		switch ch {
+		case '\'':
+			inSingleQuote = true
+
+		case '"':
+			inDoubleQuote = true
+
+		case '(':
+			stack = append(stack, i)
+
+		case ')':
+			if len(stack) == 0 {
+				continue
+			}
+
+			start := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+
+			if canRemoveBooleanParens(expr, start, i) {
+				return start, i, true
+			}
+		}
+	}
+
+	return 0, 0, false
+}
+
+func canRemoveBooleanParens(expr string, start, end int) bool {
+	if start < 0 || end <= start {
+		return false
+	}
+
+	prev := previousNonSpaceIndex(expr, start-1)
+	if prev >= 0 {
+		if isIdentifierByte(expr[prev]) || expr[prev] == '"' || expr[prev] == ']' {
+			return false
+		}
+	}
+
+	inner := strings.TrimSpace(expr[start+1 : end])
+	if inner == "" || countParenDepth(inner) != 0 {
+		return false
+	}
+
+	if containsTopLevelLogicalOperator(inner, "or") {
+		return false
+	}
+
+	return containsTopLevelLogicalOperator(inner, "and") ||
+		isSimpleComparison(inner) ||
+		isSimpleBooleanTerm(inner)
+}
+
+func previousNonSpaceIndex(expr string, start int) int {
+	for i := start; i >= 0; i-- {
+		switch expr[i] {
+		case ' ', '\t', '\n', '\r':
+			continue
+		default:
+			return i
+		}
+	}
+
+	return -1
+}
+
+func containsTopLevelLogicalOperator(expr, word string) bool {
+	depth := 0
+	inSingleQuote := false
+	inDoubleQuote := false
+
+	for i := 0; i < len(expr); i++ {
+		ch := expr[i]
+
+		switch {
+		case inSingleQuote:
+			if ch == '\'' {
+				if i+1 < len(expr) && expr[i+1] == '\'' {
+					i++
+				} else {
+					inSingleQuote = false
+				}
+			}
+
+			continue
+
+		case inDoubleQuote:
+			if ch == '"' {
+				if i+1 < len(expr) && expr[i+1] == '"' {
+					i++
+				} else {
+					inDoubleQuote = false
+				}
+			}
+
+			continue
+		}
+
+		switch ch {
+		case '\'':
+			inSingleQuote = true
+
+		case '"':
+			inDoubleQuote = true
+
+		case '(':
+			depth++
+
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+
+		default:
+			if depth == 0 && wordAt(expr, i, word) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func wordAt(expr string, start int, word string) bool {
+	end := start + len(word)
+	if end > len(expr) || expr[start:end] != word {
+		return false
+	}
+
+	return isExpressionBoundary(expr, start-1) && isExpressionBoundary(expr, end)
+}
+
+func isSimpleBooleanTerm(expr string) bool {
+	fields := strings.Fields(expr)
+	if len(fields) == 1 {
+		return isSimpleBooleanIdentifier(fields[0])
+	}
+
+	return len(fields) == 2 && fields[0] == "not" && isSimpleBooleanIdentifier(fields[1])
+}
+
+func isSimpleBooleanIdentifier(expr string) bool {
+	expr = strings.Trim(expr, `"`)
+
+	return isSimpleIdentifierText(expr)
+}
+
+func isIdentifierByte(ch byte) bool {
+	return ch == '_' ||
+		(ch >= 'a' && ch <= 'z') ||
+		(ch >= 'A' && ch <= 'Z') ||
+		(ch >= '0' && ch <= '9')
 }
 
 func isSimpleComparison(expr string) bool {
