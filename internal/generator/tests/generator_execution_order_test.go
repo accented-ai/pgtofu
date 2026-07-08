@@ -283,3 +283,91 @@ func TestGeneratorFunctionsBeforeTriggers(t *testing.T) {
 	require.GreaterOrEqual(t, triggerPos, 0, "trigger statement not found")
 	assert.Less(t, functionPos, triggerPos, "function should be created before trigger")
 }
+
+func TestGeneratorPartialIndexAfterPredicateColumn(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "records",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", Position: 1},
+					{Name: "account_id", DataType: "uuid", Position: 2},
+					{Name: "created_at", DataType: "timestamptz", Position: 3},
+				},
+			},
+		},
+	}
+
+	desired := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "records",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", Position: 1},
+					{Name: "account_id", DataType: "uuid", Position: 2},
+					{Name: "created_at", DataType: "timestamptz", Position: 3},
+					{
+						Name:       "is_active",
+						DataType:   "boolean",
+						IsNullable: false,
+						Default:    "TRUE",
+						Position:   4,
+					},
+				},
+				Indexes: []schema.Index{
+					{
+						Schema:    schema.DefaultSchema,
+						Name:      "idx_records_active_lookup",
+						TableName: "records",
+						Columns:   []string{"account_id", "created_at DESC"},
+						Where:     "is_active",
+					},
+				},
+			},
+		},
+	}
+
+	d := differ.New(differ.DefaultOptions())
+	diffResult, err := d.Compare(current, desired)
+	require.NoError(t, err)
+
+	opts := testOptions()
+	opts.MaxOperationsPerFile = 10
+	gen := generator.New(opts)
+
+	genResult, err := gen.Generate(diffResult)
+	require.NoError(t, err)
+	require.NotEmpty(t, genResult.Migrations)
+	require.NotNil(t, genResult.Migrations[0].UpFile)
+	require.NotNil(t, genResult.Migrations[0].DownFile)
+
+	upSQL := genResult.Migrations[0].UpFile.Content
+	addColumnPos := strings.Index(upSQL, "ADD COLUMN is_active")
+	createIndexPos := strings.Index(upSQL, "CREATE INDEX idx_records_active_lookup")
+
+	require.GreaterOrEqual(t, addColumnPos, 0, "column statement not found")
+	require.GreaterOrEqual(t, createIndexPos, 0, "index statement not found")
+	assert.Less(
+		t,
+		addColumnPos,
+		createIndexPos,
+		"partial index should be created after predicate column",
+	)
+
+	downSQL := genResult.Migrations[0].DownFile.Content
+	dropIndexPos := strings.Index(downSQL, "DROP INDEX IF EXISTS public.idx_records_active_lookup")
+	dropColumnPos := strings.Index(downSQL, "DROP COLUMN IF EXISTS is_active")
+
+	require.GreaterOrEqual(t, dropIndexPos, 0, "drop index statement not found")
+	require.GreaterOrEqual(t, dropColumnPos, 0, "drop column statement not found")
+	assert.Less(
+		t,
+		dropIndexPos,
+		dropColumnPos,
+		"partial index should be dropped before predicate column",
+	)
+}

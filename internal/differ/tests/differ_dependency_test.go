@@ -2675,3 +2675,87 @@ func TestModifyIndexDependsOnAddColumn(t *testing.T) {
 		)
 	}
 }
+
+func TestPartialIndexPredicateDependsOnAddColumn(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "records",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", Position: 1},
+					{Name: "account_id", DataType: "uuid", Position: 2},
+					{Name: "created_at", DataType: "timestamptz", Position: 3},
+				},
+			},
+		},
+	}
+
+	desired := &schema.Database{
+		Tables: []schema.Table{
+			{
+				Schema: schema.DefaultSchema,
+				Name:   "records",
+				Columns: []schema.Column{
+					{Name: "id", DataType: "bigint", Position: 1},
+					{Name: "account_id", DataType: "uuid", Position: 2},
+					{Name: "created_at", DataType: "timestamptz", Position: 3},
+					{
+						Name:       "is_active",
+						DataType:   "boolean",
+						IsNullable: false,
+						Default:    "TRUE",
+						Position:   4,
+					},
+				},
+				Indexes: []schema.Index{
+					{
+						Schema:    schema.DefaultSchema,
+						Name:      "idx_records_active_lookup",
+						TableName: "records",
+						Columns:   []string{"account_id", "created_at DESC"},
+						Where:     "is_active",
+					},
+				},
+			},
+		},
+	}
+
+	d := differ.New(differ.DefaultOptions())
+
+	result, err := d.Compare(current, desired)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	addColumnIndex, addIndexIndex := -1, -1
+
+	for i, change := range result.Changes {
+		switch change.Type {
+		case differ.ChangeTypeAddColumn:
+			if col, ok := change.Details["column"].(*schema.Column); ok && col.Name == "is_active" {
+				addColumnIndex = i
+			}
+		case differ.ChangeTypeAddIndex:
+			addIndexIndex = i
+		}
+	}
+
+	if addColumnIndex == -1 {
+		t.Fatal("ADD_COLUMN change not found")
+	}
+
+	if addIndexIndex == -1 {
+		t.Fatal("ADD_INDEX change not found")
+	}
+
+	if addColumnIndex >= addIndexIndex {
+		t.Errorf(
+			"ADD_COLUMN should come before ADD_INDEX. ADD_COLUMN at %d, ADD_INDEX at %d",
+			addColumnIndex,
+			addIndexIndex,
+		)
+	}
+}

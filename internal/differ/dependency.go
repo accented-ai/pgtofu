@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/accented-ai/pgtofu/internal/parser"
 	"github.com/accented-ai/pgtofu/internal/schema"
 	"github.com/accented-ai/pgtofu/internal/util"
 )
@@ -157,25 +158,102 @@ func indexUsesColumn(indexChange *Change, tableName, columnName string) bool {
 		}
 	}
 
+	return IndexUsesColumn(idx, tableName, columnName)
+}
+
+// IndexUsesColumn reports whether an index references a table column in its
+// key expressions, included columns, or partial-index predicate.
+func IndexUsesColumn(idx *schema.Index, tableName, columnName string) bool {
+	if idx == nil {
+		return false
+	}
+
 	if !strings.EqualFold(idx.QualifiedTableName(), tableName) {
 		return false
 	}
 
-	columnLower := strings.ToLower(columnName)
+	normalizedColumn := schema.NormalizeIdentifier(columnName)
 
 	for _, col := range idx.Columns {
-		if strings.EqualFold(col, columnLower) {
+		if indexExpressionUsesColumn(col, normalizedColumn) {
 			return true
 		}
 	}
 
 	for _, col := range idx.IncludeColumns {
-		if strings.EqualFold(col, columnLower) {
+		if indexExpressionUsesColumn(col, normalizedColumn) {
 			return true
 		}
 	}
 
+	return indexExpressionUsesColumn(idx.Where, normalizedColumn)
+}
+
+func indexExpressionUsesColumn(expr, normalizedColumn string) bool {
+	expr = strings.TrimSpace(expr)
+	if expr == "" || normalizedColumn == "" {
+		return false
+	}
+
+	if schema.NormalizeIdentifier(expr) == normalizedColumn {
+		return true
+	}
+
+	tokens, err := parser.NewLexer(expr).Tokenize()
+	if err != nil {
+		return expressionContainsIdentifierFallback(expr, normalizedColumn)
+	}
+
+	for _, token := range tokens {
+		switch token.Type {
+		case parser.TokenIdentifier, parser.TokenQuotedIdentifier, parser.TokenKeyword:
+			if schema.NormalizeIdentifier(token.Literal) == normalizedColumn {
+				return true
+			}
+		}
+	}
+
 	return false
+}
+
+func expressionContainsIdentifierFallback(expr, normalizedColumn string) bool {
+	normalizedExpr := strings.ToLower(expr)
+
+	for start := 0; start < len(normalizedExpr); {
+		idx := strings.Index(normalizedExpr[start:], normalizedColumn)
+		if idx == -1 {
+			return false
+		}
+
+		matchStart := start + idx
+
+		matchEnd := matchStart + len(normalizedColumn)
+		if isIdentifierBoundary(normalizedExpr, matchStart-1) &&
+			isIdentifierBoundary(normalizedExpr, matchEnd) {
+			return true
+		}
+
+		start = matchEnd
+	}
+
+	return false
+}
+
+func isIdentifierBoundary(s string, idx int) bool {
+	if idx < 0 || idx >= len(s) {
+		return true
+	}
+
+	ch := s[idx]
+
+	return !isIdentifierChar(ch)
+}
+
+func isIdentifierChar(ch byte) bool {
+	return (ch >= 'a' && ch <= 'z') ||
+		(ch >= '0' && ch <= '9') ||
+		ch == '_' ||
+		ch == '$'
 }
 
 func constraintUsesColumn(constraintChange *Change, tableName, columnName string) bool {

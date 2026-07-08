@@ -54,12 +54,35 @@ func extractTableNameFromChange(change *differ.Change) string {
 		return ""
 	}
 
+	if idx := extractIndexFromChange(change); idx != nil && idx.TableName != "" {
+		return strings.ToLower(idx.TableName)
+	}
+
 	parts := strings.Split(change.ObjectName, ".")
 	if len(parts) < 2 {
 		return change.ObjectName
 	}
 
 	return strings.ToLower(parts[len(parts)-1])
+}
+
+func extractIndexFromChange(change *differ.Change) *schema.Index {
+	switch change.Type {
+	case differ.ChangeTypeAddIndex, differ.ChangeTypeDropIndex:
+		idx, _ := change.Details["index"].(*schema.Index)
+		return idx
+	case differ.ChangeTypeModifyIndex:
+		idx, _ := change.Details["desired"].(*schema.Index)
+		if idx != nil {
+			return idx
+		}
+
+		idx, _ = change.Details["current"].(*schema.Index)
+
+		return idx
+	default:
+		return nil
+	}
 }
 
 func isTableRelatedChange(changeType differ.ChangeType) bool {

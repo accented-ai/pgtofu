@@ -406,12 +406,10 @@ func (g *Generator) isIndexOnNewColumn(
 		return false
 	}
 
-	idx, ok := indexDetails.(interface{ GetColumns() []string })
+	idx, ok := indexDetails.(*schema.Index)
 	if !ok {
 		return false
 	}
-
-	indexCols := idx.GetColumns()
 
 	for i := range currentBatch {
 		ch := &currentBatch[i]
@@ -419,12 +417,21 @@ func (g *Generator) isIndexOnNewColumn(
 			continue
 		}
 
-		colName, _ := ch.Details["column_name"].(string)
+		tableName, _ := ch.Details["table"].(string)
+		if tableName == "" {
+			tableName = ch.ObjectName
+		}
 
-		for _, icol := range indexCols {
-			if strings.EqualFold(colName, icol) {
-				return true
+		colName, _ := ch.Details["column_name"].(string)
+		if colName == "" {
+			col, _ := ch.Details["column"].(*schema.Column)
+			if col != nil {
+				colName = col.Name
 			}
+		}
+
+		if differ.IndexUsesColumn(idx, tableName, colName) {
+			return true
 		}
 	}
 
