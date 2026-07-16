@@ -106,3 +106,50 @@ func TestDiffer_CheckConstraint_RealWorldIdempotency(t *testing.T) {
 		}
 	}
 }
+
+func TestDiffer_CheckConstraint_FunctionCastIdempotency(t *testing.T) {
+	t.Parallel()
+
+	current := checkConstraintDB(
+		"CHECK (((jsonb_typeof(error_summary) = 'array'::text) AND " +
+			"(octet_length((error_summary)::text) <= 131072)))",
+	)
+	desired := checkConstraintDB(
+		"CHECK (JSONB_TYPEOF(error_summary) = 'array' AND " +
+			"OCTET_LENGTH(error_summary::TEXT) <= 131072)",
+	)
+
+	assertNoChanges(t, current, desired)
+}
+
+func TestDiffer_CheckConstraint_InPredicateComparisonIdempotency(t *testing.T) {
+	t.Parallel()
+
+	current := checkConstraintDB(
+		"CHECK (((status = ANY (ARRAY['terminated'::text, " +
+			"'already_terminal'::text])) = (terminated_at IS NOT NULL)))",
+	)
+	desired := checkConstraintDB(
+		"CHECK ((status IN ('terminated', 'already_terminal')) = " +
+			"(terminated_at IS NOT NULL))",
+	)
+
+	assertNoChanges(t, current, desired)
+}
+
+func checkConstraintDB(expression string) *schema.Database {
+	return &schema.Database{Tables: []schema.Table{
+		{
+			Schema: schema.DefaultSchema,
+			Name:   "items",
+			Constraints: []schema.Constraint{
+				{
+					Name:            "items_check",
+					Type:            "CHECK",
+					Definition:      expression,
+					CheckExpression: expression,
+				},
+			},
+		},
+	}}
+}

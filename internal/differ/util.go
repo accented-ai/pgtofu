@@ -176,12 +176,12 @@ func removeTypeCasts(expr string) string {
 }
 
 func removeLiteralParens(expr string) string {
-	numPattern := regexp.MustCompile(`\((-?\d+(?:\.\d+)?)\)`)
-	expr = numPattern.ReplaceAllString(expr, "$1")
-	strPattern := regexp.MustCompile(`\(('[^']*')\)`)
-	expr = strPattern.ReplaceAllString(expr, "$1")
-	identPattern := regexp.MustCompile(`\((\w+)\)`)
-	expr = identPattern.ReplaceAllString(expr, "$1")
+	numPattern := regexp.MustCompile(`(^|[^a-zA-Z0-9_"])\((-?\d+(?:\.\d+)?)\)`)
+	expr = numPattern.ReplaceAllString(expr, "$1$2")
+	strPattern := regexp.MustCompile(`(^|[^a-zA-Z0-9_"])\(('[^']*')\)`)
+	expr = strPattern.ReplaceAllString(expr, "$1$2")
+	identPattern := regexp.MustCompile(`(^|[^a-zA-Z0-9_"])\((\w+)\)`)
+	expr = identPattern.ReplaceAllString(expr, "$1$2")
 	expr = removeComparisonParens(expr)
 
 	return expr
@@ -531,6 +531,8 @@ func isSimpleComparison(expr string) bool {
 		strings.Contains(lower, " like ") ||
 		strings.Contains(lower, " ilike ") ||
 		strings.Contains(lower, " similar to ") ||
+		strings.Contains(lower, " in (") ||
+		strings.Contains(lower, " not in (") ||
 		containsComparisonOperator(expr)
 
 	return hasComparison
