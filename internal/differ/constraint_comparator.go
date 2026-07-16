@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/accented-ai/pgtofu/internal/parser"
 	"github.com/accented-ai/pgtofu/internal/schema"
 )
 
@@ -19,11 +20,19 @@ func NewConstraintComparator(opts *Options) *ConstraintComparator {
 func (cc *ConstraintComparator) Compare(result *DiffResult, current, desired *schema.Table) {
 	tableKey := TableKey(current.Schema, current.Name)
 	tableName := current.QualifiedName()
+	functions := result.Desired.Functions
 
 	currentConstraints := cc.buildConstraintMap(current.Constraints)
 	desiredConstraints := cc.buildConstraintMap(desired.Constraints)
 
-	cc.detectAddedConstraints(result, tableKey, tableName, currentConstraints, desiredConstraints)
+	cc.detectAddedConstraints(
+		result,
+		tableKey,
+		tableName,
+		currentConstraints,
+		desiredConstraints,
+		functions,
+	)
 	cc.detectDroppedConstraints(result, tableKey, tableName, currentConstraints, desiredConstraints)
 	cc.detectModifiedConstraints(
 		result,
@@ -31,6 +40,7 @@ func (cc *ConstraintComparator) Compare(result *DiffResult, current, desired *sc
 		tableName,
 		currentConstraints,
 		desiredConstraints,
+		functions,
 	)
 }
 
@@ -58,6 +68,7 @@ func (cc *ConstraintComparator) detectAddedConstraints(
 	result *DiffResult,
 	tableKey, tableName string,
 	currentConstraints, desiredConstraints map[string]*schema.Constraint,
+	functions []schema.Function,
 ) {
 	for key, constraint := range desiredConstraints {
 		if _, exists := currentConstraints[key]; !exists {
@@ -83,7 +94,7 @@ func (cc *ConstraintComparator) detectAddedConstraints(
 				ObjectType: "constraint",
 				ObjectName: tableKey,
 				Details:    map[string]any{"table": tableName, "constraint": constraint},
-				DependsOn:  getConstraintDependencies(constraint),
+				DependsOn:  getConstraintDependencies(constraint, functions),
 			})
 		}
 	}
@@ -122,6 +133,7 @@ func (cc *ConstraintComparator) detectModifiedConstraints(
 	result *DiffResult,
 	tableKey, tableName string,
 	currentConstraints, desiredConstraints map[string]*schema.Constraint,
+	functions []schema.Function,
 ) {
 	for key, desiredConstraint := range desiredConstraints {
 		currentConstraint, exists := currentConstraints[key]
@@ -146,7 +158,7 @@ func (cc *ConstraintComparator) detectModifiedConstraints(
 					"current": currentConstraint,
 					"desired": desiredConstraint,
 				},
-				DependsOn: getConstraintDependencies(desiredConstraint),
+				DependsOn: getConstraintDependencies(desiredConstraint, functions),
 			})
 		}
 	}
@@ -182,10 +194,117 @@ func constraintStructureKey(constraint *schema.Constraint) string {
 	return strings.ToLower(key.String())
 }
 
-func getConstraintDependencies(constraint *schema.Constraint) []string {
+func getConstraintDependencies(
+	constraint *schema.Constraint,
+	functions []schema.Function,
+) []string {
 	var deps []string
 	if constraint.IsForeignKey() && constraint.ReferencedTable != "" {
 		deps = append(deps, constraint.QualifiedReferencedTable())
+	}
+
+	if constraint.IsCheck() {
+		expression := constraint.CheckExpression
+		if expression == "" {
+			expression = constraint.Definition
+		}
+
+		refs := extractFunctionCallReferences(expression)
+		deps = append(deps, resolveFunctionDependencies(refs, functions)...)
+	}
+
+	return dedupeDependencies(deps)
+}
+
+type functionCallReference struct {
+	schema string
+	name   string
+}
+
+func extractFunctionCallReferences(expression string) []functionCallReference {
+	tokens, err := parser.NewLexer(expression).Tokenize()
+	if err != nil {
+		return nil
+	}
+
+	filtered := make([]parser.Token, 0, len(tokens))
+	for _, token := range tokens {
+		if token.Type != parser.TokenComment && token.Type != parser.TokenEOF {
+			filtered = append(filtered, token)
+		}
+	}
+
+	var refs []functionCallReference
+
+	for i := 0; i < len(filtered); i++ {
+		if !isFunctionIdentifierToken(filtered[i].Type) {
+			continue
+		}
+
+		parts := []string{filtered[i].Literal}
+		next := i + 1
+
+		for next+1 < len(filtered) && filtered[next].Type == parser.TokenDot &&
+			isFunctionIdentifierToken(filtered[next+1].Type) {
+			parts = append(parts, filtered[next+1].Literal)
+			next += 2
+		}
+
+		if next >= len(filtered) || filtered[next].Type != parser.TokenLParen {
+			continue
+		}
+
+		name := schema.NormalizeIdentifier(parts[len(parts)-1])
+		if name == "" || (len(parts) == 1 && name == "check") {
+			continue
+		}
+
+		ref := functionCallReference{name: name}
+		if len(parts) > 1 {
+			ref.schema = schema.NormalizeSchemaName(parts[len(parts)-2])
+		}
+
+		refs = append(refs, ref)
+		i = next - 1
+	}
+
+	return refs
+}
+
+func isFunctionIdentifierToken(tokenType parser.TokenType) bool {
+	return tokenType == parser.TokenIdentifier ||
+		tokenType == parser.TokenQuotedIdentifier ||
+		tokenType == parser.TokenKeyword
+}
+
+func resolveFunctionDependencies(
+	refs []functionCallReference,
+	functions []schema.Function,
+) []string {
+	var deps []string
+
+	for _, ref := range refs {
+		for i := range functions {
+			function := &functions[i]
+			if schema.NormalizeIdentifier(function.Name) != ref.name {
+				continue
+			}
+
+			functionSchema := schema.NormalizeSchemaName(function.Schema)
+			if ref.schema != "" && functionSchema != ref.schema {
+				continue
+			}
+
+			if ref.schema == "" && functionSchema != schema.DefaultSchema {
+				continue
+			}
+
+			deps = append(deps, FunctionKey(
+				function.Schema,
+				function.Name,
+				function.ArgumentTypes,
+			))
+		}
 	}
 
 	return deps

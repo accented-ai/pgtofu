@@ -284,6 +284,62 @@ func TestGeneratorFunctionsBeforeTriggers(t *testing.T) {
 	assert.Less(t, functionPos, triggerPos, "function should be created before trigger")
 }
 
+func TestGeneratorFunctionsBeforeReferencingCheckConstraints(t *testing.T) {
+	t.Parallel()
+
+	currentTable := schema.Table{
+		Schema: "inventory",
+		Name:   "products",
+		Columns: []schema.Column{{
+			Name:       "label_codes",
+			DataType:   "TEXT[]",
+			IsNullable: false,
+		}},
+	}
+	desiredTable := currentTable
+	desiredTable.Constraints = []schema.Constraint{{
+		Name:            "products_label_codes_check",
+		Type:            schema.ConstraintCheck,
+		Definition:      "CHECK (inventory.valid_label_codes(label_codes))",
+		CheckExpression: "CHECK (inventory.valid_label_codes(label_codes))",
+	}}
+
+	current := &schema.Database{Tables: []schema.Table{currentTable}}
+	desired := &schema.Database{
+		Tables: []schema.Table{desiredTable},
+		Functions: []schema.Function{{
+			Schema:        "inventory",
+			Name:          "valid_label_codes",
+			ArgumentTypes: []string{"TEXT[]"},
+			ArgumentNames: []string{"label_codes"},
+			ReturnType:    "BOOLEAN",
+			Language:      "sql",
+			Volatility:    schema.VolatilityImmutable,
+			Body:          "SELECT ARRAY_POSITION(label_codes, NULL) IS NULL",
+		}},
+	}
+
+	diffResult, err := differ.New(differ.DefaultOptions()).Compare(current, desired)
+	require.NoError(t, err)
+
+	opts := testOptions()
+	opts.MaxOperationsPerFile = 1
+	genResult, err := generator.New(opts).Generate(diffResult)
+	require.NoError(t, err)
+	require.Len(t, genResult.Migrations, 1,
+		"a function and its CHECK constraint must not be split into the wrong order")
+	require.NotNil(t, genResult.Migrations[0].UpFile)
+
+	upSQL := strings.ToUpper(genResult.Migrations[0].UpFile.Content)
+	functionPos := strings.Index(upSQL, "CREATE OR REPLACE FUNCTION INVENTORY.VALID_LABEL_CODES")
+	constraintPos := strings.Index(upSQL, "ADD CONSTRAINT PRODUCTS_LABEL_CODES_CHECK")
+
+	require.GreaterOrEqual(t, functionPos, 0, "function statement not found")
+	require.GreaterOrEqual(t, constraintPos, 0, "constraint statement not found")
+	assert.Less(t, functionPos, constraintPos,
+		"function should be created before a CHECK constraint that calls it")
+}
+
 func TestGeneratorPartialIndexAfterPredicateColumn(t *testing.T) {
 	t.Parallel()
 

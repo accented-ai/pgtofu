@@ -2,6 +2,7 @@ package differ
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/accented-ai/pgtofu/internal/schema"
 )
@@ -52,7 +53,7 @@ func (tc *TableComparator) detectAddedTables(
 				ObjectType:  "table",
 				ObjectName:  key,
 				Details:     map[string]any{"table": table},
-				DependsOn:   getTableDependencies(table),
+				DependsOn:   getTableDependencies(table, result.Desired.Functions),
 			})
 
 			tc.addTableCommentChange(result, key, table, "")
@@ -257,20 +258,19 @@ func (tc *TableComparator) compareTableComments(
 	})
 }
 
-func getTableDependencies(table *schema.Table) []string {
+func getTableDependencies(table *schema.Table, functions []schema.Function) []string {
 	var deps []string
 
 	tableName := table.QualifiedName()
 
 	for i := range table.Constraints {
 		constraint := &table.Constraints[i]
-		if constraint.IsForeignKey() && constraint.ReferencedTable != "" {
-			refTable := constraint.QualifiedReferencedTable()
-			if refTable != "" && refTable != tableName {
-				deps = append(deps, refTable)
+		for _, dep := range getConstraintDependencies(constraint, functions) {
+			if !strings.EqualFold(dep, tableName) {
+				deps = append(deps, dep)
 			}
 		}
 	}
 
-	return deps
+	return dedupeDependencies(deps)
 }

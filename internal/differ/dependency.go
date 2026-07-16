@@ -56,7 +56,7 @@ func (d *Differ) resolveDependencies(result *DiffResult) error {
 func providesObject(change *Change, objectName string) bool {
 	switch change.Type {
 	case ChangeTypeAddTable, ChangeTypeAddView, ChangeTypeAddMaterializedView,
-		ChangeTypeAddFunction:
+		ChangeTypeAddFunction, ChangeTypeModifyFunction:
 		if change.ObjectName == objectName {
 			return true
 		}
