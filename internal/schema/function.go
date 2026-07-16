@@ -32,18 +32,23 @@ type Function struct {
 }
 
 type Trigger struct {
-	Schema         string   `json:"schema"`
-	Name           string   `json:"name"`
-	TableName      string   `json:"table_name"`
-	Timing         string   `json:"timing"`
-	Events         []string `json:"events"`
-	UpdateColumns  []string `json:"update_columns,omitempty"`
-	ForEachRow     bool     `json:"for_each_row"`
-	WhenCondition  string   `json:"when_condition,omitempty"`
-	FunctionSchema string   `json:"function_schema"`
-	FunctionName   string   `json:"function_name"`
-	Definition     string   `json:"definition"`
-	Comment        string   `json:"comment,omitempty"`
+	Schema                string   `json:"schema"`
+	Name                  string   `json:"name"`
+	TableName             string   `json:"table_name"`
+	Timing                string   `json:"timing"`
+	Events                []string `json:"events"`
+	UpdateColumns         []string `json:"update_columns,omitempty"`
+	ForEachRow            bool     `json:"for_each_row"`
+	WhenCondition         string   `json:"when_condition,omitempty"`
+	FunctionSchema        string   `json:"function_schema"`
+	FunctionName          string   `json:"function_name"`
+	IsConstraint          bool     `json:"is_constraint,omitempty"`
+	IsDeferrable          bool     `json:"is_deferrable,omitempty"`
+	InitiallyDeferred     bool     `json:"initially_deferred,omitempty"`
+	ReferencedTableSchema string   `json:"referenced_table_schema,omitempty"`
+	ReferencedTableName   string   `json:"referenced_table_name,omitempty"`
+	Definition            string   `json:"definition"`
+	Comment               string   `json:"comment,omitempty"`
 }
 
 func (f *Function) QualifiedName() string {

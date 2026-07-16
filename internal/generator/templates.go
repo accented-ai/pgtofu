@@ -1013,7 +1013,12 @@ func formatTriggerDefinition(t *schema.Trigger) (string, error) {
 
 	var sb strings.Builder
 
-	sb.WriteString("CREATE TRIGGER ")
+	if t.IsConstraint {
+		sb.WriteString("CREATE CONSTRAINT TRIGGER ")
+	} else {
+		sb.WriteString("CREATE TRIGGER ")
+	}
+
 	sb.WriteString(QuoteIdentifier(t.Name))
 	sb.WriteString("\n")
 	sb.WriteString(t.Timing)
@@ -1022,6 +1027,24 @@ func formatTriggerDefinition(t *schema.Trigger) (string, error) {
 	sb.WriteString(" ON ")
 	sb.WriteString(QualifiedName(t.Schema, t.TableName))
 	sb.WriteString("\n")
+
+	if t.ReferencedTableName != "" {
+		sb.WriteString("FROM ")
+		sb.WriteString(QualifiedName(t.ReferencedTableSchema, t.ReferencedTableName))
+		sb.WriteString("\n")
+	}
+
+	if t.IsConstraint && t.IsDeferrable {
+		sb.WriteString("DEFERRABLE INITIALLY ")
+
+		if t.InitiallyDeferred {
+			sb.WriteString("DEFERRED")
+		} else {
+			sb.WriteString("IMMEDIATE")
+		}
+
+		sb.WriteString("\n")
+	}
 
 	if t.ForEachRow {
 		sb.WriteString("FOR EACH ROW")

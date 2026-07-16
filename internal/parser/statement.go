@@ -85,6 +85,12 @@ func DetectStatementType(tokens []Token) StatementType { //nolint:cyclop,gocyclo
 			return StmtCreateFunction
 		case "TRIGGER":
 			return StmtCreateTrigger
+		case "CONSTRAINT":
+			if len(parts) > 2 && parts[2] == "TRIGGER" {
+				return StmtCreateTrigger
+			}
+
+			return StmtUnknown
 		case "EXTENSION":
 			return StmtCreateExtension
 		case "TYPE":
@@ -155,7 +161,8 @@ func detectStatementTypeFromSQL(sql string) StatementType {
 	case strings.HasPrefix(upper, "CREATE OR REPLACE FUNCTION"),
 		strings.HasPrefix(upper, "CREATE FUNCTION"):
 		return StmtCreateFunction
-	case strings.HasPrefix(upper, "CREATE TRIGGER"):
+	case strings.HasPrefix(upper, "CREATE TRIGGER"),
+		strings.HasPrefix(upper, "CREATE CONSTRAINT TRIGGER"):
 		return StmtCreateTrigger
 	case strings.HasPrefix(upper, "CREATE EXTENSION"):
 		return StmtCreateExtension

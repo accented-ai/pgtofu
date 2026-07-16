@@ -69,3 +69,32 @@ func TestTriggerComparator_DetectsUpdateColumnChange(t *testing.T) {
 	require.Len(t, result.GetChangesByType(differ.ChangeTypeModifyTrigger), 1,
 		"changing the UPDATE OF column set should modify the trigger")
 }
+
+func TestTriggerComparator_ConstraintTriggerRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	current := triggerUpdateColumnsDB([]string{"status"})
+	desired := triggerUpdateColumnsDB([]string{"status"})
+	current.Triggers[0].IsConstraint = true
+	current.Triggers[0].IsDeferrable = true
+	current.Triggers[0].InitiallyDeferred = true
+	desired.Triggers[0].IsConstraint = true
+	desired.Triggers[0].IsDeferrable = true
+	desired.Triggers[0].InitiallyDeferred = true
+
+	assertNoChanges(t, current, desired)
+}
+
+func TestTriggerComparator_DetectsConstraintSemanticsChange(t *testing.T) {
+	t.Parallel()
+
+	current := triggerUpdateColumnsDB([]string{"status"})
+	desired := triggerUpdateColumnsDB([]string{"status"})
+	desired.Triggers[0].IsConstraint = true
+	desired.Triggers[0].IsDeferrable = true
+	desired.Triggers[0].InitiallyDeferred = true
+
+	result, err := differ.New(differ.DefaultOptions()).Compare(current, desired)
+	require.NoError(t, err)
+	require.Len(t, result.GetChangesByType(differ.ChangeTypeModifyTrigger), 1)
+}

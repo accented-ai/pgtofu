@@ -59,3 +59,39 @@ EXECUTE FUNCTION UPDATE_TIMESTAMP();
 	require.Equal(t, "set_updated_at", orderTrigger.Name)
 	require.Equal(t, "set_updated_at", auditTrigger.Name)
 }
+
+func TestParseCreateConstraintTrigger(t *testing.T) {
+	t.Parallel()
+
+	sql := `
+CREATE TABLE inventory.stock_entries (id UUID PRIMARY KEY);
+CREATE FUNCTION inventory.validate_stock_entry() RETURNS TRIGGER AS $$
+BEGIN
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE CONSTRAINT TRIGGER stock_entry_integrity
+AFTER INSERT OR UPDATE OF id
+ON inventory.stock_entries
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW
+EXECUTE FUNCTION inventory.validate_stock_entry();
+`
+
+	db := parseSQL(t, sql)
+	require.Len(t, db.Triggers, 1)
+
+	trigger := db.Triggers[0]
+	require.Equal(t, "stock_entry_integrity", trigger.Name)
+	require.Equal(t, "inventory", trigger.Schema)
+	require.Equal(t, "stock_entries", trigger.TableName)
+	require.True(t, trigger.IsConstraint)
+	require.True(t, trigger.IsDeferrable)
+	require.True(t, trigger.InitiallyDeferred)
+	require.Equal(t, []string{"INSERT", "UPDATE"}, trigger.Events)
+	require.Equal(t, []string{"id"}, trigger.UpdateColumns)
+	require.True(t, trigger.ForEachRow)
+	require.Equal(t, "inventory", trigger.FunctionSchema)
+	require.Equal(t, "validate_stock_entry", trigger.FunctionName)
+}

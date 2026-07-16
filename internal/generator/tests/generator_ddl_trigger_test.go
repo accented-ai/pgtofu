@@ -287,6 +287,51 @@ func TestDDLBuilder_TriggerOperations(t *testing.T) {
 	}
 }
 
+func TestDDLBuilder_AddDeferredConstraintTrigger(t *testing.T) {
+	t.Parallel()
+
+	trigger := &schema.Trigger{
+		Schema:            "inventory",
+		Name:              "stock_entry_integrity",
+		TableName:         "stock_entries",
+		Timing:            "AFTER",
+		Events:            []string{"INSERT", "UPDATE"},
+		UpdateColumns:     []string{"status"},
+		ForEachRow:        true,
+		FunctionSchema:    "inventory",
+		FunctionName:      "validate_stock_entry",
+		IsConstraint:      true,
+		IsDeferrable:      true,
+		InitiallyDeferred: true,
+	}
+	result := &differ.DiffResult{
+		Current: &schema.Database{},
+		Desired: &schema.Database{Triggers: []schema.Trigger{*trigger}},
+		Changes: []differ.Change{{
+			Type:       differ.ChangeTypeAddTrigger,
+			ObjectName: "inventory.stock_entries.stock_entry_integrity",
+		}},
+	}
+
+	stmt, err := generator.NewDDLBuilder(result, true).BuildUpStatement(result.Changes[0])
+	require.NoError(t, err)
+
+	for _, want := range []string{
+		"CREATE CONSTRAINT TRIGGER",
+		"stock_entry_integrity",
+		"AFTER INSERT OR UPDATE OF status",
+		"ON inventory.stock_entries",
+		"DEFERRABLE INITIALLY DEFERRED",
+		"FOR EACH ROW",
+		"EXECUTE FUNCTION inventory.VALIDATE_STOCK_ENTRY",
+	} {
+		assert.Contains(t, stmt.SQL, want)
+	}
+
+	assert.False(t, stmt.IsUnsafe)
+	assert.True(t, stmt.RequiresTx)
+}
+
 func TestDDLBuilder_ModifyTrigger(t *testing.T) {
 	t.Parallel()
 

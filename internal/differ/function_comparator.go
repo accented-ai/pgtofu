@@ -301,6 +301,17 @@ func areTriggersEqual(t1, t2 *schema.Trigger) bool {
 		return false
 	}
 
+	if t1.IsConstraint != t2.IsConstraint ||
+		t1.IsDeferrable != t2.IsDeferrable ||
+		t1.InitiallyDeferred != t2.InitiallyDeferred {
+		return false
+	}
+
+	if schema.QualifiedName(t1.ReferencedTableSchema, t1.ReferencedTableName) !=
+		schema.QualifiedName(t2.ReferencedTableSchema, t2.ReferencedTableName) {
+		return false
+	}
+
 	when1 := normalizeExpression(t1.WhenCondition)
 	when2 := normalizeExpression(t2.WhenCondition)
 

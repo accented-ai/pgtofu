@@ -268,17 +268,22 @@ func (p *Parser) extractFunctionBody(stmt string) string {
 }
 
 type triggerStatement struct {
-	name           string
-	timing         string
-	events         []string
-	updateColumns  []string
-	tableSchema    string
-	tableName      string
-	forEachRow     bool
-	whenCondition  string
-	functionSchema string
-	functionName   string
-	definition     string
+	name                  string
+	timing                string
+	events                []string
+	updateColumns         []string
+	tableSchema           string
+	tableName             string
+	forEachRow            bool
+	whenCondition         string
+	functionSchema        string
+	functionName          string
+	isConstraint          bool
+	isDeferrable          bool
+	initiallyDeferred     bool
+	referencedTableSchema string
+	referencedTableName   string
+	definition            string
 }
 
 func (p *Parser) parseCreateTrigger(stmt string, db *schema.Database) error {
@@ -288,17 +293,22 @@ func (p *Parser) parseCreateTrigger(stmt string, db *schema.Database) error {
 	}
 
 	trigger := schema.Trigger{
-		Schema:         parsed.tableSchema,
-		Name:           parsed.name,
-		TableName:      parsed.tableName,
-		Timing:         parsed.timing,
-		Events:         parsed.events,
-		UpdateColumns:  parsed.updateColumns,
-		ForEachRow:     parsed.forEachRow,
-		WhenCondition:  parsed.whenCondition,
-		FunctionSchema: parsed.functionSchema,
-		FunctionName:   parsed.functionName,
-		Definition:     parsed.definition,
+		Schema:                parsed.tableSchema,
+		Name:                  parsed.name,
+		TableName:             parsed.tableName,
+		Timing:                parsed.timing,
+		Events:                parsed.events,
+		UpdateColumns:         parsed.updateColumns,
+		ForEachRow:            parsed.forEachRow,
+		WhenCondition:         parsed.whenCondition,
+		FunctionSchema:        parsed.functionSchema,
+		FunctionName:          parsed.functionName,
+		IsConstraint:          parsed.isConstraint,
+		IsDeferrable:          parsed.isDeferrable,
+		InitiallyDeferred:     parsed.initiallyDeferred,
+		ReferencedTableSchema: parsed.referencedTableSchema,
+		ReferencedTableName:   parsed.referencedTableName,
+		Definition:            parsed.definition,
 	}
 
 	for i, existing := range db.Triggers {
@@ -333,7 +343,10 @@ func (p *Parser) parseTriggerStatement( //nolint:cyclop,gocognit,gocyclo,maintid
 	}
 
 	idx = nextNonCommentIndex(tokens, idx+1)
+
+	isConstraint := false
 	if idx < len(tokens) && upperLiteral(tokens, idx) == "CONSTRAINT" {
+		isConstraint = true
 		idx = nextNonCommentIndex(tokens, idx+1)
 	}
 
@@ -429,6 +442,10 @@ func (p *Parser) parseTriggerStatement( //nolint:cyclop,gocognit,gocyclo,maintid
 		tokens,
 		stmt,
 		tableStart,
+		"FROM",
+		"DEFERRABLE",
+		"NOT",
+		"INITIALLY",
 		"FOR",
 		"WHEN",
 		"EXECUTE",
@@ -441,9 +458,43 @@ func (p *Parser) parseTriggerStatement( //nolint:cyclop,gocognit,gocyclo,maintid
 
 	tableSchema, tableName := p.splitSchemaTable(tableLiteral)
 
-	forEachRow := false
+	var referencedTableSchema, referencedTableName string
 
 	forIdx := findKeyword(tokens, "FOR", afterTableIdx)
+	whenIdx := findKeyword(tokens, "WHEN", afterTableIdx)
+	execIdx := findKeyword(tokens, "EXECUTE", afterTableIdx)
+	clauseEnd := earliestTokenIndex(len(tokens), forIdx, whenIdx, execIdx)
+
+	fromIdx := findKeyword(tokens, "FROM", afterTableIdx)
+	if fromIdx != -1 && fromIdx < clauseEnd {
+		fromStart := nextNonCommentIndex(tokens, fromIdx+1)
+
+		fromLiteral, _ := collectLiteralUntil(
+			tokens,
+			stmt,
+			fromStart,
+			"DEFERRABLE",
+			"NOT",
+			"INITIALLY",
+			"FOR",
+			"WHEN",
+			"EXECUTE",
+		)
+		if fromLiteral == "" {
+			return nil, NewParseError("missing constraint trigger referenced table")
+		}
+
+		referencedTableSchema, referencedTableName = p.splitSchemaTable(fromLiteral)
+	}
+
+	isDeferrable, initiallyDeferred := parseTriggerDeferrability(
+		tokens,
+		afterTableIdx,
+		clauseEnd,
+	)
+
+	forEachRow := false
+
 	if forIdx != -1 {
 		eachIdx := nextNonCommentIndex(tokens, forIdx+1)
 		if eachIdx < len(tokens) && upperLiteral(tokens, eachIdx) == "EACH" {
@@ -456,7 +507,6 @@ func (p *Parser) parseTriggerStatement( //nolint:cyclop,gocognit,gocyclo,maintid
 
 	whenCondition := ""
 
-	whenIdx := findKeyword(tokens, "WHEN", afterTableIdx)
 	if whenIdx != -1 {
 		parenIdx := nextNonCommentIndex(tokens, whenIdx+1)
 		if parenIdx < len(tokens) && tokens[parenIdx].Type == TokenLParen {
@@ -469,7 +519,6 @@ func (p *Parser) parseTriggerStatement( //nolint:cyclop,gocognit,gocyclo,maintid
 		}
 	}
 
-	execIdx := findKeyword(tokens, "EXECUTE", afterTableIdx)
 	if execIdx == -1 {
 		return nil, NewParseError("missing EXECUTE clause")
 	}
@@ -503,18 +552,63 @@ func (p *Parser) parseTriggerStatement( //nolint:cyclop,gocognit,gocyclo,maintid
 	}
 
 	return &triggerStatement{
-		name:           triggerName,
-		timing:         timing,
-		events:         events,
-		updateColumns:  updateColumns,
-		tableSchema:    tableSchema,
-		tableName:      tableName,
-		forEachRow:     forEachRow,
-		whenCondition:  whenCondition,
-		functionSchema: funcSchema,
-		functionName:   funcName,
-		definition:     stmt,
+		name:                  triggerName,
+		timing:                timing,
+		events:                events,
+		updateColumns:         updateColumns,
+		tableSchema:           tableSchema,
+		tableName:             tableName,
+		forEachRow:            forEachRow,
+		whenCondition:         whenCondition,
+		functionSchema:        funcSchema,
+		functionName:          funcName,
+		isConstraint:          isConstraint,
+		isDeferrable:          isDeferrable,
+		initiallyDeferred:     initiallyDeferred,
+		referencedTableSchema: referencedTableSchema,
+		referencedTableName:   referencedTableName,
+		definition:            stmt,
 	}, nil
+}
+
+func earliestTokenIndex(fallback int, indexes ...int) int {
+	earliest := fallback
+	for _, idx := range indexes {
+		if idx != -1 && idx < earliest {
+			earliest = idx
+		}
+	}
+
+	return earliest
+}
+
+func parseTriggerDeferrability(tokens []Token, start, end int) (bool, bool) {
+	isDeferrable := false
+	initiallyDeferred := false
+
+	for idx := nextNonCommentIndex(tokens, start); idx < end; {
+		switch upperLiteral(tokens, idx) {
+		case "NOT":
+			next := nextNonCommentIndex(tokens, idx+1)
+			if next < end && upperLiteral(tokens, next) == "DEFERRABLE" {
+				isDeferrable = false
+				idx = nextNonCommentIndex(tokens, next+1)
+
+				continue
+			}
+		case "DEFERRABLE":
+			isDeferrable = true
+		case "INITIALLY":
+			next := nextNonCommentIndex(tokens, idx+1)
+			if next < end && upperLiteral(tokens, next) == "DEFERRED" {
+				initiallyDeferred = true
+			}
+		}
+
+		idx = nextNonCommentIndex(tokens, idx+1)
+	}
+
+	return isDeferrable, initiallyDeferred
 }
 
 // collectTriggerUpdateColumns reads the identifiers in an "UPDATE OF col, ..."

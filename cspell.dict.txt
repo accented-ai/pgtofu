@@ -75,7 +75,11 @@ sIndex
 spgist
 testdb
 tgattr
+tgconstraint
+tgconstrrelid
+tgdeferrable
 tgfoid
+tginitdeferred
 tgisinternal
 tgname
 tgrelid

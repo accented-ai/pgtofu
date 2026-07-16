@@ -366,6 +366,11 @@ const (
 				JOIN pg_attribute a ON a.attrelid = t.tgrelid AND a.attnum = cols.attnum
 			), ARRAY[]::text[]),
 			(t.tgtype & 1 = 1),
+			(t.tgconstraint <> 0),
+			t.tgdeferrable,
+			t.tginitdeferred,
+			COALESCE(rn.nspname, ''),
+			COALESCE(rc.relname, ''),
 			pg_get_triggerdef(t.oid),
 			pn.nspname,
 			p.proname,
@@ -375,6 +380,8 @@ const (
 		JOIN pg_namespace n ON c.relnamespace = n.oid
 		JOIN pg_proc p ON t.tgfoid = p.oid
 		JOIN pg_namespace pn ON p.pronamespace = pn.oid
+		LEFT JOIN pg_class rc ON t.tgconstrrelid = rc.oid
+		LEFT JOIN pg_namespace rn ON rc.relnamespace = rn.oid
 		WHERE NOT t.tgisinternal
 		AND %s
 		ORDER BY n.nspname, c.relname, t.tgname`
