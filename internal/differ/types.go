@@ -226,10 +226,76 @@ func ViewKey(schema, name string) string {
 }
 
 func FunctionKey(schema, name string, argTypes []string) string {
+	normalizedArgTypes := make([]string, len(argTypes))
+	for i, argType := range argTypes {
+		normalizedArgTypes[i] = normalizeFunctionDataType(argType)
+	}
+
 	return fmt.Sprintf("%s.%s(%s)",
 		normalizeSchema(schema),
 		strings.ToLower(name),
-		strings.Join(argTypes, ","))
+		strings.Join(normalizedArgTypes, ","))
+}
+
+func normalizeFunctionDataType(dataType string) string {
+	dataType = lowercaseUnquoted(strings.TrimSpace(dataType))
+	dataType = strings.Join(strings.Fields(dataType), " ")
+
+	if strings.Contains(dataType, `"`) {
+		return uppercaseUnquoted(dataType)
+	}
+
+	arrayDimensions := 0
+	for strings.HasSuffix(dataType, "[]") {
+		arrayDimensions++
+		dataType = strings.TrimSpace(strings.TrimSuffix(dataType, "[]"))
+	}
+
+	return strings.ToUpper(NormalizeDataType(dataType)) + strings.Repeat("[]", arrayDimensions)
+}
+
+func lowercaseUnquoted(value string) string {
+	return foldUnquoted(value, false)
+}
+
+func uppercaseUnquoted(value string) string {
+	return foldUnquoted(value, true)
+}
+
+func foldUnquoted(value string, upper bool) string {
+	var result strings.Builder
+
+	inDoubleQuote := false
+
+	for i := 0; i < len(value); i++ {
+		ch := value[i]
+		if ch == '"' {
+			result.WriteByte(ch)
+
+			if inDoubleQuote && i+1 < len(value) && value[i+1] == '"' {
+				result.WriteByte(value[i+1])
+				i++
+
+				continue
+			}
+
+			inDoubleQuote = !inDoubleQuote
+
+			continue
+		}
+
+		if !inDoubleQuote {
+			if upper && ch >= 'a' && ch <= 'z' {
+				ch -= 'a' - 'A'
+			} else if !upper && ch >= 'A' && ch <= 'Z' {
+				ch += 'a' - 'A'
+			}
+		}
+
+		result.WriteByte(ch)
+	}
+
+	return result.String()
 }
 
 func IndexKey(schema, name string) string {

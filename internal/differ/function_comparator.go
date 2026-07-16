@@ -90,7 +90,6 @@ func (fc *FunctionComparator) detectModifiedFunctions(
 			continue
 		}
 
-		sigEqual := currentFn.Signature() == desiredFn.Signature()
 		retEqual := NormalizeDataType(
 			currentFn.ReturnType,
 		) == NormalizeDataType(
@@ -107,7 +106,7 @@ func (fc *FunctionComparator) detectModifiedFunctions(
 		desiredComment := normalizeComment(desiredFn.Comment)
 		commentEqual := currentComment == desiredComment
 
-		funcBodyEqual := sigEqual && retEqual && langEqual && volEqual && secDefEqual &&
+		funcBodyEqual := retEqual && langEqual && volEqual && secDefEqual &&
 			strictEqual && bodyEqual
 
 		if !funcBodyEqual {
