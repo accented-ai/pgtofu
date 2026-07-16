@@ -36,6 +36,7 @@ func (fc *FunctionComparator) detectAddedFunctions(
 				Description: "Add function: " + fn.Signature(),
 				ObjectType:  "function",
 				ObjectName:  key,
+				DependsOn:   extractFunctionDependencies(fn),
 				Details: map[string]any{
 					"function": fn,
 				},
@@ -121,6 +122,7 @@ func (fc *FunctionComparator) detectModifiedFunctions(
 				Description: "Modify function: " + desiredFn.Signature(),
 				ObjectType:  "function",
 				ObjectName:  key,
+				DependsOn:   extractFunctionDependencies(desiredFn),
 				Details: map[string]any{
 					"current": currentFn,
 					"desired": desiredFn,
@@ -143,6 +145,15 @@ func (fc *FunctionComparator) detectModifiedFunctions(
 			})
 		}
 	}
+}
+
+func extractFunctionDependencies(function *schema.Function) []string {
+	definition := function.Body
+	if definition == "" {
+		definition = function.Definition
+	}
+
+	return extractViewDependencies(definition)
 }
 
 type TriggerComparator struct{}

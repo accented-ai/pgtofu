@@ -445,6 +445,12 @@ func (d *Differ) implicitlyDependsOn( //nolint:cyclop,gocognit,gocyclo,maintidx
 		return true
 	}
 
+	if (change.Type == ChangeTypeAddFunction || change.Type == ChangeTypeModifyFunction) &&
+		otherChange.Type == ChangeTypeAddColumn &&
+		tableMatchesDependency(otherChange.ObjectName, change.DependsOn) {
+		return true
+	}
+
 	if change.Type == ChangeTypeDropColumn &&
 		(otherChange.Type == ChangeTypeModifyView || otherChange.Type == ChangeTypeModifyMaterializedView) &&
 		tableMatchesDependency(change.ObjectName, otherChange.DependsOn) {
