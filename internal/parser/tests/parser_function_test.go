@@ -3,6 +3,8 @@ package parser_test
 import (
 	"strings"
 	"testing"
+
+	"github.com/accented-ai/pgtofu/internal/schema"
 )
 
 func TestParseCreateFunction(t *testing.T) {
@@ -29,6 +31,58 @@ $$ LANGUAGE plpgsql;`
 
 	if fn.Language != "plpgsql" {
 		t.Errorf("function language = %v, want plpgsql", fn.Language)
+	}
+}
+
+func TestParseCreateFunctionParallelSafety(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		sql  string
+		want string
+	}{
+		{
+			name: "default unsafe",
+			sql: `CREATE FUNCTION default_parallel() RETURNS integer AS $$
+SELECT 1;
+$$ LANGUAGE sql;`,
+			want: schema.ParallelSafetyUnsafe,
+		},
+		{
+			name: "safe before body",
+			sql: `CREATE FUNCTION safe_parallel() RETURNS integer
+LANGUAGE sql PARALLEL SAFE AS $$ SELECT 1; $$;`,
+			want: schema.ParallelSafetySafe,
+		},
+		{
+			name: "restricted after body",
+			sql: `CREATE FUNCTION restricted_parallel() RETURNS integer AS $$
+SELECT 1;
+$$ LANGUAGE sql PARALLEL RESTRICTED;`,
+			want: schema.ParallelSafetyRestricted,
+		},
+		{
+			name: "explicit unsafe",
+			sql: `CREATE FUNCTION unsafe_parallel() RETURNS integer
+PARALLEL UNSAFE LANGUAGE sql AS $$ SELECT 1; $$;`,
+			want: schema.ParallelSafetyUnsafe,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			db := parseSQL(t, tt.sql)
+			if len(db.Functions) != 1 {
+				t.Fatalf("expected 1 function, got %d", len(db.Functions))
+			}
+
+			if got := db.Functions[0].ParallelSafety; got != tt.want {
+				t.Errorf("ParallelSafety = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 

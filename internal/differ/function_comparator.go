@@ -98,6 +98,8 @@ func (fc *FunctionComparator) detectModifiedFunctions(
 		)
 		langEqual := strings.EqualFold(currentFn.Language, desiredFn.Language)
 		volEqual := currentFn.Volatility == desiredFn.Volatility
+		parallelEqual := normalizeParallelSafety(currentFn.ParallelSafety) ==
+			normalizeParallelSafety(desiredFn.ParallelSafety)
 		secDefEqual := currentFn.IsSecurityDefiner == desiredFn.IsSecurityDefiner
 		strictEqual := currentFn.IsStrict == desiredFn.IsStrict
 		body1 := normalizeFunctionBody(currentFn.Body)
@@ -107,8 +109,8 @@ func (fc *FunctionComparator) detectModifiedFunctions(
 		desiredComment := normalizeComment(desiredFn.Comment)
 		commentEqual := currentComment == desiredComment
 
-		funcBodyEqual := retEqual && langEqual && volEqual && secDefEqual &&
-			strictEqual && bodyEqual
+		funcBodyEqual := retEqual && langEqual && volEqual && parallelEqual &&
+			secDefEqual && strictEqual && bodyEqual
 
 		if !funcBodyEqual {
 			severity := SeverityPotentiallyBreaking
@@ -145,6 +147,15 @@ func (fc *FunctionComparator) detectModifiedFunctions(
 			})
 		}
 	}
+}
+
+func normalizeParallelSafety(value string) string {
+	value = strings.ToUpper(strings.TrimSpace(value))
+	if value == "" {
+		return schema.ParallelSafetyUnsafe
+	}
+
+	return value
 }
 
 func extractFunctionDependencies(function *schema.Function) []string {

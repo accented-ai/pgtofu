@@ -329,6 +329,11 @@ const (
 				WHEN 's' THEN 'STABLE'
 				WHEN 'v' THEN 'VOLATILE'
 			END,
+			CASE p.proparallel
+				WHEN 's' THEN 'SAFE'
+				WHEN 'r' THEN 'RESTRICTED'
+				WHEN 'u' THEN 'UNSAFE'
+			END,
 			obj_description(p.oid, 'pg_proc'),
 			pg_catalog.pg_get_userbyid(p.proowner),
 			pg_catalog.pg_get_functiondef(p.oid)

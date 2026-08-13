@@ -987,6 +987,12 @@ func formatFunctionDefinition(f *schema.Function) (string, error) {
 		sb.WriteString(" STRICT")
 	}
 
+	if f.ParallelSafety != "" &&
+		!strings.EqualFold(f.ParallelSafety, schema.ParallelSafetyUnsafe) {
+		sb.WriteString(" PARALLEL ")
+		sb.WriteString(strings.ToUpper(f.ParallelSafety))
+	}
+
 	return sb.String(), nil
 }
 

@@ -8,19 +8,20 @@ import (
 )
 
 type functionStatement struct {
-	schemaName  string
-	funcName    string
-	argLiteral  string
-	argTypes    []string
-	argNames    []string
-	argModes    []string
-	returnType  string
-	language    string
-	volatility  string
-	body        string
-	isStrict    bool
-	securityDef bool
-	definition  string
+	schemaName     string
+	funcName       string
+	argLiteral     string
+	argTypes       []string
+	argNames       []string
+	argModes       []string
+	returnType     string
+	language       string
+	volatility     string
+	parallelSafety string
+	body           string
+	isStrict       bool
+	securityDef    bool
+	definition     string
 }
 
 func (p *Parser) parseCreateFunction(stmt string, db *schema.Database) error {
@@ -39,6 +40,7 @@ func (p *Parser) parseCreateFunction(stmt string, db *schema.Database) error {
 		Language:          parsed.language,
 		Body:              parsed.body,
 		Volatility:        parsed.volatility,
+		ParallelSafety:    parsed.parallelSafety,
 		Definition:        parsed.definition,
 		IsStrict:          parsed.isStrict,
 		IsSecurityDefiner: parsed.securityDef,
@@ -164,26 +166,51 @@ func (p *Parser) parseFunctionStatement(stmt string) (*functionStatement, error)
 		volatility = schema.VolatilityStable
 	}
 
+	parallelSafety, err := parseFunctionParallelSafety(tokens, nextIdx)
+	if err != nil {
+		return nil, err
+	}
+
 	isStrict := findKeyword(tokens, "STRICT", 0) != -1 ||
 		strings.Contains(strings.ToUpper(stmt), "RETURNS NULL ON NULL INPUT")
 
 	securityDef := strings.Contains(strings.ToUpper(stmt), "SECURITY DEFINER")
 
 	return &functionStatement{
-		schemaName:  schemaName,
-		funcName:    funcName,
-		argLiteral:  argsLiteral,
-		argTypes:    argTypes,
-		argNames:    argNames,
-		argModes:    argModes,
-		returnType:  returnType,
-		language:    language,
-		volatility:  volatility,
-		body:        body,
-		isStrict:    isStrict,
-		securityDef: securityDef,
-		definition:  stmt,
+		schemaName:     schemaName,
+		funcName:       funcName,
+		argLiteral:     argsLiteral,
+		argTypes:       argTypes,
+		argNames:       argNames,
+		argModes:       argModes,
+		returnType:     returnType,
+		language:       language,
+		volatility:     volatility,
+		parallelSafety: parallelSafety,
+		body:           body,
+		isStrict:       isStrict,
+		securityDef:    securityDef,
+		definition:     stmt,
 	}, nil
+}
+
+func parseFunctionParallelSafety(tokens []Token, start int) (string, error) {
+	parallelIdx := findKeyword(tokens, "PARALLEL", start)
+	if parallelIdx == -1 {
+		return schema.ParallelSafetyUnsafe, nil
+	}
+
+	valueIdx := nextNonCommentIndex(tokens, parallelIdx+1)
+	parallelSafety := upperLiteral(tokens, valueIdx)
+
+	switch parallelSafety {
+	case schema.ParallelSafetySafe,
+		schema.ParallelSafetyRestricted,
+		schema.ParallelSafetyUnsafe:
+		return parallelSafety, nil
+	default:
+		return "", NewParseError("invalid function parallel safety")
+	}
 }
 
 func (p *Parser) parseFunctionName(literal string) (string, string, error) {

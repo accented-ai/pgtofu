@@ -35,6 +35,7 @@ func (e *Extractor) extractFunctions(ctx context.Context) ([]schema.Function, er
 			&fn.IsStrict,
 			&fn.IsSecurityDefiner,
 			&fn.Volatility,
+			&fn.ParallelSafety,
 			scanner.String("comment"),
 			scanner.String("owner"),
 			&fn.Definition,

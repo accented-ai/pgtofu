@@ -289,6 +289,70 @@ func TestDDLBuilder_FunctionOperations(t *testing.T) { //nolint:maintidx
 	}
 }
 
+func TestDDLBuilder_FunctionParallelSafety(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		parallelSafety string
+		wantSQL        string
+	}{
+		{name: "unspecified", wantSQL: ""},
+		{
+			name:           "unsafe default",
+			parallelSafety: schema.ParallelSafetyUnsafe,
+			wantSQL:        "",
+		},
+		{
+			name:           "restricted",
+			parallelSafety: schema.ParallelSafetyRestricted,
+			wantSQL:        "PARALLEL RESTRICTED",
+		},
+		{
+			name:           "safe",
+			parallelSafety: schema.ParallelSafetySafe,
+			wantSQL:        "PARALLEL SAFE",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fn := schema.Function{
+				Schema:         schema.DefaultSchema,
+				Name:           "safety_example",
+				ReturnType:     "integer",
+				Language:       "sql",
+				Body:           "SELECT 1;",
+				ParallelSafety: tt.parallelSafety,
+			}
+			result := &differ.DiffResult{
+				Current: &schema.Database{},
+				Desired: &schema.Database{Functions: []schema.Function{fn}},
+				Changes: []differ.Change{{
+					Type: differ.ChangeTypeAddFunction,
+					ObjectName: differ.FunctionKey(
+						fn.Schema,
+						fn.Name,
+						fn.ArgumentTypes,
+					),
+				}},
+			}
+
+			stmt, err := generator.NewDDLBuilder(result, true).
+				BuildUpStatement(result.Changes[0])
+			require.NoError(t, err)
+
+			if tt.wantSQL == "" {
+				assert.NotContains(t, stmt.SQL, "PARALLEL")
+			} else {
+				assert.Contains(t, stmt.SQL, tt.wantSQL)
+			}
+		})
+	}
+}
+
 func TestDDLBuilder_FunctionModifyWithCommentChange(t *testing.T) {
 	t.Parallel()
 

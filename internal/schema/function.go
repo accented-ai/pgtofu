@@ -9,19 +9,24 @@ const (
 	VolatilityImmutable = "IMMUTABLE"
 	VolatilityStable    = "STABLE"
 	VolatilityVolatile  = "VOLATILE"
+
+	ParallelSafetySafe       = "SAFE"
+	ParallelSafetyRestricted = "RESTRICTED"
+	ParallelSafetyUnsafe     = "UNSAFE"
 )
 
 type Function struct {
-	Schema        string   `json:"schema"`
-	Name          string   `json:"name"`
-	ArgumentTypes []string `json:"argument_types"`
-	ArgumentNames []string `json:"argument_names,omitempty"`
-	ArgumentModes []string `json:"argument_modes,omitempty"`
-	ReturnType    string   `json:"return_type"`
-	Language      string   `json:"language"`
-	Body          string   `json:"body"`
-	Volatility    string   `json:"volatility"`
-	Definition    string   `json:"definition"`
+	Schema         string   `json:"schema"`
+	Name           string   `json:"name"`
+	ArgumentTypes  []string `json:"argument_types"`
+	ArgumentNames  []string `json:"argument_names,omitempty"`
+	ArgumentModes  []string `json:"argument_modes,omitempty"`
+	ReturnType     string   `json:"return_type"`
+	Language       string   `json:"language"`
+	Body           string   `json:"body"`
+	Volatility     string   `json:"volatility"`
+	ParallelSafety string   `json:"parallel_safety"`
+	Definition     string   `json:"definition"`
 
 	IsAggregate       bool   `json:"is_aggregate,omitempty"`
 	IsWindow          bool   `json:"is_window,omitempty"`
