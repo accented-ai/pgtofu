@@ -284,6 +284,66 @@ func TestGeneratorFunctionsBeforeTriggers(t *testing.T) {
 	assert.Less(t, functionPos, triggerPos, "function should be created before trigger")
 }
 
+func TestGeneratorFunctionsBeforeExpressionIndexes(t *testing.T) {
+	t.Parallel()
+
+	table := schema.Table{
+		Schema: "search",
+		Name:   "documents",
+		Columns: []schema.Column{
+			{Name: "title", DataType: "TEXT"},
+			{Name: "summary", DataType: "TEXT"},
+			{Name: "keywords", DataType: "TEXT[]"},
+		},
+	}
+	desiredTable := table
+	desiredTable.Indexes = []schema.Index{{
+		Schema:    "search",
+		TableName: table.Name,
+		Name:      "idx_documents_search_trgm",
+		Type:      schema.IndexTypeGIN,
+		Columns: []string{
+			"search.build_search_document(" +
+				"title, summary, keywords) gin_trgm_ops",
+		},
+	}}
+
+	current := &schema.Database{Tables: []schema.Table{table}}
+	desired := &schema.Database{
+		Tables: []schema.Table{desiredTable},
+		Functions: []schema.Function{{
+			Schema:        "search",
+			Name:          "build_search_document",
+			ArgumentTypes: []string{"TEXT", "TEXT", "TEXT[]"},
+			ReturnType:    "TEXT",
+			Language:      "sql",
+			Volatility:    schema.VolatilityImmutable,
+			Body:          "SELECT COALESCE(title, '')",
+		}},
+	}
+
+	diffResult, err := differ.New(differ.DefaultOptions()).Compare(current, desired)
+	require.NoError(t, err)
+
+	opts := testOptions()
+	opts.MaxOperationsPerFile = 10
+	genResult, err := generator.New(opts).Generate(diffResult)
+	require.NoError(t, err)
+	require.Len(t, genResult.Migrations, 1)
+	require.NotNil(t, genResult.Migrations[0].UpFile)
+
+	upSQL := genResult.Migrations[0].UpFile.Content
+	functionPosition := strings.Index(upSQL,
+		"CREATE OR REPLACE FUNCTION search.BUILD_SEARCH_DOCUMENT")
+	indexPosition := strings.Index(upSQL,
+		"CREATE INDEX idx_documents_search_trgm")
+
+	require.GreaterOrEqual(t, functionPosition, 0, "function statement not found")
+	require.GreaterOrEqual(t, indexPosition, 0, "index statement not found")
+	require.Less(t, functionPosition, indexPosition,
+		"a function must be created before an expression index that calls it")
+}
+
 func TestGeneratorFunctionsBeforeReferencingCheckConstraints(t *testing.T) {
 	t.Parallel()
 

@@ -80,7 +80,7 @@ func (ic *IndexComparator) detectAddedIndexes(
 				ObjectType: "index",
 				ObjectName: key,
 				Details:    map[string]any{"index": idx},
-				DependsOn:  []string{idx.QualifiedTableName()},
+				DependsOn:  getIndexDependencies(idx, desiredDB.Functions),
 			})
 		}
 	}
@@ -152,10 +152,25 @@ func (ic *IndexComparator) detectModifiedIndexes(
 				ObjectType: "index",
 				ObjectName: key,
 				Details:    map[string]any{"current": currentIdx, "desired": desiredIdx},
-				DependsOn:  []string{desiredIdx.QualifiedTableName()},
+				DependsOn:  getIndexDependencies(desiredIdx, desiredDB.Functions),
 			})
 		}
 	}
+}
+
+func getIndexDependencies(idx *schema.Index, functions []schema.Function) []string {
+	deps := make([]string, 1, len(idx.Columns)+1)
+	deps[0] = idx.QualifiedTableName()
+
+	for _, expression := range idx.Columns {
+		refs := extractFunctionCallReferences(expression)
+		deps = append(deps, resolveFunctionDependencies(refs, functions)...)
+	}
+
+	refs := extractFunctionCallReferences(idx.Where)
+	deps = append(deps, resolveFunctionDependencies(refs, functions)...)
+
+	return dedupeDependencies(deps)
 }
 
 func (ic *IndexComparator) isConstraintBackedIndex(idx *schema.Index, db *schema.Database) bool {
