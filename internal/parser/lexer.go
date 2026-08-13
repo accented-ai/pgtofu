@@ -125,6 +125,7 @@ var keywordSet = map[string]struct{}{ //nolint:gochecknoglobals
 	"VIEW":         {},
 	"WHEN":         {},
 	"WHERE":        {},
+	"WITH":         {},
 }
 
 func NewLexer(input string) *Lexer {

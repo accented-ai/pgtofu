@@ -246,6 +246,42 @@ func (n *sqlNormalizer) normalize() (string, error) {
 
 func (n *sqlNormalizer) parseSelectStatement() map[string]any {
 	stmt := make(map[string]any)
+
+	if n.matchKeyword("WITH") {
+		n.advance()
+		stmt["with"] = n.parseWithClause()
+	}
+
+	maps.Copy(stmt, n.parseQueryTerm())
+
+	var setOperations []map[string]any
+
+	for n.matchSetOperator() {
+		operation := map[string]any{
+			"operator": strings.ToLower(n.current().Literal),
+		}
+		n.advance()
+
+		if n.matchKeyword("ALL") || n.matchKeyword("DISTINCT") {
+			operation["modifier"] = strings.ToLower(n.current().Literal)
+			n.advance()
+		}
+
+		operation["stmt"] = n.parseQueryTerm()
+		setOperations = append(setOperations, operation)
+	}
+
+	if len(setOperations) > 0 {
+		stmt["set_operations"] = setOperations
+	}
+
+	n.expandCTEWildcards(stmt)
+
+	return stmt
+}
+
+func (n *sqlNormalizer) parseQueryTerm() map[string]any {
+	stmt := make(map[string]any)
 	aliases := make(map[string]any)
 
 	var fromTable string
@@ -256,12 +292,8 @@ func (n *sqlNormalizer) parseSelectStatement() map[string]any {
 			break
 		}
 
-		if n.matchKeyword("WITH") {
-			n.advance()
-			ctes := n.parseWithClause()
-			stmt["with"] = ctes
-
-			continue
+		if n.matchSetOperator() {
+			break
 		}
 
 		if n.matchKeyword("SELECT") {
@@ -349,6 +381,123 @@ func (n *sqlNormalizer) parseSelectStatement() map[string]any {
 	return stmt
 }
 
+func (n *sqlNormalizer) matchSetOperator() bool {
+	return n.matchKeyword("UNION") || n.matchKeyword("INTERSECT") ||
+		n.matchKeyword("EXCEPT")
+}
+
+func (n *sqlNormalizer) expandCTEWildcards(stmt map[string]any) {
+	ctes, ok := stmt["with"].([]map[string]any)
+	if !ok {
+		return
+	}
+
+	columnsByCTE := make(map[string][]string, len(ctes))
+	for _, cte := range ctes {
+		name, nameOK := cte["name"].(string)
+
+		cteStmt, stmtOK := cte["stmt"].(map[string]any)
+		if !nameOK || !stmtOK {
+			continue
+		}
+
+		if columns := selectOutputNames(cteStmt); len(columns) > 0 {
+			columnsByCTE[name] = columns
+		}
+	}
+
+	expandQueryTermCTEWildcard(stmt, columnsByCTE)
+
+	setOperations, _ := stmt["set_operations"].([]map[string]any)
+	for _, operation := range setOperations {
+		if term, ok := operation["stmt"].(map[string]any); ok {
+			expandQueryTermCTEWildcard(term, columnsByCTE)
+		}
+	}
+}
+
+func selectOutputNames(stmt map[string]any) []string {
+	selectList, ok := stmt["select"].([]map[string]any)
+	if !ok || len(selectList) == 0 {
+		return nil
+	}
+
+	columns := make([]string, 0, len(selectList))
+	for _, item := range selectList {
+		if alias, ok := item["alias"].(string); ok && alias != "" {
+			columns = append(columns, alias)
+			continue
+		}
+
+		expr, ok := item["expr"].(map[string]any)
+		if !ok {
+			return nil
+		}
+
+		value, ok := expr["value"].(string)
+		if !ok || !isSimpleIdentifier(value) {
+			return nil
+		}
+
+		columns = append(columns, value)
+	}
+
+	return columns
+}
+
+func isSimpleIdentifier(value string) bool {
+	if value == "" {
+		return false
+	}
+
+	for i, r := range value {
+		if (r >= 'a' && r <= 'z') || r == '_' || r == '$' ||
+			(i > 0 && r >= '0' && r <= '9') {
+			continue
+		}
+
+		return false
+	}
+
+	return true
+}
+
+func expandQueryTermCTEWildcard(term map[string]any, columnsByCTE map[string][]string) {
+	selectList, ok := term["select"].([]map[string]any)
+	if !ok || len(selectList) != 1 {
+		return
+	}
+
+	expr, ok := selectList[0]["expr"].(map[string]any)
+	if !ok || expr["value"] != "*" {
+		return
+	}
+
+	from, ok := term["from"].([]map[string]any)
+	if !ok || len(from) != 1 {
+		return
+	}
+
+	name, ok := from[0]["name"].(string)
+	if !ok {
+		return
+	}
+
+	columns := columnsByCTE[name]
+	if len(columns) == 0 {
+		return
+	}
+
+	expanded := make([]map[string]any, 0, len(columns))
+	for _, column := range columns {
+		expanded = append(expanded, map[string]any{
+			"expr": map[string]any{"value": column},
+		})
+	}
+
+	term["select"] = expanded
+}
+
 func (n *sqlNormalizer) parseWithClause() []map[string]any {
 	var ctes []map[string]any
 
@@ -430,7 +579,8 @@ func (n *sqlNormalizer) parseSelectList() ([]map[string]any, map[string]any) {
 	for n.current().Type != parser.TokenEOF {
 		if n.matchKeyword("FROM") || n.matchKeyword("WHERE") ||
 			n.matchKeyword("GROUP") || n.matchKeyword("ORDER") ||
-			n.matchKeyword("LIMIT") || n.matchKeyword("OFFSET") {
+			n.matchKeyword("LIMIT") || n.matchKeyword("OFFSET") ||
+			n.matchSetOperator() {
 			break
 		}
 
@@ -487,7 +637,8 @@ func (n *sqlNormalizer) parseFromClause() ([]map[string]any, string) { //nolint:
 	for n.current().Type != parser.TokenEOF {
 		if n.matchKeyword("WHERE") || n.matchKeyword("GROUP") ||
 			n.matchKeyword("ORDER") || n.matchKeyword("HAVING") ||
-			n.matchKeyword("LIMIT") || n.matchKeyword("OFFSET") {
+			n.matchKeyword("LIMIT") || n.matchKeyword("OFFSET") ||
+			n.matchSetOperator() {
 			break
 		}
 
@@ -529,6 +680,7 @@ func (n *sqlNormalizer) parseFromClause() ([]map[string]any, string) { //nolint:
 					if n.matchKeyword("WHERE") || n.matchKeyword("GROUP") ||
 						n.matchKeyword("ORDER") || n.matchKeyword("HAVING") ||
 						n.matchKeyword("LIMIT") || n.matchKeyword("OFFSET") ||
+						n.matchSetOperator() ||
 						n.matchKeyword("LEFT") || n.matchKeyword("RIGHT") ||
 						n.matchKeyword("INNER") || n.matchKeyword("JOIN") {
 						break
@@ -734,7 +886,7 @@ func (n *sqlNormalizer) isExpressionClauseBoundary() bool {
 	return n.matchKeyword("FROM") || n.matchKeyword("WHERE") ||
 		n.matchKeyword("GROUP") || n.matchKeyword("ORDER") ||
 		n.matchKeyword("HAVING") || n.matchKeyword("LIMIT") ||
-		n.matchKeyword("OFFSET")
+		n.matchKeyword("OFFSET") || n.matchSetOperator()
 }
 
 func (n *sqlNormalizer) isDistinctFromOperator() bool {
@@ -988,7 +1140,8 @@ func (n *sqlNormalizer) parseGroupBy(aliases map[string]any) []map[string]any {
 
 	for n.current().Type != parser.TokenEOF {
 		if n.matchKeyword("HAVING") || n.matchKeyword("ORDER") ||
-			n.matchKeyword("LIMIT") || n.matchKeyword("OFFSET") {
+			n.matchKeyword("LIMIT") || n.matchKeyword("OFFSET") ||
+			n.matchSetOperator() {
 			break
 		}
 
@@ -1017,7 +1170,8 @@ func (n *sqlNormalizer) parseOrderBy(aliases map[string]any) []map[string]any {
 	var items []map[string]any
 
 	for n.current().Type != parser.TokenEOF {
-		if n.matchKeyword("LIMIT") || n.matchKeyword("OFFSET") {
+		if n.matchKeyword("LIMIT") || n.matchKeyword("OFFSET") ||
+			n.matchSetOperator() {
 			break
 		}
 
