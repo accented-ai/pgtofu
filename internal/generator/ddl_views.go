@@ -138,52 +138,49 @@ func (b *DDLBuilder) buildModifyView(change differ.Change) (DDLStatement, error)
 		return DDLStatement{}, newGeneratorError("buildModifyView", &change, err)
 	}
 
-	var sb strings.Builder
-	appendStatement(&sb, definition)
-
-	if view.Comment != "" {
-		commentSQL := buildCommentStatement(
-			"VIEW",
-			QualifiedName(view.Schema, view.Name),
-			view.Comment,
-			false,
-		)
-		appendStatement(&sb, commentSQL)
-	}
-
 	return DDLStatement{
-		SQL:         sb.String(),
+		SQL:         ensureStatementTerminated(definition),
 		Description: "Modify view " + view.Name,
 		RequiresTx:  true,
 	}, nil
 }
 
 func (b *DDLBuilder) buildRevertModifyView(change differ.Change) (DDLStatement, error) {
+	comment, err := extractCommentDetails(change)
+	if err != nil {
+		return DDLStatement{}, newGeneratorError("buildRevertModifyView", &change, err)
+	}
+
+	if comment.HasOld && comment.HasNew {
+		view := b.getView(change.ObjectName, b.result.Current)
+		if view == nil {
+			view = b.getView(change.ObjectName, b.result.Desired)
+		}
+
+		if view == nil {
+			return DDLStatement{}, newGeneratorError(
+				"buildRevertModifyView",
+				&change,
+				wrapObjectNotFoundError(ErrViewNotFound, "view", change.ObjectName),
+			)
+		}
+
+		sql := buildCommentStatement(
+			"VIEW",
+			QualifiedName(view.Schema, view.Name),
+			comment.Old,
+			false,
+		)
+
+		return DDLStatement{
+			SQL:         sql,
+			Description: "Revert view comment " + view.Name,
+			RequiresTx:  true,
+		}, nil
+	}
+
 	view := b.getView(change.ObjectName, b.result.Current)
 	if view == nil {
-		comment, err := extractCommentDetails(change)
-		if err != nil {
-			return DDLStatement{}, newGeneratorError("buildRevertModifyView", &change, err)
-		}
-
-		if comment.HasOld && comment.HasNew && comment.Old == "" {
-			desiredView := b.getView(change.ObjectName, b.result.Desired)
-			if desiredView != nil {
-				sql := buildCommentStatement(
-					"VIEW",
-					QualifiedName(desiredView.Schema, desiredView.Name),
-					"",
-					false,
-				)
-
-				return DDLStatement{
-					SQL:         sql,
-					Description: "Revert view comment " + desiredView.Name,
-					RequiresTx:  true,
-				}, nil
-			}
-		}
-
 		return DDLStatement{}, newGeneratorError(
 			"buildRevertModifyView",
 			&change,

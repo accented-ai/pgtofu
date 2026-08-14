@@ -448,3 +448,59 @@ func TestViewCommentOnlyChangeDoesNotDuplicateCreateView(t *testing.T) {
 	assert.NotContains(t, strings.ToUpper(stmt.SQL), "CREATE VIEW",
 		"Comment-only change should not recreate the view")
 }
+
+func TestViewDefinitionAndCommentChangeGeneratedOnceAndReverted(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{
+		Views: []schema.View{{
+			Schema:     "reporting",
+			Name:       "item_classifications",
+			Definition: "SELECT item_id, status FROM reporting.items",
+			Comment:    "Classifies items using their current status.",
+		}},
+	}
+
+	desired := &schema.Database{
+		Views: []schema.View{{
+			Schema:     "reporting",
+			Name:       "item_classifications",
+			Definition: "SELECT item_id, status, category FROM reporting.items",
+			Comment:    "Classifies items using their current status and category.",
+		}},
+	}
+
+	d := differ.New(differ.DefaultOptions())
+	diffResult, err := d.Compare(current, desired)
+	require.NoError(t, err)
+	require.Len(t, diffResult.Changes, 2)
+
+	opts := testOptions()
+	opts.GenerateDownMigrations = true
+	genResult, err := generator.New(opts).Generate(diffResult)
+	require.NoError(t, err)
+	require.Len(t, genResult.Migrations, 1)
+	require.NotNil(t, genResult.Migrations[0].DownFile)
+
+	upContent := genResult.Migrations[0].UpFile.Content
+	assert.Equal(t, 1, strings.Count(
+		upContent,
+		"CREATE OR REPLACE VIEW reporting.item_classifications",
+	))
+	assert.Equal(t, 1, strings.Count(
+		upContent,
+		"COMMENT ON VIEW reporting.item_classifications",
+	))
+	assert.Contains(t, upContent, "Classifies items using their current status and category.")
+
+	downContent := genResult.Migrations[0].DownFile.Content
+	assert.Equal(t, 1, strings.Count(
+		downContent,
+		"CREATE OR REPLACE VIEW reporting.item_classifications",
+	))
+	assert.Equal(t, 1, strings.Count(
+		downContent,
+		"COMMENT ON VIEW reporting.item_classifications",
+	))
+	assert.Contains(t, downContent, "Classifies items using their current status.")
+}
