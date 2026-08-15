@@ -279,7 +279,7 @@ func areCompressionSettingsEqual(s1, s2 *schema.CompressionSettings) bool {
 }
 
 func areContinuousAggregatesEqual(a1, a2 *schema.ContinuousAggregate) bool {
-	if NormalizeViewDefinition(a1.Query) != NormalizeViewDefinition(a2.Query) {
+	if !NewViewNormalizer().definitionsEqual(a1.Query, a2.Query) {
 		return false
 	}
 

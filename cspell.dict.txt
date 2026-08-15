@@ -46,6 +46,7 @@ inhparent
 inhrelid
 isready
 jackc
+Lexpr
 metricsIndex
 Mintlify
 myschema
@@ -71,6 +72,7 @@ PostgREST
 proisstrict
 relam
 relispopulated
+Rexpr
 rogpeppe
 segmentby
 seqrelid

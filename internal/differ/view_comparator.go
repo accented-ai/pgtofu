@@ -18,22 +18,14 @@ func NewViewComparator(opts *Options) *ViewComparator {
 
 func (vc *ViewComparator) AreEqual(current, desired schema.View) bool {
 	if vc.options.IgnoreComments {
-		return vc.normalizer.normalizeDefinition(
-			current.Definition,
-		) == vc.normalizer.normalizeDefinition(
-			desired.Definition,
-		) &&
+		return vc.normalizer.definitionsEqual(current.Definition, desired.Definition) &&
 			normalizeCheckOption(current.CheckOption) == normalizeCheckOption(desired.CheckOption)
 	}
 
 	currentComment := normalizeComment(current.Comment)
 	desiredComment := normalizeComment(desired.Comment)
 
-	return vc.normalizer.normalizeDefinition(
-		current.Definition,
-	) == vc.normalizer.normalizeDefinition(
-		desired.Definition,
-	) &&
+	return vc.normalizer.definitionsEqual(current.Definition, desired.Definition) &&
 		normalizeCheckOption(current.CheckOption) == normalizeCheckOption(desired.CheckOption) &&
 		currentComment == desiredComment
 }
@@ -62,11 +54,7 @@ func (vc *ViewComparator) CreateDropChange(key string, view schema.View) Change 
 }
 
 func (vc *ViewComparator) CreateModifyChange(key string, current, desired schema.View) Change {
-	defEqual := vc.normalizer.normalizeDefinition(
-		current.Definition,
-	) == vc.normalizer.normalizeDefinition(
-		desired.Definition,
-	)
+	defEqual := vc.normalizer.definitionsEqual(current.Definition, desired.Definition)
 	checkOptEqual := normalizeCheckOption(
 		current.CheckOption,
 	) == normalizeCheckOption(
