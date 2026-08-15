@@ -504,3 +504,90 @@ func TestViewDefinitionAndCommentChangeGeneratedOnceAndReverted(t *testing.T) {
 	))
 	assert.Contains(t, downContent, "Classifies items using their current status.")
 }
+
+func TestViewMigrationsFormatBothDefinitions(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{
+		Views: []schema.View{{
+			Schema: "reporting",
+			Name:   "item_overview",
+			Definition: ` SELECT i.id,
+    i.status,
+    c.name AS category_name,
+    o.name AS owner_name,
+    COALESCE((i.metadata ->> 'label'::text), ''::text) AS label,
+        CASE
+            WHEN (((i.status = 'active'::text) AND (i.category_id IS NOT NULL))) THEN 'ready'::text
+            ELSE 'pending'::text
+        END AS classification
+   FROM ((reporting.items i
+     JOIN reporting.categories c ON ((i.category_id = c.id)))
+     LEFT JOIN reporting.owners o ON ((i.owner_id = o.id)))`,
+		}},
+	}
+
+	desired := &schema.Database{
+		Views: []schema.View{{
+			Schema: "reporting",
+			Name:   "item_overview",
+			Definition: `SELECT
+    i.id,
+    i.status,
+    c.name AS category_name,
+    o.name AS owner_name,
+    COALESCE(i.metadata ->> 'label', '') AS label,
+    i.updated_at
+FROM reporting.items AS i
+INNER JOIN reporting.categories AS c ON i.category_id = c.id
+LEFT JOIN reporting.owners AS o ON i.owner_id = o.id`,
+		}},
+	}
+
+	d := differ.New(differ.DefaultOptions())
+	diffResult, err := d.Compare(current, desired)
+	require.NoError(t, err)
+	require.Len(t, diffResult.Changes, 1)
+
+	builder := generator.NewDDLBuilder(diffResult, true)
+	upStmt, err := builder.BuildUpStatement(diffResult.Changes[0])
+	require.NoError(t, err)
+
+	downStmt, err := builder.BuildDownStatement(diffResult.Changes[0])
+	require.NoError(t, err)
+
+	assert.Contains(t, upStmt.SQL, `CREATE OR REPLACE VIEW reporting.item_overview AS
+SELECT
+    i.id,`)
+	assert.Contains(t, upStmt.SQL, `FROM
+    reporting.items AS i
+INNER JOIN
+    reporting.categories AS c`)
+	assert.Contains(t, upStmt.SQL, `LEFT JOIN
+    reporting.owners AS o`)
+	assert.NotContains(t, upStmt.SQL, "\n SELECT")
+
+	assert.Contains(t, downStmt.SQL, `CREATE OR REPLACE VIEW reporting.item_overview AS
+SELECT
+    i.id,`)
+	assert.Contains(t, downStmt.SQL, "'label'::TEXT")
+	assert.Contains(t, downStmt.SQL, "''::TEXT")
+	assert.Contains(t, downStmt.SQL, `CASE
+        WHEN
+            i.status = 'active'::TEXT
+            AND i.category_id IS NOT NULL THEN 'ready'::TEXT`)
+	assert.Contains(t, downStmt.SQL, `FROM
+    reporting.items AS i
+INNER JOIN
+    reporting.categories AS c`)
+	assert.Contains(t, downStmt.SQL, `LEFT JOIN
+    reporting.owners AS o`)
+	assert.NotContains(t, downStmt.SQL, "::text")
+	assert.NotContains(t, downStmt.SQL, "\n SELECT")
+
+	for _, statement := range []string{upStmt.SQL, downStmt.SQL} {
+		for line := range strings.SplitSeq(statement, "\n") {
+			assert.LessOrEqual(t, len(line), 170, "generated SQL line exceeds formatter limit")
+		}
+	}
+}

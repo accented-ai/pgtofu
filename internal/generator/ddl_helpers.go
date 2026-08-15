@@ -161,11 +161,16 @@ func buildContinuousAggregateSQL(ca *schema.ContinuousAggregate) (string, error)
 		return "", errors.New("continuous aggregate query cannot be empty")
 	}
 
+	query, err := formatViewQuery(ca.Query)
+	if err != nil {
+		return "", fmt.Errorf("format continuous aggregate query: %w", err)
+	}
+
 	var sql strings.Builder
 
 	fmt.Fprintf(&sql, "CREATE MATERIALIZED VIEW %s\nWITH (timescaledb.continuous) AS\n%s",
 		QualifiedName(ca.Schema, ca.ViewName),
-		ca.Query)
+		query)
 
 	if ca.WithData {
 		sql.WriteString("\nWITH DATA;")

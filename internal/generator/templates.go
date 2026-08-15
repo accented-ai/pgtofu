@@ -891,12 +891,17 @@ func formatViewDefinition(v *schema.View, orReplace bool) (string, error) {
 		return "", errors.New("view definition cannot be empty")
 	}
 
+	definition, err := formatViewQuery(v.Definition)
+	if err != nil {
+		return "", fmt.Errorf("format view definition: %w", err)
+	}
+
 	prefix := "CREATE VIEW"
 	if orReplace {
 		prefix = "CREATE OR REPLACE VIEW"
 	}
 
-	return fmt.Sprintf("%s %s AS\n%s", prefix, QualifiedName(v.Schema, v.Name), v.Definition), nil
+	return fmt.Sprintf("%s %s AS\n%s", prefix, QualifiedName(v.Schema, v.Name), definition), nil
 }
 
 func formatMaterializedViewDefinition(mv *schema.MaterializedView) (string, error) {
@@ -912,10 +917,15 @@ func formatMaterializedViewDefinition(mv *schema.MaterializedView) (string, erro
 		return "", errors.New("materialized view definition cannot be empty")
 	}
 
+	definition, err := formatViewQuery(mv.Definition)
+	if err != nil {
+		return "", fmt.Errorf("format materialized view definition: %w", err)
+	}
+
 	return fmt.Sprintf(
 		"CREATE MATERIALIZED VIEW %s AS\n%s",
 		QualifiedName(mv.Schema, mv.Name),
-		mv.Definition,
+		definition,
 	), nil
 }
 

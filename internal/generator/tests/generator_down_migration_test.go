@@ -45,7 +45,13 @@ func TestDropViewDownMigrationRecreatesView(t *testing.T) { //nolint:dupl
 	require.NoError(t, err, "DOWN migration for DROP_VIEW should not error")
 	assert.Contains(t, downStmt.SQL, "CREATE VIEW")
 	assert.Contains(t, downStmt.SQL, "active_items")
-	assert.Contains(t, downStmt.SQL, "SELECT id, name FROM items WHERE active = true")
+	assert.Contains(t, downStmt.SQL, `SELECT
+    id,
+    name
+FROM
+    items
+WHERE
+    active = true`)
 	assert.Contains(t, downStmt.SQL, "COMMENT ON VIEW")
 	assert.Contains(t, downStmt.SQL, "Shows active items")
 }
@@ -84,7 +90,10 @@ func TestDropMaterializedViewDownMigrationRecreatesView(t *testing.T) { //nolint
 	require.NoError(t, err, "DOWN migration for DROP_MATERIALIZED_VIEW should not error")
 	assert.Contains(t, downStmt.SQL, "CREATE MATERIALIZED VIEW")
 	assert.Contains(t, downStmt.SQL, "item_stats")
-	assert.Contains(t, downStmt.SQL, "SELECT COUNT(*) as total FROM items")
+	assert.Contains(t, downStmt.SQL, `SELECT
+    COUNT(*) AS total
+FROM
+    items`)
 	assert.Contains(t, downStmt.SQL, "COMMENT ON MATERIALIZED VIEW")
 	assert.Contains(t, downStmt.SQL, "Item statistics")
 }
@@ -204,7 +213,8 @@ GROUP BY i.id, i.name`,
 	require.NoError(t, err)
 	assert.Contains(t, downStmt.SQL, "CREATE VIEW")
 	assert.Contains(t, downStmt.SQL, "item_summary")
-	assert.Contains(t, downStmt.SQL, "LEFT JOIN orders")
+	assert.Contains(t, downStmt.SQL, `LEFT JOIN
+    orders AS o`)
 }
 
 func TestDropViewInNonPublicSchemaDownMigration(t *testing.T) {
