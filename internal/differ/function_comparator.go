@@ -18,15 +18,23 @@ func NewFunctionComparator(opts *Options) *FunctionComparator {
 func (fc *FunctionComparator) Compare(result *DiffResult) {
 	currentFuncs := buildFunctionMap(result.Current.Functions)
 	desiredFuncs := buildFunctionMap(result.Desired.Functions)
+	newFunctions := findNewFunctions(currentFuncs, result.Desired.Functions)
 
-	fc.detectAddedFunctions(result, currentFuncs, desiredFuncs)
+	fc.detectAddedFunctions(result, currentFuncs, desiredFuncs, newFunctions)
 	fc.detectDroppedFunctions(result, currentFuncs, desiredFuncs)
-	fc.detectModifiedFunctions(result, currentFuncs, desiredFuncs, result.Current.Triggers)
+	fc.detectModifiedFunctions(
+		result,
+		currentFuncs,
+		desiredFuncs,
+		result.Current.Triggers,
+		newFunctions,
+	)
 }
 
 func (fc *FunctionComparator) detectAddedFunctions(
 	result *DiffResult,
 	currentFuncs, desiredFuncs map[string]*schema.Function,
+	newFunctions []schema.Function,
 ) {
 	for key, fn := range desiredFuncs {
 		if _, exists := currentFuncs[key]; !exists {
@@ -36,7 +44,7 @@ func (fc *FunctionComparator) detectAddedFunctions(
 				Description: "Add function: " + fn.Signature(),
 				ObjectType:  "function",
 				ObjectName:  key,
-				DependsOn:   extractFunctionDependencies(fn),
+				DependsOn:   extractFunctionDependencies(fn, newFunctions),
 				Details: map[string]any{
 					"function": fn,
 				},
@@ -84,6 +92,7 @@ func (fc *FunctionComparator) detectModifiedFunctions(
 	result *DiffResult,
 	currentFuncs, desiredFuncs map[string]*schema.Function,
 	triggers []schema.Trigger,
+	newFunctions []schema.Function,
 ) {
 	for key, desiredFn := range desiredFuncs {
 		currentFn, exists := currentFuncs[key]
@@ -124,7 +133,10 @@ func (fc *FunctionComparator) detectModifiedFunctions(
 				Description: "Modify function: " + desiredFn.Signature(),
 				ObjectType:  "function",
 				ObjectName:  key,
-				DependsOn:   extractFunctionDependencies(desiredFn),
+				DependsOn: extractFunctionDependencies(
+					desiredFn,
+					newFunctions,
+				),
 				Details: map[string]any{
 					"current": currentFn,
 					"desired": desiredFn,
@@ -149,6 +161,24 @@ func (fc *FunctionComparator) detectModifiedFunctions(
 	}
 }
 
+func findNewFunctions(
+	currentFuncs map[string]*schema.Function,
+	desiredFuncs []schema.Function,
+) []schema.Function {
+	newFunctions := make([]schema.Function, 0)
+
+	for i := range desiredFuncs {
+		fn := &desiredFuncs[i]
+
+		key := FunctionKey(fn.Schema, fn.Name, fn.ArgumentTypes)
+		if _, exists := currentFuncs[key]; !exists {
+			newFunctions = append(newFunctions, *fn)
+		}
+	}
+
+	return newFunctions
+}
+
 func normalizeParallelSafety(value string) string {
 	value = strings.ToUpper(strings.TrimSpace(value))
 	if value == "" {
@@ -158,13 +188,28 @@ func normalizeParallelSafety(value string) string {
 	return value
 }
 
-func extractFunctionDependencies(function *schema.Function) []string {
+func extractFunctionDependencies(
+	function *schema.Function,
+	functions []schema.Function,
+) []string {
 	definition := function.Body
 	if definition == "" {
 		definition = function.Definition
 	}
 
-	return extractViewDependencies(definition)
+	deps := extractViewDependencies(definition)
+	refs := extractFunctionCallReferences(definition)
+	selfKey := FunctionKey(function.Schema, function.Name, function.ArgumentTypes)
+
+	for _, dep := range resolveFunctionDependencies(refs, functions) {
+		if strings.EqualFold(dep, selfKey) {
+			continue
+		}
+
+		deps = append(deps, dep)
+	}
+
+	return dedupeDependencies(deps)
 }
 
 type TriggerComparator struct{}
