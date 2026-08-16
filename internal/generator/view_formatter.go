@@ -15,8 +15,6 @@ import (
 	"github.com/accented-ai/pgtofu/internal/parser"
 )
 
-const viewSQLLineLength = 170
-
 // The WASM parser keeps one runtime per concurrent caller. View generation is
 // sequential in production, and serializing test callers prevents parallel
 // builders from retaining several large runtimes in the parser pool.
@@ -54,14 +52,17 @@ func formatViewQuery(query string) (string, error) {
 		return "", fmt.Errorf("normalize view query style: %w", err)
 	}
 
-	formatter := dialects.NewPostgreSQLFormatter(&dialects.Config{
+	formatterConfig := &dialects.Config{
 		Indent:              "    ",
 		KeywordCase:         dialects.KeywordCaseUppercase,
-		MaxLineLength:       viewSQLLineLength,
+		MaxLineLength:       generatedSQLLineLength,
 		JoinIndentStyle:     core.JoinIndentRootLevel,
 		TokenizerConfig:     dialects.NewPostgreSQLTokenizerConfig(),
 		LinesBetweenQueries: 1,
-	})
+	}
+	formatter := dialects.NewPostgreSQLFormatter(formatterConfig)
+	configureViewFormatterLayout(formatterConfig.TokenizerConfig)
+
 	formatted := strings.TrimSpace(formatter.Format(normalized))
 	formatted = strings.TrimSuffix(formatted, ";")
 	formatted = strings.TrimSpace(formatted)
@@ -69,6 +70,11 @@ func formatViewQuery(query string) (string, error) {
 	formatted, err = formatMultilineCaseConditions(formatted)
 	if err != nil {
 		return "", fmt.Errorf("format multiline CASE condition: %w", err)
+	}
+
+	formatted, err = formatViewQueryLayout(formatted)
+	if err != nil {
+		return "", fmt.Errorf("format view query layout: %w", err)
 	}
 
 	roundTripTree, err := wasmquery.Parse(formatted)
@@ -180,6 +186,8 @@ func normalizeViewQueryStyle(query string, names viewQueryNames) (string, error)
 		replacements[index] = strings.ToUpper(tokens[index].Literal)
 	}
 
+	markViewLiterals(tokens, replacements)
+
 	for i := range tokens {
 		if !strings.EqualFold(tokens[i].Literal, "JOIN") || hasExplicitJoinType(tokens, i) {
 			continue
@@ -218,6 +226,19 @@ func normalizeViewQueryStyle(query string, names viewQueryNames) (string, error)
 	output.WriteString(query[position:])
 
 	return output.String(), nil
+}
+
+func markViewLiterals(tokens []parser.Token, replacements map[int]string) {
+	for i, token := range tokens {
+		if token.Type == parser.TokenQuotedIdentifier || token.Type == parser.TokenString {
+			continue
+		}
+
+		switch strings.ToUpper(token.Literal) {
+		case "TRUE", "FALSE", "NULL":
+			replacements[i] = strings.ToUpper(token.Literal)
+		}
+	}
 }
 
 type viewCaseFrame struct {

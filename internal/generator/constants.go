@@ -1,8 +1,9 @@
 package generator
 
 const (
-	SQLIndent            = "    "
-	MigrationFilePattern = "%06d_%s.%s.sql"
+	SQLIndent              = "    "
+	MigrationFilePattern   = "%06d_%s.%s.sql"
+	generatedSQLLineLength = 170
 
 	DefaultOutputDir     = "./migrations"
 	DefaultStartVersion  = 1

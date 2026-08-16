@@ -44,6 +44,39 @@ func TestAddViewWithComment(t *testing.T) {
 	assert.Contains(t, stmt.SQL, "Shows only active users for monitoring")
 }
 
+func TestAddViewWrapsLongComment(t *testing.T) {
+	t.Parallel()
+
+	comment := strings.Repeat(
+		"Documents the current record selection and its owner's reporting context. ",
+		8,
+	)
+	view := schema.View{
+		Schema:     "reporting",
+		Name:       "current_records",
+		Definition: "SELECT * FROM reporting.records",
+		Comment:    comment,
+	}
+	result := &differ.DiffResult{
+		Current: &schema.Database{},
+		Desired: &schema.Database{Views: []schema.View{view}},
+		Changes: []differ.Change{{
+			Type:       differ.ChangeTypeAddView,
+			ObjectName: differ.ViewKey(view.Schema, view.Name),
+		}},
+	}
+
+	statement, err := generator.NewDDLBuilder(result, true).BuildUpStatement(result.Changes[0])
+	require.NoError(t, err)
+
+	assert.Contains(t, statement.SQL, "COMMENT ON VIEW reporting.current_records IS\n")
+	assert.Contains(t, statement.SQL, "owner''s reporting context")
+
+	for line := range strings.SplitSeq(statement.SQL, "\n") {
+		assert.LessOrEqual(t, len(line), 170, "generated SQL line exceeds formatter limit")
+	}
+}
+
 func TestAddMaterializedViewWithComment(t *testing.T) {
 	t.Parallel()
 
