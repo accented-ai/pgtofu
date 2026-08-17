@@ -328,6 +328,64 @@ func TestDDLBuilder_ConstraintIndentation_InListFirstLine(t *testing.T) {
 	require.Equal(t, expected, stmt.SQL)
 }
 
+func TestDDLBuilder_ConstraintIndentation_MultilineFunctionCall(t *testing.T) {
+	t.Parallel()
+
+	constraint := schema.Constraint{
+		Name: "records_source_check",
+		Type: schema.ConstraintCheck,
+		Definition: "CHECK (REQUIRE_ONE(\n" +
+			"    source_id,\n" +
+			"    import_id,\n" +
+			"    run_id\n" +
+			") = 1)",
+		CheckExpression: "REQUIRE_ONE(\n" +
+			"    source_id,\n" +
+			"    import_id,\n" +
+			"    run_id\n" +
+			") = 1",
+	}
+	table := schema.Table{
+		Schema: "reporting",
+		Name:   "records",
+		Columns: []schema.Column{
+			{Name: "source_id", DataType: "uuid", IsNullable: true, Position: 1},
+			{Name: "import_id", DataType: "uuid", IsNullable: true, Position: 2},
+			{Name: "run_id", DataType: "uuid", IsNullable: true, Position: 3},
+		},
+		Constraints: []schema.Constraint{constraint},
+	}
+	result := &differ.DiffResult{
+		Current: &schema.Database{Tables: []schema.Table{{
+			Schema:  table.Schema,
+			Name:    table.Name,
+			Columns: table.Columns,
+		}}},
+		Desired: &schema.Database{Tables: []schema.Table{table}},
+		Changes: []differ.Change{{
+			Type:       differ.ChangeTypeAddConstraint,
+			ObjectName: differ.TableKey(table.Schema, table.Name),
+			Details: map[string]any{
+				"table":      table.QualifiedName(),
+				"constraint": &constraint,
+			},
+		}},
+	}
+
+	statement, err := generator.NewDDLBuilder(result, true).BuildUpStatement(result.Changes[0])
+	require.NoError(t, err)
+
+	expected := "ALTER TABLE reporting.records ADD CONSTRAINT records_source_check CHECK (\n" +
+		"    REQUIRE_ONE(\n" +
+		"        source_id,\n" +
+		"        import_id,\n" +
+		"        run_id\n" +
+		"    )\n" +
+		"    = 1\n" +
+		");"
+	require.Equal(t, expected, statement.SQL)
+}
+
 func TestDDLBuilder_ConstraintIndentation_DownMigrationExtractedCheck(t *testing.T) {
 	t.Parallel()
 

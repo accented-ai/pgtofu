@@ -402,7 +402,7 @@ func splitCheckFirstLine(lines []string) []string {
 	}
 
 	body := strings.TrimSpace(first[prefixEnd:])
-	if body == "" || parenBalance(body) > 0 {
+	if body == "" || (parenBalance(body) > 0 && !startsWithCheckFunctionCall(body)) {
 		lines[0] = first
 
 		return lines
@@ -413,6 +413,17 @@ func splitCheckFirstLine(lines []string) []string {
 	split = append(split, lines[1:]...)
 
 	return split
+}
+
+func startsWithCheckFunctionCall(expression string) bool {
+	const identifier = `(?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$]*)`
+
+	matched, err := regexp.MatchString(
+		`^`+identifier+`(?:\s*\.\s*`+identifier+`)*\s*\(`,
+		strings.TrimSpace(expression),
+	)
+
+	return err == nil && matched
 }
 
 func splitLeadingClosingParens(lines []string) []string {
