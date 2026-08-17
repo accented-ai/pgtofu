@@ -101,6 +101,27 @@ func TestNormalizeExpression_ComparisonParentheses(t *testing.T) {
 			fromSQL:      "CHECK (score IS NULL OR score BETWEEN 8 AND 24)",
 			fromPostgres: "CHECK (((score IS NULL) OR ((score >= 8) AND (score <= 24))))",
 		},
+		{
+			name:         "OR expression with unary NOT term",
+			fromSQL:      "CHECK ((mode = 'active') OR NOT is_enabled)",
+			fromPostgres: "CHECK (((mode = 'active'::text) OR (NOT is_enabled)))",
+		},
+		{
+			name:         "AND expression with unary NOT term",
+			fromSQL:      "CHECK ((mode <> 'active') AND NOT is_enabled)",
+			fromPostgres: "CHECK (((mode <> 'active'::text) AND (NOT is_enabled)))",
+		},
+		{
+			name:         "unary NOT with redundant simple parentheses",
+			fromSQL:      "CHECK (NOT is_enabled OR mode = 'manual')",
+			fromPostgres: "CHECK (((NOT (is_enabled)) OR (mode = 'manual'::text)))",
+		},
+		{
+			name:    "unary NOT preserving compound expression parentheses",
+			fromSQL: "CHECK (NOT (is_enabled AND is_ready) OR mode = 'manual')",
+			fromPostgres: "CHECK (((NOT ((is_enabled) AND (is_ready))) " +
+				"OR (mode = 'manual'::text)))",
+		},
 	}
 
 	for _, tt := range tests {

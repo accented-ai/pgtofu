@@ -388,15 +388,13 @@ func canRemoveBooleanParens(expr string, start, end int) bool {
 		return false
 	}
 
-	prev := previousNonSpaceIndex(expr, start-1)
-	if prev >= 0 {
-		if isIdentifierByte(expr[prev]) || expr[prev] == '"' || expr[prev] == ']' {
-			return false
-		}
-	}
-
 	inner := strings.TrimSpace(expr[start+1 : end])
 	if inner == "" || countParenDepth(inner) != 0 {
+		return false
+	}
+
+	prev := previousNonSpaceIndex(expr, start-1)
+	if booleanParenPrefixRequiresGrouping(expr, prev, inner) {
 		return false
 	}
 
@@ -406,7 +404,49 @@ func canRemoveBooleanParens(expr string, start, end int) bool {
 
 	return containsTopLevelLogicalOperator(inner, "and") ||
 		isSimpleComparison(inner) ||
-		isSimpleBooleanTerm(inner)
+		isSimpleBooleanTerm(inner) ||
+		isUnaryNotExpression(inner)
+}
+
+func booleanParenPrefixRequiresGrouping(expr string, prev int, inner string) bool {
+	if prev < 0 {
+		return false
+	}
+
+	if expr[prev] == '"' || expr[prev] == ']' {
+		return true
+	}
+
+	if !isIdentifierByte(expr[prev]) {
+		return false
+	}
+
+	keyword := booleanKeywordEndingAt(expr, prev)
+	if keyword == "" {
+		return true
+	}
+
+	return keyword == "not" &&
+		(containsTopLevelLogicalOperator(inner, "and") ||
+			containsTopLevelLogicalOperator(inner, "or"))
+}
+
+func booleanKeywordEndingAt(expr string, end int) string {
+	for _, keyword := range []string{"and", "or", "not"} {
+		if isLogicalWordEndingAt(expr, end, keyword) {
+			return keyword
+		}
+	}
+
+	return ""
+}
+
+func isUnaryNotExpression(expr string) bool {
+	expr = strings.TrimSpace(expr)
+
+	return wordAt(expr, 0, "not") &&
+		!containsTopLevelLogicalOperator(expr, "and") &&
+		!containsTopLevelLogicalOperator(expr, "or")
 }
 
 func previousNonSpaceIndex(expr string, start int) int {
