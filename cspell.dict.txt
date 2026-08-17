@@ -4,6 +4,7 @@ attrelid
 atttypid
 bidichk
 bpchar
+BTRIM
 cagg
 confrelid
 conislocal

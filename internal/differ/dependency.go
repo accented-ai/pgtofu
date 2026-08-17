@@ -1,6 +1,7 @@
 package differ
 
 import (
+	"encoding/json"
 	"fmt"
 	"maps"
 	"slices"
@@ -607,6 +608,7 @@ type dependencyGraph struct {
 	nodes    map[int]*Change
 	edges    map[int]map[int]bool
 	inDegree map[int]int
+	sortKeys map[int]string
 }
 
 func newDependencyGraph() *dependencyGraph {
@@ -614,11 +616,14 @@ func newDependencyGraph() *dependencyGraph {
 		nodes:    make(map[int]*Change),
 		edges:    make(map[int]map[int]bool),
 		inDegree: make(map[int]int),
+		sortKeys: make(map[int]string),
 	}
 }
 
 func (g *dependencyGraph) addNode(index int, change *Change) {
 	g.nodes[index] = change
+
+	g.sortKeys[index] = deterministicChangeSortKey(change)
 	if g.edges[index] == nil {
 		g.edges[index] = make(map[int]bool)
 	}
@@ -701,8 +706,31 @@ func (g *dependencyGraph) sortQueue(queue []int) {
 			return priorityI < priorityJ
 		}
 
+		if g.sortKeys[queue[i]] != g.sortKeys[queue[j]] {
+			return g.sortKeys[queue[i]] < g.sortKeys[queue[j]]
+		}
+
 		return queue[i] < queue[j]
 	})
+}
+
+func deterministicChangeSortKey(change *Change) string {
+	dependencies := slices.Clone(change.DependsOn)
+	sort.Strings(dependencies)
+
+	details, err := json.Marshal(change.Details)
+	if err != nil {
+		details = fmt.Appendf(nil, "%#v", change.Details)
+	}
+
+	return strings.Join([]string{
+		string(change.Type),
+		change.Description,
+		change.ObjectType,
+		string(change.Severity),
+		strings.Join(dependencies, "\x1f"),
+		string(details),
+	}, "\x00")
 }
 
 func (g *dependencyGraph) getObjectNameForSorting(change *Change) string {
