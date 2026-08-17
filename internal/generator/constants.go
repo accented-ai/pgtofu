@@ -4,6 +4,7 @@ const (
 	SQLIndent              = "    "
 	MigrationFilePattern   = "%06d_%s.%s.sql"
 	generatedSQLLineLength = 170
+	commentSQLLineLength   = 80
 
 	DefaultOutputDir     = "./migrations"
 	DefaultStartVersion  = 1

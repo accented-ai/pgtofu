@@ -73,7 +73,7 @@ func TestAddViewWrapsLongComment(t *testing.T) {
 	assert.Contains(t, statement.SQL, "owner''s reporting context")
 
 	for line := range strings.SplitSeq(statement.SQL, "\n") {
-		assert.LessOrEqual(t, len(line), 170, "generated SQL line exceeds formatter limit")
+		assert.LessOrEqual(t, len(line), 80, "generated SQL line exceeds comment limit")
 	}
 }
 

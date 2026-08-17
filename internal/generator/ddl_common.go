@@ -53,13 +53,13 @@ func buildCommentStatement(objectType, target, comment string, forceMultiline bo
 
 	literal := formatSQLStringLiteral(comment)
 	if !forceMultiline && !strings.Contains(comment, "\n") &&
-		len(prefix)+len(literal)+2 <= generatedSQLLineLength {
+		len(prefix)+len(literal)+2 <= commentSQLLineLength {
 		return prefix + " " + literal + ";"
 	}
 
 	lines := make([]string, 0)
 	for sourceLine := range strings.SplitSeq(comment, "\n") {
-		lines = append(lines, splitCommentLiterals(sourceLine, generatedSQLLineLength-1)...)
+		lines = append(lines, splitCommentLiterals(sourceLine, commentSQLLineLength-1)...)
 	}
 
 	return prefix + "\n" + strings.Join(lines, "\n") + ";"
