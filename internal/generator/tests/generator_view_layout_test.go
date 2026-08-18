@@ -1,6 +1,7 @@
 package generator_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -58,29 +59,78 @@ direct_records AS (
 	assert.Contains(t, statement.SQL, `scoped_records AS (
     SELECT
         record.id,`)
-	assert.Contains(t, statement.SQL, `INNER JOIN
-        reporting.record_links AS link
-        ON record.id = link.record_id`)
-	assert.Contains(t, statement.SQL, `INNER JOIN
-        reporting.record_windows AS record_window
+	assert.Contains(t, statement.SQL,
+		`INNER JOIN reporting.record_links AS link ON record.id = link.record_id`)
+	assert.Contains(t, statement.SQL, `INNER JOIN reporting.record_windows AS record_window
         ON
             record.rank BETWEEN record_window.minimum_rank
             AND record_window.maximum_rank`)
-	assert.Contains(t, statement.SQL, `INNER JOIN
-        reporting.record_scopes AS scope
+	assert.Contains(t, statement.SQL, `INNER JOIN reporting.record_scopes AS scope
         ON
             record.id = scope.record_id
             AND record.scope = scope.scope
             AND record.owner_id IS NOT DISTINCT FROM scope.owner_id`)
 	assert.Contains(t, statement.SQL, `SELECT *
-FROM
-    direct_records
+FROM direct_records
 UNION ALL
 SELECT *
-FROM
-    scoped_records`)
+FROM scoped_records`)
+	assert.Contains(t, statement.SQL, "FROM reporting.records AS record")
 	assert.Contains(t, statement.SQL, `WHERE
         record.is_visible = FALSE
         AND record.status IS DISTINCT FROM 'archived'`)
 	assert.NotContains(t, statement.SQL, "WITH\n    direct_records")
+}
+
+func TestViewFormattingCompactsOnlySafeSourceLines(t *testing.T) {
+	t.Parallel()
+
+	view := schema.View{
+		Schema: "reporting",
+		Name:   "record_activity",
+		Definition: `SELECT r.id, label.value
+FROM reporting.short_records AS r
+INNER JOIN reporting.short_links AS link USING (record_id)
+CROSS JOIN UNNEST(r.labels) AS label(value)
+LEFT JOIN reporting.records_with_an_intentionally_long_descriptive_name AS detailed_record
+    ON r.id = detailed_record.source_record_id
+WHERE EXISTS (
+    SELECT 1
+    FROM (
+        SELECT event.record_id
+        FROM reporting.audit_events AS event
+    ) AS recent_event
+    WHERE recent_event.record_id = r.id
+)`,
+	}
+	result := &differ.DiffResult{
+		Current: &schema.Database{},
+		Desired: &schema.Database{Views: []schema.View{view}},
+		Changes: []differ.Change{{
+			Type:       differ.ChangeTypeAddView,
+			ObjectName: differ.ViewKey(view.Schema, view.Name),
+		}},
+	}
+
+	statement, err := generator.NewDDLBuilder(result, true).BuildUpStatement(result.Changes[0])
+	require.NoError(t, err)
+
+	assert.Contains(t, statement.SQL, "FROM reporting.short_records AS r")
+	assert.Contains(t, statement.SQL,
+		"INNER JOIN reporting.short_links AS link USING (record_id)")
+	assert.Contains(t, statement.SQL, "CROSS JOIN UNNEST(r.labels) AS label(value)")
+	assert.Contains(t, statement.SQL, `LEFT JOIN
+    reporting.records_with_an_intentionally_long_descriptive_name AS detailed_record
+    ON r.id = detailed_record.source_record_id`)
+	assert.Contains(t, statement.SQL, `FROM
+            (
+                SELECT event.record_id
+                FROM reporting.audit_events AS event`)
+
+	for line := range strings.SplitSeq(statement.SQL, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "FROM ") || strings.Contains(trimmed, " JOIN ") {
+			assert.LessOrEqual(t, len(line), 80, "compacted source line exceeds limit")
+		}
+	}
 }

@@ -3,13 +3,17 @@ package generator
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/MeKo-Christian/go-sqlfmt/pkg/sqlfmt/dialects"
 
 	"github.com/accented-ai/pgtofu/internal/parser"
 )
 
-const viewLayoutIndent = "    "
+const (
+	viewLayoutIndent      = "    "
+	viewCompactLineLength = 80
+)
 
 type viewJoinLayout struct {
 	line        int
@@ -23,8 +27,20 @@ type viewJoinConditionState struct {
 	caseDepth    int
 }
 
+type viewSourceLayout struct {
+	keywordLine   int
+	relationLine  int
+	qualifierLine int
+	compactLine   string
+}
+
 func formatViewQueryLayout(query string) (string, error) {
 	formatted, err := formatViewJoinConditions(query)
+	if err != nil {
+		return "", err
+	}
+
+	formatted, err = compactViewSources(formatted)
 	if err != nil {
 		return "", err
 	}
@@ -35,6 +51,287 @@ func formatViewQueryLayout(query string) (string, error) {
 	}
 
 	return formatted, nil
+}
+
+func compactViewSources(query string) (string, error) {
+	tokens, err := parser.NewLexer(query).Tokenize()
+	if err != nil {
+		return "", fmt.Errorf("tokenize source layout: %w", err)
+	}
+
+	lineStarts := viewQueryLineStarts(query)
+	lines := strings.Split(query, "\n")
+
+	layouts := collectViewSourceLayouts(tokens, lineStarts, lines)
+	if len(layouts) == 0 {
+		return query, nil
+	}
+
+	replacements := make(map[int]string, len(layouts))
+	removeLines := make(map[int]bool, len(layouts)*2)
+
+	for _, layout := range layouts {
+		replacements[layout.keywordLine] = layout.compactLine
+		removeLines[layout.relationLine] = true
+
+		if layout.qualifierLine >= 0 {
+			removeLines[layout.qualifierLine] = true
+		}
+	}
+
+	result := make([]string, 0, len(lines)-len(removeLines))
+	for lineIndex, line := range lines {
+		if removeLines[lineIndex] {
+			continue
+		}
+
+		if replacement, ok := replacements[lineIndex]; ok {
+			line = replacement
+		}
+
+		result = append(result, line)
+	}
+
+	return strings.Join(result, "\n"), nil
+}
+
+func collectViewSourceLayouts(
+	tokens []parser.Token,
+	lineStarts []int,
+	lines []string,
+) []viewSourceLayout {
+	layouts := make([]viewSourceLayout, 0)
+
+	for tokenIndex, token := range tokens {
+		keywordLine := viewQueryLineAt(lineStarts, token.Start)
+		if keywordLine >= len(lines) ||
+			!isCompactableViewSourceKeyword(token, lines[keywordLine]) {
+			continue
+		}
+
+		relationIndex := nextViewLayoutToken(tokens, tokenIndex+1)
+		if relationIndex >= len(tokens) || tokens[relationIndex].Type == parser.TokenEOF {
+			continue
+		}
+
+		relationLine := viewQueryLineAt(lineStarts, tokens[relationIndex].Start)
+		if relationLine != keywordLine+1 || relationLine >= len(lines) {
+			continue
+		}
+
+		relationEnd, ok := compactableViewRelationLine(
+			tokens,
+			relationIndex,
+			relationLine,
+			lineStarts,
+		)
+		if !ok {
+			continue
+		}
+
+		compactLine := strings.TrimRight(lines[keywordLine], " \t") +
+			" " + strings.TrimSpace(lines[relationLine])
+		if !viewLineFitsCompactLimit(compactLine) {
+			continue
+		}
+
+		layout := viewSourceLayout{
+			keywordLine:   keywordLine,
+			relationLine:  relationLine,
+			qualifierLine: -1,
+			compactLine:   compactLine,
+		}
+
+		if strings.EqualFold(token.Literal, "JOIN") {
+			qualifierIndex := nextViewLayoutToken(tokens, relationEnd+1)
+
+			qualifier, qualifierLine, ok := compactableViewJoinQualifier(
+				tokens,
+				qualifierIndex,
+				relationLine,
+				lineStarts,
+				lines,
+			)
+			if ok && viewLineFitsCompactLimit(compactLine+" "+qualifier) {
+				layout.compactLine += " " + qualifier
+				layout.qualifierLine = qualifierLine
+			}
+		}
+
+		layouts = append(layouts, layout)
+	}
+
+	return layouts
+}
+
+func isCompactableViewSourceKeyword(token parser.Token, line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if strings.EqualFold(token.Literal, "FROM") {
+		return strings.EqualFold(trimmed, "FROM")
+	}
+
+	if !strings.EqualFold(token.Literal, "JOIN") {
+		return false
+	}
+
+	fields := strings.Fields(strings.ToUpper(trimmed))
+	if len(fields) == 0 || fields[len(fields)-1] != "JOIN" {
+		return false
+	}
+
+	for _, field := range fields[:len(fields)-1] {
+		switch field {
+		case "INNER", "LEFT", "RIGHT", "FULL", "OUTER", "CROSS", "NATURAL":
+		default:
+			return false
+		}
+	}
+
+	return true
+}
+
+func compactableViewRelationLine(
+	tokens []parser.Token,
+	startIndex int,
+	relationLine int,
+	lineStarts []int,
+) (int, bool) {
+	var (
+		parenDepth   int
+		bracketDepth int
+		lastIndex    = -1
+	)
+
+	for index := startIndex; index < len(tokens); index++ {
+		token := tokens[index]
+		if token.Type == parser.TokenEOF ||
+			viewQueryLineAt(lineStarts, token.Start) != relationLine {
+			break
+		}
+
+		if token.Type == parser.TokenComment || token.Type == parser.TokenSemicolon {
+			return 0, false
+		}
+
+		if index == startIndex && token.Type == parser.TokenLParen {
+			return 0, false
+		}
+
+		if (strings.EqualFold(token.Literal, "SELECT") ||
+			strings.EqualFold(token.Literal, "WITH")) && index != startIndex {
+			return 0, false
+		}
+
+		if token.Type == parser.TokenComma && parenDepth == 0 && bracketDepth == 0 {
+			return 0, false
+		}
+
+		switch token.Type {
+		case parser.TokenLParen:
+			parenDepth++
+		case parser.TokenRParen:
+			parenDepth--
+		case parser.TokenLBracket:
+			bracketDepth++
+		case parser.TokenRBracket:
+			bracketDepth--
+		}
+
+		if parenDepth < 0 || bracketDepth < 0 {
+			return 0, false
+		}
+
+		lastIndex = index
+	}
+
+	return lastIndex, lastIndex >= startIndex && parenDepth == 0 && bracketDepth == 0
+}
+
+func compactableViewJoinQualifier(
+	tokens []parser.Token,
+	qualifierIndex int,
+	relationLine int,
+	lineStarts []int,
+	lines []string,
+) (string, int, bool) {
+	if qualifierIndex >= len(tokens) || tokens[qualifierIndex].Type == parser.TokenEOF {
+		return "", 0, false
+	}
+
+	qualifierLine := viewQueryLineAt(lineStarts, tokens[qualifierIndex].Start)
+	if qualifierLine != relationLine+1 || qualifierLine >= len(lines) {
+		return "", 0, false
+	}
+
+	qualifierColumn := tokens[qualifierIndex].Start - lineStarts[qualifierLine]
+	qualifierPrefix := lines[qualifierLine][:qualifierColumn]
+
+	if strings.TrimSpace(qualifierPrefix) != "" {
+		return "", 0, false
+	}
+
+	qualifier := strings.TrimSpace(lines[qualifierLine])
+	if strings.EqualFold(tokens[qualifierIndex].Literal, "ON") {
+		if strings.EqualFold(qualifier, "ON") {
+			return "", 0, false
+		}
+
+		endIndex, hasBooleanConnector := viewJoinConditionEnd(tokens, qualifierIndex)
+		if hasBooleanConnector || endIndex <= qualifierIndex ||
+			viewQueryLineAt(lineStarts, tokens[endIndex].Start) != qualifierLine {
+			return "", 0, false
+		}
+
+		return qualifier, qualifierLine, true
+	}
+
+	if strings.EqualFold(tokens[qualifierIndex].Literal, "USING") &&
+		viewLineTokensBalanced(tokens, qualifierIndex, qualifierLine, lineStarts) {
+		return qualifier, qualifierLine, true
+	}
+
+	return "", 0, false
+}
+
+func viewLineTokensBalanced(
+	tokens []parser.Token,
+	startIndex int,
+	line int,
+	lineStarts []int,
+) bool {
+	var parenDepth, bracketDepth int
+
+	for index := startIndex; index < len(tokens); index++ {
+		token := tokens[index]
+		if token.Type == parser.TokenEOF || viewQueryLineAt(lineStarts, token.Start) != line {
+			break
+		}
+
+		if token.Type == parser.TokenComment || token.Type == parser.TokenSemicolon {
+			return false
+		}
+
+		switch token.Type {
+		case parser.TokenLParen:
+			parenDepth++
+		case parser.TokenRParen:
+			parenDepth--
+		case parser.TokenLBracket:
+			bracketDepth++
+		case parser.TokenRBracket:
+			bracketDepth--
+		}
+
+		if parenDepth < 0 || bracketDepth < 0 {
+			return false
+		}
+	}
+
+	return parenDepth == 0 && bracketDepth == 0
+}
+
+func viewLineFitsCompactLimit(line string) bool {
+	return utf8.RuneCountInString(line) <= viewCompactLineLength
 }
 
 func configureViewFormatterLayout(config *dialects.TokenizerConfig) {

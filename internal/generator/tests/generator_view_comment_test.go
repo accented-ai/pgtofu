@@ -600,12 +600,9 @@ LEFT JOIN reporting.owners AS o ON i.owner_id = o.id`,
 	assert.Contains(t, upStmt.SQL, `CREATE OR REPLACE VIEW reporting.item_overview AS
 SELECT
     i.id,`)
-	assert.Contains(t, upStmt.SQL, `FROM
-    reporting.items AS i
-INNER JOIN
-    reporting.categories AS c`)
-	assert.Contains(t, upStmt.SQL, `LEFT JOIN
-    reporting.owners AS o`)
+	assert.Contains(t, upStmt.SQL, `FROM reporting.items AS i
+INNER JOIN reporting.categories AS c ON i.category_id = c.id`)
+	assert.Contains(t, upStmt.SQL, `LEFT JOIN reporting.owners AS o ON i.owner_id = o.id`)
 	assert.NotContains(t, upStmt.SQL, "\n SELECT")
 
 	assert.Contains(t, downStmt.SQL, `CREATE OR REPLACE VIEW reporting.item_overview AS
@@ -617,12 +614,9 @@ SELECT
         WHEN
             i.status = 'active'::TEXT
             AND i.category_id IS NOT NULL THEN 'ready'::TEXT`)
-	assert.Contains(t, downStmt.SQL, `FROM
-    reporting.items AS i
-INNER JOIN
-    reporting.categories AS c`)
-	assert.Contains(t, downStmt.SQL, `LEFT JOIN
-    reporting.owners AS o`)
+	assert.Contains(t, downStmt.SQL, `FROM reporting.items AS i
+INNER JOIN reporting.categories AS c ON i.category_id = c.id`)
+	assert.Contains(t, downStmt.SQL, `LEFT JOIN reporting.owners AS o ON i.owner_id = o.id`)
 	assert.NotContains(t, downStmt.SQL, "::text")
 	assert.NotContains(t, downStmt.SQL, "\n SELECT")
 
