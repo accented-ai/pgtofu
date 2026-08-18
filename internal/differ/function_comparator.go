@@ -144,7 +144,7 @@ func (fc *FunctionComparator) detectModifiedFunctions(
 			})
 		}
 
-		if !fc.options.IgnoreComments && !commentEqual && funcBodyEqual {
+		if !fc.options.IgnoreComments && !commentEqual {
 			result.Changes = append(result.Changes, Change{
 				Type:        ChangeTypeModifyFunction,
 				Severity:    SeveritySafe,

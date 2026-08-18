@@ -19,6 +19,7 @@ func TestDDLBuilder_FunctionOperations(t *testing.T) { //nolint:maintidx
 		name           string
 		changeType     differ.ChangeType
 		function       *schema.Function
+		details        map[string]any
 		wantSQL        []string
 		wantUnsafe     bool
 		wantRequiresTx bool
@@ -229,6 +230,10 @@ func TestDDLBuilder_FunctionOperations(t *testing.T) { //nolint:maintidx
 				Comment:       "Updated comment",
 				Body:          "$$ BEGIN NULL; END; $$",
 			},
+			details: map[string]any{
+				"old_comment": "Original comment",
+				"new_comment": "Updated comment",
+			},
 			wantSQL:        []string{"COMMENT ON FUNCTION", "public.FUNCTION_WITH_COMMENT"},
 			wantUnsafe:     false,
 			wantRequiresTx: true,
@@ -271,7 +276,11 @@ func TestDDLBuilder_FunctionOperations(t *testing.T) { //nolint:maintidx
 			result := &differ.DiffResult{
 				Current: current,
 				Desired: desired,
-				Changes: []differ.Change{{Type: tt.changeType, ObjectName: objectName}},
+				Changes: []differ.Change{{
+					Type:       tt.changeType,
+					ObjectName: objectName,
+					Details:    tt.details,
+				}},
 			}
 
 			builder := generator.NewDDLBuilder(result, true)
@@ -403,6 +412,83 @@ func TestDDLBuilder_FunctionModifyWithCommentChange(t *testing.T) {
 	assert.Contains(t, stmt.SQL, "COMMENT ON FUNCTION public.TEST_FUNCTION")
 	assert.Contains(t, stmt.SQL, "New comment")
 	assert.NotContains(t, stmt.SQL, "CREATE OR REPLACE")
+}
+
+func TestFunctionDefinitionChangeDoesNotRepeatUnchangedComment(t *testing.T) {
+	t.Parallel()
+
+	currentFunction := schema.Function{
+		Schema:        "reporting",
+		Name:          "calculate_score",
+		ArgumentTypes: []string{"integer"},
+		ArgumentNames: []string{"value"},
+		ReturnType:    "integer",
+		Language:      "sql",
+		Body:          "SELECT value + 1",
+		Comment:       "Calculates a reporting score.",
+	}
+	desiredFunction := currentFunction
+	desiredFunction.Body = "SELECT value + 2"
+
+	current := &schema.Database{Functions: []schema.Function{currentFunction}}
+	desired := &schema.Database{Functions: []schema.Function{desiredFunction}}
+	diffResult, err := differ.New(differ.DefaultOptions()).Compare(current, desired)
+	require.NoError(t, err)
+	require.Len(t, diffResult.Changes, 1)
+
+	result, err := generator.New(testOptions()).Generate(diffResult)
+	require.NoError(t, err)
+	require.Len(t, result.Migrations, 1)
+	require.NotNil(t, result.Migrations[0].DownFile)
+
+	assert.Contains(t, result.Migrations[0].UpFile.Content, "CREATE OR REPLACE FUNCTION")
+	assert.NotContains(t, result.Migrations[0].UpFile.Content, "COMMENT ON FUNCTION")
+	assert.NotContains(t, result.Migrations[0].DownFile.Content, "COMMENT ON FUNCTION")
+}
+
+func TestFunctionDefinitionAndCommentChangesAreGeneratedSeparately(t *testing.T) {
+	t.Parallel()
+
+	currentFunction := schema.Function{
+		Schema:        "reporting",
+		Name:          "calculate_score",
+		ArgumentTypes: []string{"integer"},
+		ArgumentNames: []string{"value"},
+		ReturnType:    "integer",
+		Language:      "sql",
+		Body:          "SELECT value + 1",
+		Comment:       "Calculates the original reporting score.",
+	}
+	desiredFunction := currentFunction
+	desiredFunction.Body = "SELECT value + 2"
+	desiredFunction.Comment = "Calculates the revised reporting score."
+
+	current := &schema.Database{Functions: []schema.Function{currentFunction}}
+	desired := &schema.Database{Functions: []schema.Function{desiredFunction}}
+	diffResult, err := differ.New(differ.DefaultOptions()).Compare(current, desired)
+	require.NoError(t, err)
+	require.Len(t, diffResult.Changes, 2)
+
+	result, err := generator.New(testOptions()).Generate(diffResult)
+	require.NoError(t, err)
+	require.Len(t, result.Migrations, 1)
+	require.NotNil(t, result.Migrations[0].DownFile)
+
+	upSQL := result.Migrations[0].UpFile.Content
+	createPosition := strings.Index(upSQL, "CREATE OR REPLACE FUNCTION")
+	commentPosition := strings.Index(upSQL, "COMMENT ON FUNCTION")
+
+	require.NotEqual(t, -1, createPosition)
+	require.NotEqual(t, -1, commentPosition)
+	assert.Less(t, createPosition, commentPosition)
+	assert.Equal(t, 1, strings.Count(upSQL, "CREATE OR REPLACE FUNCTION"))
+	assert.Equal(t, 1, strings.Count(upSQL, "COMMENT ON FUNCTION"))
+	assert.Contains(t, upSQL, desiredFunction.Comment)
+
+	downSQL := result.Migrations[0].DownFile.Content
+	assert.Equal(t, 1, strings.Count(downSQL, "CREATE OR REPLACE FUNCTION"))
+	assert.Equal(t, 1, strings.Count(downSQL, "COMMENT ON FUNCTION"))
+	assert.Contains(t, downSQL, currentFunction.Comment)
 }
 
 func TestDDLBuilder_FunctionModifyCommentWithArguments(t *testing.T) {

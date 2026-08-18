@@ -125,17 +125,8 @@ func (b *DDLBuilder) buildModifyFunction(change differ.Change) (DDLStatement, er
 		return DDLStatement{}, newGeneratorError("buildModifyFunction", &change, err)
 	}
 
-	var sb strings.Builder
-	appendStatement(&sb, definition)
-
-	if fn.Comment != "" {
-		_, formattedTarget := functionCommentTargets(fn)
-		commentSQL := buildCommentStatement("FUNCTION", formattedTarget, fn.Comment, true)
-		appendStatement(&sb, commentSQL)
-	}
-
 	return DDLStatement{
-		SQL:         sb.String(),
+		SQL:         ensureStatementTerminated(definition),
 		Description: "Modify function " + fn.Name,
 		RequiresTx:  true,
 	}, nil
