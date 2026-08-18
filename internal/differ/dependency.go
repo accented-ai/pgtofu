@@ -391,46 +391,21 @@ func (d *Differ) implicitlyDependsOn( //nolint:cyclop,gocognit,gocyclo,maintidx
 		}
 	}
 
-	if change.Type == ChangeTypeModifyMaterializedView {
-		_, hasOldComment := change.Details["old_comment"]
-
-		_, hasNewComment := change.Details["new_comment"]
-		if hasOldComment && hasNewComment &&
-			otherChange.Type == ChangeTypeAddMaterializedView &&
-			change.ObjectName == otherChange.ObjectName {
+	for _, objectTypes := range []struct {
+		modify ChangeType
+		add    ChangeType
+	}{
+		{modify: ChangeTypeModifyView, add: ChangeTypeAddView},
+		{modify: ChangeTypeModifyMaterializedView, add: ChangeTypeAddMaterializedView},
+		{modify: ChangeTypeModifyFunction, add: ChangeTypeAddFunction},
+	} {
+		if commentChangeDependsOnDefinition(
+			change,
+			otherChange,
+			objectTypes.modify,
+			objectTypes.add,
+		) {
 			return true
-		}
-	}
-
-	if change.Type == ChangeTypeModifyFunction {
-		_, hasOldComment := change.Details["old_comment"]
-		_, hasNewComment := change.Details["new_comment"]
-		_, hasCurrent := change.Details["current"]
-		_, hasDesired := change.Details["desired"]
-
-		if hasOldComment && hasNewComment && !hasCurrent && !hasDesired {
-			oldComment, _ := change.Details["old_comment"].(string)
-			if oldComment == "" &&
-				otherChange.Type == ChangeTypeAddFunction &&
-				change.ObjectName == otherChange.ObjectName {
-				return true
-			}
-		}
-	}
-
-	if change.Type == ChangeTypeModifyView {
-		_, hasOldComment := change.Details["old_comment"]
-		_, hasNewComment := change.Details["new_comment"]
-		_, hasCurrent := change.Details["current"]
-		_, hasDesired := change.Details["desired"]
-
-		if hasOldComment && hasNewComment && !hasCurrent && !hasDesired {
-			oldComment, _ := change.Details["old_comment"].(string)
-			if oldComment == "" &&
-				otherChange.Type == ChangeTypeAddView &&
-				change.ObjectName == otherChange.ObjectName {
-				return true
-			}
 		}
 	}
 
@@ -563,6 +538,36 @@ func (d *Differ) implicitlyDependsOn( //nolint:cyclop,gocognit,gocyclo,maintidx
 	}
 
 	return false
+}
+
+func commentChangeDependsOnDefinition(
+	change, otherChange *Change,
+	modifyType, addType ChangeType,
+) bool {
+	if !isCommentOnlyObjectChange(change, modifyType) ||
+		change.ObjectName != otherChange.ObjectName {
+		return false
+	}
+
+	if otherChange.Type == addType {
+		return true
+	}
+
+	return otherChange.Type == modifyType &&
+		!isCommentOnlyObjectChange(otherChange, modifyType)
+}
+
+func isCommentOnlyObjectChange(change *Change, modifyType ChangeType) bool {
+	if change.Type != modifyType {
+		return false
+	}
+
+	_, hasOldComment := change.Details["old_comment"]
+	_, hasNewComment := change.Details["new_comment"]
+	_, hasCurrent := change.Details["current"]
+	_, hasDesired := change.Details["desired"]
+
+	return hasOldComment && hasNewComment && !hasCurrent && !hasDesired
 }
 
 func caChangeMatchesTable(caChange *Change, tableName string) bool {

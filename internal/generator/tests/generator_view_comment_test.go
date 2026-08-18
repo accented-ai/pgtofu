@@ -206,6 +206,10 @@ func TestFullMigrationIncludesViewComment(t *testing.T) {
 	assert.Contains(t, upContent, "COMMENT ON VIEW public.active_users IS",
 		"Generated migration should include view comment")
 	assert.Contains(t, upContent, "Shows only active users for monitoring")
+	assert.Less(t,
+		strings.Index(upContent, "CREATE VIEW public.active_users"),
+		strings.Index(upContent, "COMMENT ON VIEW public.active_users"),
+	)
 }
 
 func TestNewViewCommentDownMigrationNoWarning(t *testing.T) {
@@ -525,6 +529,10 @@ func TestViewDefinitionAndCommentChangeGeneratedOnceAndReverted(t *testing.T) {
 		"COMMENT ON VIEW reporting.item_classifications",
 	))
 	assert.Contains(t, upContent, "Classifies items using their current status and category.")
+	assert.Less(t,
+		strings.Index(upContent, "CREATE OR REPLACE VIEW reporting.item_classifications"),
+		strings.Index(upContent, "COMMENT ON VIEW reporting.item_classifications"),
+	)
 
 	downContent := genResult.Migrations[0].DownFile.Content
 	assert.Equal(t, 1, strings.Count(

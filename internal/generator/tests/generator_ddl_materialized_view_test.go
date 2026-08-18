@@ -1,6 +1,7 @@
 package generator_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -245,6 +246,46 @@ func TestDDLBuilder_MaterializedViewModifyWithDefinitionChange(t *testing.T) {
 	assert.Contains(t, stmt.SQL, "CREATE MATERIALIZED VIEW")
 	assert.Contains(t, stmt.SQL, "SUM(total)")
 	assert.True(t, stmt.IsUnsafe)
+}
+
+func TestMaterializedViewDefinitionChangePrecedesCommentChange(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{MaterializedViews: []schema.MaterializedView{{
+		Schema:     "reporting",
+		Name:       "current_totals",
+		Definition: "SELECT category, COUNT(*) AS total FROM reporting.records GROUP BY category",
+		Comment:    "Summarizes current records.",
+	}}}
+	desired := &schema.Database{MaterializedViews: []schema.MaterializedView{{
+		Schema: "reporting",
+		Name:   "current_totals",
+		Definition: "SELECT category, COUNT(*) AS total, MAX(updated_at) AS latest " +
+			"FROM reporting.records GROUP BY category",
+		Comment: "Summarizes current records and their latest update.",
+	}}}
+
+	diffResult, err := differ.New(differ.DefaultOptions()).Compare(current, desired)
+	require.NoError(t, err)
+	require.Len(t, diffResult.Changes, 2)
+
+	result, err := generator.New(testOptions()).Generate(diffResult)
+	require.NoError(t, err)
+	require.Len(t, result.Migrations, 1)
+
+	upSQL := result.Migrations[0].UpFile.Content
+	createPosition := strings.Index(
+		upSQL,
+		"CREATE MATERIALIZED VIEW reporting.current_totals",
+	)
+	commentPosition := strings.Index(
+		upSQL,
+		"COMMENT ON MATERIALIZED VIEW reporting.current_totals",
+	)
+
+	require.NotEqual(t, -1, createPosition)
+	require.NotEqual(t, -1, commentPosition)
+	assert.Less(t, createPosition, commentPosition)
 }
 
 func TestDDLBuilder_MaterializedViewDropComment(t *testing.T) {
