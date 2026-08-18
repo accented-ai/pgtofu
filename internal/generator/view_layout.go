@@ -34,6 +34,12 @@ type viewSourceLayout struct {
 	compactLine   string
 }
 
+type viewArrayLayout struct {
+	start       int
+	end         int
+	replacement string
+}
+
 func formatViewQueryLayout(query string) (string, error) {
 	formatted, err := formatViewJoinConditions(query)
 	if err != nil {
@@ -50,7 +56,191 @@ func formatViewQueryLayout(query string) (string, error) {
 		return "", err
 	}
 
+	formatted, err = formatViewArrayConstructors(formatted)
+	if err != nil {
+		return "", err
+	}
+
 	return formatted, nil
+}
+
+func formatViewArrayConstructors(query string) (string, error) {
+	tokens, err := parser.NewLexer(query).Tokenize()
+	if err != nil {
+		return "", fmt.Errorf("tokenize ARRAY layout: %w", err)
+	}
+
+	lineStarts := viewQueryLineStarts(query)
+
+	layouts := collectViewArrayLayouts(query, tokens, lineStarts)
+	if len(layouts) == 0 {
+		return query, nil
+	}
+
+	var output strings.Builder
+
+	position := 0
+	for _, layout := range layouts {
+		if layout.start < position {
+			continue
+		}
+
+		output.WriteString(query[position:layout.start])
+		output.WriteString(layout.replacement)
+		position = layout.end
+	}
+
+	output.WriteString(query[position:])
+
+	return output.String(), nil
+}
+
+func collectViewArrayLayouts(
+	query string,
+	tokens []parser.Token,
+	lineStarts []int,
+) []viewArrayLayout {
+	layouts := make([]viewArrayLayout, 0)
+
+	for index, token := range tokens {
+		if !strings.EqualFold(token.Literal, "ARRAY") || index+1 >= len(tokens) ||
+			tokens[index+1].Type != parser.TokenLBracket {
+			continue
+		}
+
+		openIndex := index + 1
+
+		closeIndex := matchingViewArrayBracket(tokens, openIndex)
+		if closeIndex < 0 || viewQueryLineAt(lineStarts, tokens[openIndex].Start) ==
+			viewQueryLineAt(lineStarts, tokens[closeIndex].Start) {
+			continue
+		}
+
+		elements, ok := simpleViewArrayElements(query, tokens, openIndex, closeIndex)
+		if !ok {
+			continue
+		}
+
+		baseIndent := viewArrayBaseIndent(query, token.Start, lineStarts)
+		itemIndent := baseIndent + viewLayoutIndent
+
+		var replacement strings.Builder
+
+		replacement.WriteString("ARRAY [\n")
+
+		for elementIndex, element := range elements {
+			replacement.WriteString(itemIndent)
+			replacement.WriteString(element)
+
+			if elementIndex < len(elements)-1 {
+				replacement.WriteByte(',')
+			}
+
+			replacement.WriteByte('\n')
+		}
+
+		replacement.WriteString(baseIndent)
+		replacement.WriteByte(']')
+
+		layouts = append(layouts, viewArrayLayout{
+			start:       token.Start,
+			end:         tokens[closeIndex].End,
+			replacement: replacement.String(),
+		})
+	}
+
+	return layouts
+}
+
+func matchingViewArrayBracket(tokens []parser.Token, openIndex int) int {
+	depth := 0
+
+	for index := openIndex; index < len(tokens); index++ {
+		switch tokens[index].Type {
+		case parser.TokenLBracket:
+			depth++
+		case parser.TokenRBracket:
+			depth--
+			if depth == 0 {
+				return index
+			}
+		}
+	}
+
+	return -1
+}
+
+func simpleViewArrayElements(
+	query string,
+	tokens []parser.Token,
+	openIndex int,
+	closeIndex int,
+) ([]string, bool) {
+	var parenDepth, bracketDepth int
+
+	elementStart := tokens[openIndex].End
+	elements := make([]string, 0)
+
+	for index := openIndex + 1; index < closeIndex; index++ {
+		token := tokens[index]
+
+		if token.Type == parser.TokenComma && parenDepth == 0 && bracketDepth == 0 {
+			element, ok := simpleViewArrayElement(query[elementStart:token.Start])
+			if !ok {
+				return nil, false
+			}
+
+			elements = append(elements, element)
+			elementStart = token.End
+
+			continue
+		}
+
+		switch token.Type {
+		case parser.TokenLParen:
+			parenDepth++
+		case parser.TokenRParen:
+			parenDepth--
+		case parser.TokenLBracket:
+			bracketDepth++
+		case parser.TokenRBracket:
+			bracketDepth--
+		}
+
+		if parenDepth < 0 || bracketDepth < 0 {
+			return nil, false
+		}
+	}
+
+	if parenDepth != 0 || bracketDepth != 0 {
+		return nil, false
+	}
+
+	element, ok := simpleViewArrayElement(query[elementStart:tokens[closeIndex].Start])
+	if !ok {
+		return nil, false
+	}
+
+	elements = append(elements, element)
+
+	return elements, len(elements) > 1
+}
+
+func simpleViewArrayElement(element string) (string, bool) {
+	element = strings.TrimSpace(element)
+
+	return element, element != "" && !strings.ContainsAny(element, "\r\n")
+}
+
+func viewArrayBaseIndent(query string, offset int, lineStarts []int) string {
+	line := viewQueryLineAt(lineStarts, offset)
+	prefix := query[lineStarts[line]:offset]
+
+	if strings.TrimSpace(prefix) == "" {
+		return prefix
+	}
+
+	return strings.Repeat(" ", utf8.RuneCountInString(prefix))
 }
 
 func compactViewSources(query string) (string, error) {

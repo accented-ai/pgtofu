@@ -134,3 +134,39 @@ WHERE EXISTS (
 		}
 	}
 }
+
+func TestViewFormattingIndentsMultilineArrayConstructors(t *testing.T) {
+	t.Parallel()
+
+	view := schema.View{
+		Schema: "reporting",
+		Name:   "visible_records",
+		Definition: `SELECT record.id
+FROM reporting.records AS record
+WHERE record.visibility = ANY(
+    ARRAY['visible_to_all_authenticated_reporting_users'::TEXT,
+        'visible_only_during_an_active_manual_reporting_review'::TEXT,
+        'visible_to_reporting_administrators'::TEXT]
+)`,
+	}
+	result := &differ.DiffResult{
+		Current: &schema.Database{},
+		Desired: &schema.Database{Views: []schema.View{view}},
+		Changes: []differ.Change{{
+			Type:       differ.ChangeTypeAddView,
+			ObjectName: differ.ViewKey(view.Schema, view.Name),
+		}},
+	}
+
+	statement, err := generator.NewDDLBuilder(result, true).BuildUpStatement(result.Changes[0])
+	require.NoError(t, err)
+
+	assert.Contains(t, statement.SQL, `WHERE
+    record.visibility = ANY(
+        ARRAY [
+            'visible_to_all_authenticated_reporting_users'::TEXT,
+            'visible_only_during_an_active_manual_reporting_review'::TEXT,
+            'visible_to_reporting_administrators'::TEXT
+        ]
+    )`)
+}
