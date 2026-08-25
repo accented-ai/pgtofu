@@ -34,14 +34,30 @@ type viewSourceLayout struct {
 	compactLine   string
 }
 
-type viewArrayLayout struct {
+type viewTextReplacement struct {
 	start       int
 	end         int
 	replacement string
 }
 
+type viewInlineJoinLayout struct {
+	onColumn        int
+	onEndColumn     int
+	qualifierIndent string
+}
+
 func formatViewQueryLayout(query string) (string, error) {
-	formatted, err := formatViewJoinConditions(query)
+	formatted, err := formatViewOffsets(query)
+	if err != nil {
+		return "", err
+	}
+
+	formatted, err = normalizeViewJoinClauses(formatted)
+	if err != nil {
+		return "", err
+	}
+
+	formatted, err = formatViewJoinConditions(formatted)
 	if err != nil {
 		return "", err
 	}
@@ -62,6 +78,251 @@ func formatViewQueryLayout(query string) (string, error) {
 	}
 
 	return formatted, nil
+}
+
+func formatViewOffsets(query string) (string, error) {
+	tokens, err := parser.NewLexer(query).Tokenize()
+	if err != nil {
+		return "", fmt.Errorf("tokenize OFFSET layout: %w", err)
+	}
+
+	lineStarts := viewQueryLineStarts(query)
+	lines := strings.Split(query, "\n")
+	depths := viewTokenParenDepths(tokens)
+	replacements := make([]viewTextReplacement, 0)
+
+	for index, token := range tokens {
+		if !strings.EqualFold(token.Literal, "OFFSET") {
+			continue
+		}
+
+		line := viewQueryLineAt(lineStarts, token.Start)
+		if line >= len(lines) ||
+			strings.TrimSpace(lines[line][:token.Start-lineStarts[line]]) == "" {
+			continue
+		}
+
+		selectIndex := previousViewSelectIndex(tokens, depths, index)
+		if selectIndex < 0 {
+			continue
+		}
+
+		selectLine := viewQueryLineAt(lineStarts, tokens[selectIndex].Start)
+		indent := leadingViewWhitespace(lines[selectLine])
+		start := token.Start
+
+		for start > lineStarts[line] && (query[start-1] == ' ' || query[start-1] == '\t') {
+			start--
+		}
+
+		replacements = append(replacements, viewTextReplacement{
+			start:       start,
+			end:         token.Start,
+			replacement: "\n" + indent,
+		})
+	}
+
+	return applyViewTextReplacements(query, replacements), nil
+}
+
+func normalizeViewJoinClauses(query string) (string, error) {
+	aligned, err := alignViewJoinClauses(query)
+	if err != nil {
+		return "", err
+	}
+
+	return splitInlineViewJoinQualifiers(aligned)
+}
+
+func alignViewJoinClauses(query string) (string, error) {
+	tokens, err := parser.NewLexer(query).Tokenize()
+	if err != nil {
+		return "", fmt.Errorf("tokenize JOIN alignment: %w", err)
+	}
+
+	lineStarts := viewQueryLineStarts(query)
+	lines := strings.Split(query, "\n")
+	depths := viewTokenParenDepths(tokens)
+
+	for index, token := range tokens {
+		if !strings.EqualFold(token.Literal, "JOIN") {
+			continue
+		}
+
+		line := viewQueryLineAt(lineStarts, token.Start)
+		if line >= len(lines) || !viewJoinStartsLine(lines[line], token.Start-lineStarts[line]) {
+			continue
+		}
+
+		selectIndex := previousViewSelectIndex(tokens, depths, index)
+		if selectIndex < 0 {
+			continue
+		}
+
+		selectLine := viewQueryLineAt(lineStarts, tokens[selectIndex].Start)
+		lines[line] = leadingViewWhitespace(lines[selectLine]) +
+			strings.TrimLeft(lines[line], " \t")
+	}
+
+	return strings.Join(lines, "\n"), nil
+}
+
+func splitInlineViewJoinQualifiers(query string) (string, error) {
+	tokens, err := parser.NewLexer(query).Tokenize()
+	if err != nil {
+		return "", fmt.Errorf("tokenize inline JOIN qualifiers: %w", err)
+	}
+
+	lineStarts := viewQueryLineStarts(query)
+	lines := strings.Split(query, "\n")
+	depths := viewTokenParenDepths(tokens)
+	layouts := make(map[int]viewInlineJoinLayout)
+
+	for index, token := range tokens {
+		if !strings.EqualFold(token.Literal, "ON") {
+			continue
+		}
+
+		line := viewQueryLineAt(lineStarts, token.Start)
+		if line >= len(lines) ||
+			strings.TrimSpace(lines[line][:token.Start-lineStarts[line]]) == "" {
+			continue
+		}
+
+		joinIndex := previousViewJoinIndex(tokens, depths, index)
+		if joinIndex < 0 {
+			continue
+		}
+
+		joinLine := viewQueryLineAt(lineStarts, tokens[joinIndex].Start)
+
+		_, hasBooleanConnector := viewJoinConditionEnd(tokens, index)
+		if joinLine == line && !hasBooleanConnector {
+			continue
+		}
+
+		layouts[line] = viewInlineJoinLayout{
+			onColumn:        token.Start - lineStarts[line],
+			onEndColumn:     token.End - lineStarts[line],
+			qualifierIndent: leadingViewWhitespace(lines[joinLine]) + viewLayoutIndent,
+		}
+	}
+
+	if len(layouts) == 0 {
+		return query, nil
+	}
+
+	result := make([]string, 0, len(lines)+len(layouts))
+
+	for lineIndex, line := range lines {
+		layout, ok := layouts[lineIndex]
+		if !ok {
+			result = append(result, line)
+
+			continue
+		}
+
+		result = append(result, strings.TrimRight(line[:layout.onColumn], " \t"))
+
+		qualifier := layout.qualifierIndent + "ON"
+		if condition := strings.TrimSpace(line[layout.onEndColumn:]); condition != "" {
+			qualifier += " " + condition
+		}
+
+		result = append(result, qualifier)
+	}
+
+	return strings.Join(result, "\n"), nil
+}
+
+func viewTokenParenDepths(tokens []parser.Token) []int {
+	depths := make([]int, len(tokens))
+	depth := 0
+
+	for index, token := range tokens {
+		if token.Type == parser.TokenRParen && depth > 0 {
+			depth--
+		}
+
+		depths[index] = depth
+
+		if token.Type == parser.TokenLParen {
+			depth++
+		}
+	}
+
+	return depths
+}
+
+func previousViewSelectIndex(tokens []parser.Token, depths []int, index int) int {
+	for candidate := index - 1; candidate >= 0; candidate-- {
+		if depths[candidate] == depths[index] &&
+			strings.EqualFold(tokens[candidate].Literal, "SELECT") {
+			return candidate
+		}
+	}
+
+	return -1
+}
+
+func previousViewJoinIndex(tokens []parser.Token, depths []int, index int) int {
+	for candidate := index - 1; candidate >= 0; candidate-- {
+		if depths[candidate] != depths[index] {
+			continue
+		}
+
+		upper := strings.ToUpper(tokens[candidate].Literal)
+		if upper == "JOIN" {
+			return candidate
+		}
+
+		switch upper {
+		case "ON", "WHERE", "SELECT", "FROM", "GROUP", "HAVING", "WINDOW",
+			"ORDER", "LIMIT", "OFFSET", "UNION", "INTERSECT", "EXCEPT":
+			return -1
+		}
+	}
+
+	return -1
+}
+
+func viewJoinStartsLine(line string, joinColumn int) bool {
+	if joinColumn < 0 || joinColumn > len(line) {
+		return false
+	}
+
+	for _, field := range strings.Fields(strings.ToUpper(line[:joinColumn])) {
+		switch field {
+		case "INNER", "LEFT", "RIGHT", "FULL", "OUTER", "CROSS", "NATURAL":
+		default:
+			return false
+		}
+	}
+
+	return true
+}
+
+func leadingViewWhitespace(line string) string {
+	return line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+}
+
+func applyViewTextReplacements(query string, replacements []viewTextReplacement) string {
+	if len(replacements) == 0 {
+		return query
+	}
+
+	var output strings.Builder
+
+	position := 0
+	for _, replacement := range replacements {
+		output.WriteString(query[position:replacement.start])
+		output.WriteString(replacement.replacement)
+		position = replacement.end
+	}
+
+	output.WriteString(query[position:])
+
+	return output.String()
 }
 
 func formatViewArrayConstructors(query string) (string, error) {
@@ -99,8 +360,8 @@ func collectViewArrayLayouts(
 	query string,
 	tokens []parser.Token,
 	lineStarts []int,
-) []viewArrayLayout {
-	layouts := make([]viewArrayLayout, 0)
+) []viewTextReplacement {
+	layouts := make([]viewTextReplacement, 0)
 
 	for index, token := range tokens {
 		if !strings.EqualFold(token.Literal, "ARRAY") || index+1 >= len(tokens) ||
@@ -142,7 +403,7 @@ func collectViewArrayLayouts(
 		replacement.WriteString(baseIndent)
 		replacement.WriteByte(']')
 
-		layouts = append(layouts, viewArrayLayout{
+		layouts = append(layouts, viewTextReplacement{
 			start:       token.Start,
 			end:         tokens[closeIndex].End,
 			replacement: replacement.String(),

@@ -402,7 +402,11 @@ func splitCheckFirstLine(lines []string) []string {
 	}
 
 	body := strings.TrimSpace(first[prefixEnd:])
-	if body == "" || (parenBalance(body) > 0 && !startsWithCheckFunctionCall(body)) {
+
+	baseDepth := parenBalance(first[:prefixEnd])
+	if body == "" || (parenBalance(body) > 0 &&
+		!startsWithCheckFunctionCall(body) &&
+		!hasCheckLogicalContinuation(lines, baseDepth)) {
 		lines[0] = first
 
 		return lines
@@ -413,6 +417,31 @@ func splitCheckFirstLine(lines []string) []string {
 	split = append(split, lines[1:]...)
 
 	return split
+}
+
+func hasCheckLogicalContinuation(lines []string, baseDepth int) bool {
+	depth := parenBalance(lines[0])
+
+	for _, line := range lines[1:] {
+		trimmed := strings.TrimSpace(line)
+
+		closingCount := 0
+		for closingCount < len(trimmed) && trimmed[closingCount] == ')' {
+			closingCount++
+		}
+
+		depth -= closingCount
+		remainder := strings.TrimSpace(trimmed[closingCount:])
+
+		if depth == baseDepth &&
+			(matchesKeywordAt(remainder, 0, "AND") || matchesKeywordAt(remainder, 0, "OR")) {
+			return true
+		}
+
+		depth += parenBalance(remainder)
+	}
+
+	return false
 }
 
 func startsWithCheckFunctionCall(expression string) bool {

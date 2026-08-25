@@ -170,3 +170,83 @@ WHERE record.visibility = ANY(
         ]
     )`)
 }
+
+func TestViewFormattingAlignsLateralAndJoinClauses(t *testing.T) {
+	t.Parallel()
+
+	view := schema.View{
+		Schema: "reporting",
+		Name:   "visible_records",
+		Definition: `SELECT record.id, authority.semantics
+FROM reporting.records AS record
+INNER JOIN LATERAL (
+    SELECT scoped_authority.semantics
+    FROM reporting.record_authority AS scoped_authority
+    WHERE scoped_authority.record_id = record.id
+    OFFSET 0
+) AS authority ON TRUE
+INNER JOIN reporting.projections AS projection
+    ON record.id = projection.record_id
+    AND record.tenant_id = projection.tenant_id
+WHERE projection.status = 'ready'
+    AND EXISTS (
+        SELECT 1
+        FROM reporting.record_members AS member
+        INNER JOIN LATERAL (
+            SELECT scoped_visible.id
+            FROM reporting.visible_members AS scoped_visible
+            WHERE scoped_visible.id = member.visible_member_id
+            OFFSET 0
+        ) AS visible_member ON TRUE
+        WHERE member.record_id = record.id
+    )`,
+	}
+	result := &differ.DiffResult{
+		Current: &schema.Database{},
+		Desired: &schema.Database{Views: []schema.View{view}},
+		Changes: []differ.Change{{
+			Type:       differ.ChangeTypeAddView,
+			ObjectName: differ.ViewKey(view.Schema, view.Name),
+		}},
+	}
+
+	statement, err := generator.NewDDLBuilder(result, true).BuildUpStatement(result.Changes[0])
+	require.NoError(t, err)
+
+	expected := `CREATE VIEW reporting.visible_records AS
+SELECT
+    record.id,
+    authority.semantics
+FROM reporting.records AS record
+INNER JOIN
+    LATERAL (
+        SELECT scoped_authority.semantics
+        FROM reporting.record_authority AS scoped_authority
+        WHERE
+            scoped_authority.record_id = record.id
+        OFFSET 0
+    ) AS authority
+    ON TRUE
+INNER JOIN reporting.projections AS projection
+    ON
+        record.id = projection.record_id
+        AND record.tenant_id = projection.tenant_id
+WHERE
+    projection.status = 'ready'
+    AND EXISTS (
+        SELECT 1
+        FROM reporting.record_members AS member
+        INNER JOIN
+            LATERAL (
+                SELECT scoped_visible.id
+                FROM reporting.visible_members AS scoped_visible
+                WHERE
+                    scoped_visible.id = member.visible_member_id
+                OFFSET 0
+            ) AS visible_member
+            ON TRUE
+        WHERE
+            member.record_id = record.id
+    );`
+	require.Equal(t, expected, statement.SQL)
+}

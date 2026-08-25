@@ -521,3 +521,52 @@ func TestDDLBuilder_JSONBCheckPreservesConjoinedPredicates(t *testing.T) {
 	_, err = pgquery.Parse(statement.SQL)
 	require.NoError(t, err)
 }
+
+func TestDDLBuilder_ConstraintIndentation_InListWithLogicalContinuation(t *testing.T) {
+	t.Parallel()
+
+	constraint := schema.Constraint{
+		Name: "records_state_check",
+		Type: schema.ConstraintCheck,
+		Definition: `CHECK (state NOT IN (
+    'approved',
+    'rejected',
+    'archived'
+)
+OR decided_at IS NOT NULL)`,
+	}
+	table := schema.Table{
+		Schema: "reporting",
+		Name:   "records",
+		Columns: []schema.Column{
+			{Name: "state", DataType: "text", IsNullable: false, Position: 1},
+			{Name: "decided_at", DataType: "timestamptz", IsNullable: true, Position: 2},
+		},
+		Constraints: []schema.Constraint{constraint},
+	}
+	result := &differ.DiffResult{
+		Current: &schema.Database{},
+		Desired: &schema.Database{Tables: []schema.Table{table}},
+		Changes: []differ.Change{{
+			Type:       differ.ChangeTypeAddTable,
+			ObjectName: differ.TableKey(table.Schema, table.Name),
+		}},
+	}
+
+	statement, err := generator.NewDDLBuilder(result, true).BuildUpStatement(result.Changes[0])
+	require.NoError(t, err)
+
+	expected := `CREATE TABLE reporting.records (
+    state TEXT NOT NULL,
+    decided_at TIMESTAMPTZ,
+    CONSTRAINT records_state_check CHECK (
+        state NOT IN (
+            'approved',
+            'rejected',
+            'archived'
+        )
+        OR decided_at IS NOT NULL
+    )
+);`
+	require.Equal(t, expected, statement.SQL)
+}
