@@ -12,7 +12,7 @@ import (
 	"github.com/accented-ai/pgtofu/internal/schema"
 )
 
-func TestAddViewWithComment(t *testing.T) {
+func TestAddViewDefinitionDoesNotEmbedNewComment(t *testing.T) {
 	t.Parallel()
 
 	view := &schema.View{
@@ -39,9 +39,8 @@ func TestAddViewWithComment(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Contains(t, stmt.SQL, "CREATE VIEW")
-	assert.Contains(t, stmt.SQL, "COMMENT ON VIEW public.active_users IS",
-		"ADD_VIEW should include COMMENT ON VIEW when view has a comment")
-	assert.Contains(t, stmt.SQL, "Shows only active users for monitoring")
+	assert.NotContains(t, stmt.SQL, "COMMENT ON VIEW",
+		"The separate view comment change should emit a new view comment")
 }
 
 func TestAddViewWrapsLongComment(t *testing.T) {
@@ -57,22 +56,23 @@ func TestAddViewWrapsLongComment(t *testing.T) {
 		Definition: "SELECT * FROM reporting.records",
 		Comment:    comment,
 	}
-	result := &differ.DiffResult{
-		Current: &schema.Database{},
-		Desired: &schema.Database{Views: []schema.View{view}},
-		Changes: []differ.Change{{
-			Type:       differ.ChangeTypeAddView,
-			ObjectName: differ.ViewKey(view.Schema, view.Name),
-		}},
-	}
-
-	statement, err := generator.NewDDLBuilder(result, true).BuildUpStatement(result.Changes[0])
+	result, err := differ.New(differ.DefaultOptions()).Compare(
+		&schema.Database{},
+		&schema.Database{Views: []schema.View{view}},
+	)
 	require.NoError(t, err)
 
-	assert.Contains(t, statement.SQL, "COMMENT ON VIEW reporting.current_records IS\n")
-	assert.Contains(t, statement.SQL, "owner''s reporting context")
+	generated, err := generator.New(testOptions()).Generate(result)
+	require.NoError(t, err)
+	require.Len(t, generated.Migrations, 1)
 
-	for line := range strings.SplitSeq(statement.SQL, "\n") {
+	content := generated.Migrations[0].UpFile.Content
+
+	assert.Equal(t, 1, strings.Count(content, "COMMENT ON VIEW reporting.current_records IS"))
+	assert.Contains(t, content, "COMMENT ON VIEW reporting.current_records IS\n")
+	assert.Contains(t, content, "owner''s reporting context")
+
+	for line := range strings.SplitSeq(content, "\n") {
 		assert.LessOrEqual(t, len(line), 80, "generated SQL line exceeds comment limit")
 	}
 }
@@ -205,6 +205,8 @@ func TestFullMigrationIncludesViewComment(t *testing.T) {
 	assert.Contains(t, upContent, "CREATE VIEW")
 	assert.Contains(t, upContent, "COMMENT ON VIEW public.active_users IS",
 		"Generated migration should include view comment")
+	assert.Equal(t, 1, strings.Count(upContent, "COMMENT ON VIEW public.active_users IS"),
+		"Generated migration should emit a new view comment exactly once")
 	assert.Contains(t, upContent, "Shows only active users for monitoring")
 	assert.Less(t,
 		strings.Index(upContent, "CREATE VIEW public.active_users"),

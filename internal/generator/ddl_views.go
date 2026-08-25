@@ -25,7 +25,10 @@ func (b *DDLBuilder) buildAddView(change differ.Change) (DDLStatement, error) {
 	var sb strings.Builder
 	appendStatement(&sb, definition)
 
-	if view.Comment != "" {
+	// New views have a separate comment change. A dependency-driven recreation
+	// needs to restore an unchanged comment because its drop removed it.
+	currentView := b.getView(change.ObjectName, b.result.Current)
+	if currentView != nil && currentView.Comment == view.Comment && view.Comment != "" {
 		commentSQL := buildCommentStatement(
 			"VIEW",
 			QualifiedName(view.Schema, view.Name),
