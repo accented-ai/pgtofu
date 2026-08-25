@@ -3,6 +3,7 @@ package generator_test
 import (
 	"testing"
 
+	pgquery "github.com/pganalyze/pg_query_go/v6"
 	"github.com/stretchr/testify/require"
 
 	"github.com/accented-ai/pgtofu/internal/differ"
@@ -475,4 +476,48 @@ func TestDDLBuilder_ConstraintIndentation_DownMigrationExtractedCheck(t *testing
 		"    CONSTRAINT items_item_ids_check CHECK ((CARDINALITY(item_ids) > 0))\n" +
 		");"
 	require.Equal(t, expected, stmt.SQL)
+}
+
+func TestDDLBuilder_JSONBCheckPreservesConjoinedPredicates(t *testing.T) {
+	t.Parallel()
+
+	constraint := schema.Constraint{
+		Name: "records_policy_check",
+		Type: schema.ConstraintCheck,
+		Definition: `CHECK (
+    JSONB_TYPEOF(policy) = 'object'
+    AND policy ->> 'version' = 'reporting_policy.v1'
+    AND policy -> 'enabled' = 'false'::JSONB
+    AND policy -> 'automatic' = 'true'::JSONB
+    AND policy ->> 'visibility' = 'internal'
+)`,
+	}
+	table := schema.Table{
+		Schema: "reporting",
+		Name:   "records",
+		Columns: []schema.Column{
+			{Name: "id", DataType: "uuid", IsNullable: false, Position: 1},
+			{Name: "policy", DataType: "jsonb", IsNullable: false, Position: 2},
+		},
+		Constraints: []schema.Constraint{constraint},
+	}
+	result := &differ.DiffResult{
+		Current: &schema.Database{},
+		Desired: &schema.Database{Tables: []schema.Table{table}},
+		Changes: []differ.Change{{
+			Type:       differ.ChangeTypeAddTable,
+			ObjectName: differ.TableKey(table.Schema, table.Name),
+		}},
+	}
+
+	statement, err := generator.NewDDLBuilder(result, true).BuildUpStatement(result.Changes[0])
+	require.NoError(t, err)
+	require.Contains(t, statement.SQL, "AND policy -> 'enabled' = 'false'")
+	require.Contains(t, statement.SQL, "AND policy -> 'automatic' = 'true'")
+	require.Contains(t, statement.SQL, "AND policy ->> 'visibility' = 'internal'")
+	require.NotContains(t, statement.SQL, "'FALSE'")
+	require.NotContains(t, statement.SQL, "'TRUE'")
+
+	_, err = pgquery.Parse(statement.SQL)
+	require.NoError(t, err)
 }

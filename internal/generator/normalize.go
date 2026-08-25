@@ -95,21 +95,33 @@ func NormalizeDataType(dataType string) string {
 }
 
 func normalizeBooleans(s string) string {
-	result := s
-
 	truePattern := regexp.MustCompile(`\btrue\b`)
 	falsePattern := regexp.MustCompile(`\bfalse\b`)
 
-	result = truePattern.ReplaceAllString(result, "TRUE")
-	result = falsePattern.ReplaceAllString(result, "FALSE")
+	return mapOutsideStringLiterals(s, func(segment string) string {
+		segment = truePattern.ReplaceAllString(segment, "TRUE")
+		segment = falsePattern.ReplaceAllString(segment, "FALSE")
 
-	return result
+		return segment
+	})
 }
 
 func normalizeTypeCasts(s string) string {
 	result := s
 
-	stringCastPattern := regexp.MustCompile(`('(?:[^']*|'')*')::[a-zA-Z_][a-zA-Z0-9_\s]*(?:\[\])?`)
+	stringCastPattern := regexp.MustCompile(
+		`(?i)('(?:[^']*|'')*')::\s*` +
+			`(?:` +
+			`timestamp\s+(?:with|without)\s+time\s+zone|` +
+			`time\s+(?:with|without)\s+time\s+zone|` +
+			`double\s+precision|character\s+varying|bit\s+varying|` +
+			`interval(?:\s+(?:year|month|day|hour|minute|second)` +
+			`(?:\s+to\s+(?:year|month|day|hour|minute|second))?)?|` +
+			`[a-z_][a-z0-9_]*(?:\s*\.\s*[a-z_][a-z0-9_]*)?` +
+			`)` +
+			`(?:\s*\(\s*\d+(?:\s*,\s*\d+)?\s*\))?` +
+			`(?:\s*\[\s*\])?`,
+	)
 	result = stringCastPattern.ReplaceAllString(result, "$1")
 
 	numericCastPattern := regexp.MustCompile(
