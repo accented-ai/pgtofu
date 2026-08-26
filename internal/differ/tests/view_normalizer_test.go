@@ -1,9 +1,11 @@
 package differ_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/accented-ai/pgtofu/internal/differ"
+	"github.com/accented-ai/pgtofu/internal/schema"
 )
 
 func TestNormalizeViewDefinitionMatchesPostgresFormatting(t *testing.T) {
@@ -228,6 +230,91 @@ UNION ALL
 `
 
 	assertNormalizedEqual(t, source, formatted)
+}
+
+func TestNormalizeViewDefinitionHandlesImplicitCaseDefaultsAndUnknownCasts(t *testing.T) {
+	t.Parallel()
+
+	source := `
+WITH record_dependency AS (
+    SELECT
+        record.id,
+        record.metadata,
+        CASE
+            WHEN policy.id IS NOT NULL
+                THEN reporting.digest(policy.attributes, record.policy_id)
+        END AS current_digest
+    FROM reporting.records AS record
+    LEFT JOIN reporting.policies AS policy
+        ON record.metadata #>> '{policy,id}' = policy.id::text
+), evaluated_records AS (
+    SELECT
+        record_dependency.id,
+        COALESCE(
+            record_dependency.metadata #>> '{policy,kind}' = 'signed_policy'
+                AND record_dependency.current_digest =
+                    record_dependency.metadata #>> '{policy,digest}',
+            FALSE
+        ) AS is_current
+    FROM record_dependency
+)
+SELECT
+    evaluated_records.id,
+    FALSE AS secondary_check_passed,
+    CASE
+        WHEN evaluated_records.is_current THEN
+            jsonb_build_object('status', 'ready', 'note', NULL)
+        ELSE jsonb_build_object('status', 'pending', 'note', NULL)
+    END AS status_payload
+FROM evaluated_records;
+`
+
+	stored := `
+ WITH record_dependency AS (
+         SELECT record.id,
+            record.metadata,
+                CASE
+                    WHEN policy.id IS NOT NULL THEN reporting.digest(policy.attributes, record.policy_id)
+                    ELSE NULL::text
+                END AS current_digest
+           FROM reporting.records record
+             LEFT JOIN reporting.policies policy
+               ON ((record.metadata #>> '{policy,id}'::text[]) = policy.id::text)
+        ), evaluated_records AS (
+         SELECT record_dependency.id,
+            COALESCE(((record_dependency.metadata
+              #>> '{policy,kind}'::text[]) = 'signed_policy'::text)
+              AND (record_dependency.current_digest =
+                (record_dependency.metadata
+                  #>> '{policy,digest}'::text[])), false) AS is_current
+           FROM record_dependency
+        )
+ SELECT evaluated_records.id,
+    false AS secondary_check_passed,
+        CASE
+            WHEN evaluated_records.is_current
+              THEN jsonb_build_object(
+                'status', 'ready', 'note', NULL::unknown)
+            ELSE jsonb_build_object('status', 'pending', 'note', NULL::unknown)
+        END AS status_payload
+   FROM evaluated_records;
+`
+
+	comparator := differ.NewViewComparator(differ.DefaultOptions())
+	if !comparator.AreEqual(
+		schema.View{Definition: source},
+		schema.View{Definition: stored},
+	) {
+		t.Fatal("view definitions should compare equal")
+	}
+
+	changedDefault := strings.Replace(stored, "ELSE NULL::text", "ELSE 'missing'::text", 1)
+	if comparator.AreEqual(
+		schema.View{Definition: source},
+		schema.View{Definition: changedDefault},
+	) {
+		t.Fatal("non-null CASE default must remain a semantic change")
+	}
 }
 
 func TestNormalizeViewDefinitionPreservesSetOperationSemantics(t *testing.T) {

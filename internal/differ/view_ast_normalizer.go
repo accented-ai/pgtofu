@@ -59,7 +59,8 @@ func canonicalPostgresMessageFields(message protoreflect.Message) string {
 
 	message.Range(func(field protoreflect.FieldDescriptor, value protoreflect.Value) bool {
 		name := string(field.Name())
-		if isPostgresLocationField(name) {
+		if isPostgresLocationField(name) ||
+			isImplicitPostgresCaseDefault(message, field, value) {
 			return true
 		}
 
@@ -77,7 +78,7 @@ func canonicalPostgresNode(node *pgquery.Node) string {
 		return "null"
 	}
 
-	if cast := node.GetTypeCast(); cast != nil && isIgnorableViewTypeCast(cast.GetTypeName()) {
+	if cast := node.GetTypeCast(); cast != nil && isIgnorableViewTypeCastNode(cast) {
 		return canonicalPostgresNode(cast.GetArg())
 	}
 
@@ -352,7 +353,7 @@ func postgresArrayElements(node *pgquery.Node) []*pgquery.Node {
 func unwrapIgnorableViewTypeCast(node *pgquery.Node) *pgquery.Node {
 	for node != nil {
 		cast := node.GetTypeCast()
-		if cast == nil || !isIgnorableViewTypeCast(cast.GetTypeName()) {
+		if cast == nil || !isIgnorableViewTypeCastNode(cast) {
 			return node
 		}
 
@@ -360,6 +361,50 @@ func unwrapIgnorableViewTypeCast(node *pgquery.Node) *pgquery.Node {
 	}
 
 	return nil
+}
+
+func isIgnorableViewTypeCastNode(cast *pgquery.TypeCast) bool {
+	if cast == nil {
+		return false
+	}
+
+	if isIgnorableViewTypeCast(cast.GetTypeName()) {
+		return true
+	}
+
+	return strings.EqualFold(
+		postgresNodeListLastString(cast.GetTypeName().GetNames()),
+		"unknown",
+	) && isPostgresNullNode(cast.GetArg())
+}
+
+func isImplicitPostgresCaseDefault(
+	message protoreflect.Message,
+	field protoreflect.FieldDescriptor,
+	value protoreflect.Value,
+) bool {
+	if field.Name() != "defresult" {
+		return false
+	}
+
+	if _, ok := message.Interface().(*pgquery.CaseExpr); !ok {
+		return false
+	}
+
+	node, ok := value.Message().Interface().(*pgquery.Node)
+
+	return ok && isPostgresNullNode(node)
+}
+
+func isPostgresNullNode(node *pgquery.Node) bool {
+	node = unwrapIgnorableViewTypeCast(node)
+	if node == nil {
+		return false
+	}
+
+	constant := node.GetAConst()
+
+	return constant != nil && constant.GetIsnull()
 }
 
 func isIgnorableViewTypeCast(typeName *pgquery.TypeName) bool {
