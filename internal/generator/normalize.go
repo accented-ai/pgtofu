@@ -14,6 +14,7 @@ func NormalizeSQL(sql string) string {
 	result = normalizeBooleans(result)
 	result = normalizeTypeCasts(result)
 	result = normalizeFunctionNames(result)
+	result = normalizeQuantifiedComparisonSpacing(result)
 
 	return result
 }
@@ -28,6 +29,7 @@ func NormalizeCheckConstraint(def string) string {
 	result = normalizeTypeCasts(result)
 	result = normalizeBooleans(result)
 	result = normalizeFunctionNames(result)
+	result = normalizeQuantifiedComparisonSpacing(result)
 
 	return result
 }
@@ -40,6 +42,7 @@ func NormalizeWhereClause(where string) string {
 	result := where
 	result = normalizeBooleans(result)
 	result = normalizeTypeCasts(result)
+	result = normalizeQuantifiedComparisonSpacing(result)
 
 	return result
 }
@@ -259,6 +262,21 @@ func normalizeFunctionNames(s string) string {
 	}
 
 	return result
+}
+
+func normalizeQuantifiedComparisonSpacing(s string) string {
+	quantifierPattern := regexp.MustCompile(`(?i)\b(?:any|all|some)\s+\(`)
+
+	return mapOutsideStringLiterals(s, func(segment string) string {
+		return quantifierPattern.ReplaceAllStringFunc(segment, func(match string) string {
+			parenIndex := strings.LastIndex(match, "(")
+			if parenIndex == -1 {
+				return match
+			}
+
+			return strings.ToUpper(strings.TrimSpace(match[:parenIndex])) + "("
+		})
+	})
 }
 
 func normalizeAnyArrayToIn(s string) string {

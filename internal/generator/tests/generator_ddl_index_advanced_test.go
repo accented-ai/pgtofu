@@ -747,6 +747,60 @@ func TestDDLBuilder_ModifyIndexDownMigration(t *testing.T) {
 	assert.NotContains(t, stmt.SQL, "INCLUDE")
 }
 
+func TestDDLBuilder_ModifyIndexDownMigrationFormatsQuantifiedComparison(t *testing.T) {
+	t.Parallel()
+
+	currentIndex := &schema.Index{
+		Schema:    schema.DefaultSchema,
+		Name:      "idx_jobs_active",
+		TableName: "jobs",
+		Columns:   []string{"created_at", "id"},
+		Type:      "btree",
+		Where:     "(state <> ALL (ARRAY['completed', 'cancelled']))",
+	}
+
+	desiredIndex := &schema.Index{
+		Schema:    schema.DefaultSchema,
+		Name:      "idx_jobs_active",
+		TableName: "jobs",
+		Columns:   []string{"created_at", "id"},
+		Type:      "btree",
+		Where:     "job_consumes_capacity(state)",
+	}
+
+	result := &differ.DiffResult{
+		Current: &schema.Database{
+			Tables: []schema.Table{{
+				Schema:  schema.DefaultSchema,
+				Name:    "jobs",
+				Indexes: []schema.Index{*currentIndex},
+			}},
+		},
+		Desired: &schema.Database{
+			Tables: []schema.Table{{
+				Schema:  schema.DefaultSchema,
+				Name:    "jobs",
+				Indexes: []schema.Index{*desiredIndex},
+			}},
+		},
+		Changes: []differ.Change{{
+			Type:       differ.ChangeTypeModifyIndex,
+			ObjectName: fmt.Sprintf("%s.%s", currentIndex.Schema, currentIndex.Name),
+			Details: map[string]any{
+				"current": currentIndex,
+				"desired": desiredIndex,
+			},
+		}},
+	}
+
+	builder := generator.NewDDLBuilder(result, true)
+	stmt, err := builder.BuildDownStatement(result.Changes[0])
+
+	require.NoError(t, err)
+	assert.Contains(t, stmt.SQL, "WHERE (state <> ALL(ARRAY['completed', 'cancelled']))")
+	assert.NotContains(t, stmt.SQL, "ALL (")
+}
+
 func indexOf(s, substr string) int {
 	for i := 0; i <= len(s)-len(substr); i++ {
 		if s[i:i+len(substr)] == substr {
