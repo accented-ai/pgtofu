@@ -46,3 +46,14 @@ func TestNormalizeWhereClause_QuantifiedComparisonSpacing(t *testing.T) {
 		})
 	}
 }
+
+func TestNormalizeCheckConstraint_BtrimFunctionName(t *testing.T) {
+	t.Parallel()
+
+	constraint := "CHECK (btrim(label) <> '' AND note <> 'btrim(label)' " +
+		"AND \"btrim\" <> '')"
+	want := "CHECK (BTRIM(label) <> '' AND note <> 'btrim(label)' " +
+		"AND \"btrim\" <> '')"
+
+	assert.Equal(t, want, generator.NormalizeCheckConstraint(constraint))
+}

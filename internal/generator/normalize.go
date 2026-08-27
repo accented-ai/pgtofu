@@ -211,8 +211,6 @@ func mapOutsideStringLiterals(s string, fn func(string) string) string {
 }
 
 func normalizeFunctionNames(s string) string {
-	result := s
-
 	functions := []string{
 		"uuid_generate_v4",
 		"uuid_generate_v1",
@@ -233,6 +231,7 @@ func normalizeFunctionNames(s string) string {
 		"nullif",
 		"greatest",
 		"least",
+		"btrim",
 		"array_agg",
 		"string_agg",
 		"json_agg",
@@ -247,10 +246,17 @@ func normalizeFunctionNames(s string) string {
 		"max",
 	}
 
-	for _, fn := range functions {
-		pattern := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(fn) + `\s*\(`)
+	escapedFunctions := make([]string, len(functions))
+	for i, fn := range functions {
+		escapedFunctions[i] = regexp.QuoteMeta(fn)
+	}
 
-		result = pattern.ReplaceAllStringFunc(result, func(match string) string {
+	pattern := regexp.MustCompile(
+		`(?i)\b(?:` + strings.Join(escapedFunctions, "|") + `)\s*\(`,
+	)
+
+	return mapOutsideStringLiterals(s, func(segment string) string {
+		return pattern.ReplaceAllStringFunc(segment, func(match string) string {
 			// Find where the paren is and uppercase everything before it
 			parenIdx := strings.Index(match, "(")
 			if parenIdx == -1 {
@@ -259,9 +265,7 @@ func normalizeFunctionNames(s string) string {
 
 			return strings.ToUpper(strings.TrimSpace(match[:parenIdx])) + "("
 		})
-	}
-
-	return result
+	})
 }
 
 func normalizeQuantifiedComparisonSpacing(s string) string {
