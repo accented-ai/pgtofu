@@ -473,6 +473,8 @@ func TestDownSkipsTableAndColumnCommentWhenDroppingTable(t *testing.T) {
 	if !strings.Contains(out, "DROP TABLE") {
 		t.Fatalf("down migration should drop the table; got:\n%s", out)
 	}
+
+	assert.NotContains(t, out, "CASCADE")
 }
 
 func TestDDLBuilder_Indentation(t *testing.T) {
@@ -1028,6 +1030,7 @@ func TestDDLBuilder_DropTableDownMigration(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, upStmt.SQL, "DROP TABLE")
 	assert.Contains(t, upStmt.SQL, "app.favorites")
+	assert.NotContains(t, upStmt.SQL, "CASCADE")
 	assert.True(t, upStmt.IsUnsafe)
 
 	downStmt, err := builder.BuildDownStatement(result.Changes[0])

@@ -234,6 +234,12 @@ func TestGeneratorFunctionsBeforeTriggers(t *testing.T) {
 				Columns: []schema.Column{
 					{Name: "id", DataType: "bigint", IsNullable: false, Position: 1},
 				},
+				Indexes: []schema.Index{{
+					Schema:    schema.DefaultSchema,
+					Name:      "idx_items_id",
+					TableName: "items",
+					Columns:   []string{"id"},
+				}},
 			},
 		},
 		Functions: []schema.Function{
@@ -273,6 +279,7 @@ func TestGeneratorFunctionsBeforeTriggers(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, genResult.Migrations)
 	require.NotNil(t, genResult.Migrations[0].UpFile)
+	require.NotNil(t, genResult.Migrations[0].DownFile)
 
 	upSQL := genResult.Migrations[0].UpFile.Content
 	upperSQL := strings.ToUpper(upSQL)
@@ -282,6 +289,20 @@ func TestGeneratorFunctionsBeforeTriggers(t *testing.T) {
 	require.GreaterOrEqual(t, functionPos, 0, "function statement not found")
 	require.GreaterOrEqual(t, triggerPos, 0, "trigger statement not found")
 	assert.Less(t, functionPos, triggerPos, "function should be created before trigger")
+
+	downSQL := genResult.Migrations[0].DownFile.Content
+	dropTriggerPos := strings.Index(downSQL, "DROP TRIGGER IF EXISTS items_notify")
+	dropIndexPos := strings.Index(downSQL, "DROP INDEX IF EXISTS public.idx_items_id")
+	dropTablePos := strings.Index(downSQL, "DROP TABLE IF EXISTS public.items")
+
+	require.GreaterOrEqual(t, dropTriggerPos, 0, "trigger drop statement not found")
+	require.GreaterOrEqual(t, dropIndexPos, 0, "index drop statement not found")
+	require.GreaterOrEqual(t, dropTablePos, 0, "table drop statement not found")
+	assert.Less(t, dropTriggerPos, dropTablePos,
+		"a table trigger should be dropped before its table")
+	assert.Less(t, dropIndexPos, dropTablePos,
+		"a table index should be dropped before its table")
+	assert.NotContains(t, downSQL, "CASCADE")
 }
 
 func TestGeneratorFunctionsBeforeExpressionIndexes(t *testing.T) {

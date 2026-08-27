@@ -52,7 +52,9 @@ func (b *DDLBuilder) buildDropTableForDown(change differ.Change) (DDLStatement, 
 		return DDLStatement{}, fmt.Errorf("table not found: %s", change.ObjectName)
 	}
 
-	sql := fmt.Sprintf("DROP TABLE %s%s CASCADE;",
+	// PostgreSQL defaults to RESTRICT. Unexpected external dependencies should
+	// abort the rollback rather than be removed implicitly.
+	sql := fmt.Sprintf("DROP TABLE %s%s;",
 		b.ifExists(), QualifiedName(table.Schema, table.Name))
 
 	return DDLStatement{

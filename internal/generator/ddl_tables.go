@@ -61,7 +61,9 @@ func (b *DDLBuilder) buildDropTable(change differ.Change) (DDLStatement, error) 
 		)
 	}
 
-	sql := fmt.Sprintf("DROP TABLE %s%s CASCADE;",
+	// PostgreSQL defaults to RESTRICT. Known dependencies should be emitted as
+	// explicit changes; unknown dependencies should abort instead of cascading.
+	sql := fmt.Sprintf("DROP TABLE %s%s;",
 		b.ifExists(), QualifiedName(table.Schema, table.Name))
 
 	return DDLStatement{

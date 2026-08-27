@@ -220,7 +220,6 @@ func TestDDLBuilder_TriggerOperations(t *testing.T) {
 				"IF EXISTS",
 				"old_trigger",
 				"ON public.users",
-				"CASCADE",
 			},
 			wantUnsafe:     true,
 			wantRequiresTx: true,
@@ -243,7 +242,6 @@ func TestDDLBuilder_TriggerOperations(t *testing.T) {
 				"IF EXISTS",
 				"schema_trigger",
 				"ON app.users",
-				"CASCADE",
 			},
 			wantUnsafe:     true,
 			wantRequiresTx: true,
@@ -281,6 +279,7 @@ func TestDDLBuilder_TriggerOperations(t *testing.T) {
 				assert.Contains(t, stmt.SQL, want)
 			}
 
+			assert.NotContains(t, stmt.SQL, "CASCADE")
 			assert.Equal(t, tt.wantUnsafe, stmt.IsUnsafe)
 			assert.Equal(t, tt.wantRequiresTx, stmt.RequiresTx)
 		})
@@ -466,6 +465,7 @@ func TestDDLBuilder_TriggerDownMigration(t *testing.T) {
 	assert.Contains(t, stmt.SQL, "DROP TRIGGER")
 	assert.Contains(t, stmt.SQL, "IF EXISTS")
 	assert.Contains(t, stmt.SQL, "reverted_trigger")
+	assert.NotContains(t, stmt.SQL, "CASCADE")
 }
 
 func TestDDLBuilder_TriggerWithQuotedName(t *testing.T) {

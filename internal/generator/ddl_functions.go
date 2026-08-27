@@ -271,7 +271,9 @@ func (b *DDLBuilder) buildDropTrigger(change differ.Change) (DDLStatement, error
 		}
 	}
 
-	sql := fmt.Sprintf("DROP TRIGGER %s%s ON %s CASCADE;",
+	// PostgreSQL defaults to RESTRICT. Do not silently remove an unexpected
+	// object that depends on this trigger.
+	sql := fmt.Sprintf("DROP TRIGGER %s%s ON %s;",
 		b.ifExists(),
 		QuoteIdentifier(trigger.Name),
 		QualifiedName(trigger.Schema, trigger.TableName))
