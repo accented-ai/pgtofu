@@ -303,7 +303,7 @@ func TestViewFormattingIndentsMultilineCaseResultsAndJSONPathCast(t *testing.T) 
     CASE
         WHEN record.status = 'rejected' THEN JSONB_BUILD_OBJECT(
             'outcome', 'blocked',
-            'confidence', record.confidence
+            'confidence', NULL::unknown
         )
         WHEN record.status = 'approved' THEN JSONB_BUILD_OBJECT(
             'outcome', 'ready',
@@ -335,7 +335,7 @@ FROM reporting.records AS record`,
                 'outcome',
                 'blocked',
                 'confidence',
-                record.confidence
+                NULL::UNKNOWN
             )
         WHEN record.status = 'approved'
             THEN JSONB_BUILD_OBJECT(
@@ -348,4 +348,5 @@ FROM reporting.records AS record`,
     END AS decision`)
 	assert.Contains(t, statement.SQL, `'$?(@."confidence" >= 0.80)'::JSONPATH`)
 	assert.NotContains(t, statement.SQL, "::jsonpath")
+	assert.NotContains(t, statement.SQL, "::unknown")
 }

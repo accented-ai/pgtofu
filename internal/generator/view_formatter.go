@@ -734,7 +734,7 @@ func isBuiltinViewType(value string) bool {
 		"regnamespace", "regoper", "regoperator", "regproc", "regprocedure", "regrole",
 		"regtype", "serial", "serial2", "serial4", "serial8", "smallint",
 		"smallserial", "text", "time", "timestamp", "timetz", "timestamptz",
-		"trigger", "tsquery", "tsvector", "txid_snapshot", "uuid", "varbit",
+		"trigger", "tsquery", "tsvector", "txid_snapshot", "unknown", "uuid", "varbit",
 		"varchar", "void", "xid", "xid8", "xml":
 		return true
 	default:
