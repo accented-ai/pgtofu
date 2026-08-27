@@ -250,3 +250,44 @@ WHERE
     );`
 	require.Equal(t, expected, statement.SQL)
 }
+
+func TestViewFormattingOrdersJoinConditionRelations(t *testing.T) {
+	t.Parallel()
+
+	view := schema.View{
+		Schema: "reporting",
+		Name:   "record_ownership",
+		Definition: `SELECT record.id, owner.id AS owner_id, score.value
+FROM reporting.records AS record
+INNER JOIN reporting.owners AS owner
+    ON owner.id = record.owner_id
+    AND owner.tenant_id = record.tenant_id
+    AND owner.region IS NOT DISTINCT FROM record.region
+LEFT JOIN reporting.scores AS score
+    ON score.record_id = record.id
+    AND score.maximum_value < record.minimum_score`,
+	}
+	result := &differ.DiffResult{
+		Current: &schema.Database{},
+		Desired: &schema.Database{Views: []schema.View{view}},
+		Changes: []differ.Change{{
+			Type:       differ.ChangeTypeAddView,
+			ObjectName: differ.ViewKey(view.Schema, view.Name),
+		}},
+	}
+
+	statement, err := generator.NewDDLBuilder(result, true).BuildUpStatement(result.Changes[0])
+	require.NoError(t, err)
+
+	assert.Contains(t, statement.SQL, `INNER JOIN reporting.owners AS owner
+    ON
+        record.owner_id = owner.id
+        AND record.tenant_id = owner.tenant_id
+        AND record.region IS NOT DISTINCT FROM owner.region`)
+	assert.Contains(t, statement.SQL, `LEFT JOIN reporting.scores AS score
+    ON
+        record.id = score.record_id
+        AND record.minimum_score > score.maximum_value`)
+	assert.NotContains(t, statement.SQL, "owner.id = record.owner_id")
+	assert.NotContains(t, statement.SQL, "score.maximum_value < record.minimum_score")
+}

@@ -47,6 +47,7 @@ inhparent
 inhrelid
 isready
 jackc
+Larg
 Lexpr
 metricsIndex
 Mintlify
@@ -71,6 +72,8 @@ pmezard
 PostGIS
 PostgREST
 proisstrict
+Quals
+Rarg
 relam
 relispopulated
 Rexpr

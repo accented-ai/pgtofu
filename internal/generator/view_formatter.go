@@ -40,6 +40,8 @@ func formatViewQuery(query string) (string, error) {
 		return "", fmt.Errorf("parse view query: %w", err)
 	}
 
+	normalizeViewJoinConditionOrder(tree)
+
 	canonical, err := wasmquery.Deparse(tree)
 	if err != nil {
 		return "", fmt.Errorf("deparse view query: %w", err)

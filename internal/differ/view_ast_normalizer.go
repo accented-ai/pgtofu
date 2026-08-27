@@ -313,8 +313,48 @@ func canonicalPostgresBoolean(operator string, arguments ...string) string {
 }
 
 func canonicalPostgresComparison(operator string, left, right *pgquery.Node) string {
+	leftValue := canonicalPostgresNode(left)
+	rightValue := canonicalPostgresNode(right)
+
+	if reversedOperator, ok := reversedPostgresComparisonOperator(operator); ok &&
+		isQualifiedPostgresColumnReference(left) &&
+		isQualifiedPostgresColumnReference(right) &&
+		rightValue < leftValue {
+		operator = reversedOperator
+		leftValue, rightValue = rightValue, leftValue
+	}
+
 	return "comparison(" + strconv.Quote(operator) + "," +
-		canonicalPostgresNode(left) + "," + canonicalPostgresNode(right) + ")"
+		leftValue + "," + rightValue + ")"
+}
+
+func isQualifiedPostgresColumnReference(node *pgquery.Node) bool {
+	column := node.GetColumnRef()
+	if column == nil || len(column.GetFields()) < 2 {
+		return false
+	}
+
+	fields := column.GetFields()
+
+	return fields[len(fields)-2].GetString_() != nil &&
+		fields[len(fields)-1].GetString_() != nil
+}
+
+func reversedPostgresComparisonOperator(operator string) (string, bool) {
+	switch operator {
+	case "=", "!=", "is distinct from", "is not distinct from":
+		return operator, true
+	case "<":
+		return ">", true
+	case ">":
+		return "<", true
+	case "<=":
+		return ">=", true
+	case ">=":
+		return "<=", true
+	default:
+		return "", false
+	}
 }
 
 func canonicalPostgresSimilar(expression *pgquery.A_Expr, operator string) string {

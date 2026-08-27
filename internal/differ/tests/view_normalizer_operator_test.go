@@ -209,6 +209,56 @@ func TestNormalizeViewDefinitionKeepsDistinctOperatorsDifferent(t *testing.T) {
 			))
 		})
 	}
+
+	comparator := differ.NewViewComparator(differ.DefaultOptions())
+	assert.False(t, comparator.AreEqual(
+		schema.View{Definition: "SELECT left_record.minimum_score > right_record.maximum_score " +
+			"FROM left_record, right_record"},
+		schema.View{Definition: "SELECT right_record.maximum_score > left_record.minimum_score " +
+			"FROM left_record, right_record"},
+	))
+}
+
+func TestNormalizeViewDefinitionRecognizesReversedComparisons(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		original string
+		reversed string
+	}{
+		{
+			name:     "equality",
+			original: "SELECT left_record.id = right_record.left_id FROM left_record, right_record",
+			reversed: "SELECT right_record.left_id = left_record.id FROM left_record, right_record",
+		},
+		{
+			name: "inequality",
+			original: "SELECT left_record.minimum_score > right_record.maximum_value " +
+				"FROM left_record, right_record",
+			reversed: "SELECT right_record.maximum_value < left_record.minimum_score " +
+				"FROM left_record, right_record",
+		},
+		{
+			name: "not distinct",
+			original: "SELECT left_record.region IS NOT DISTINCT FROM right_record.region " +
+				"FROM left_record, right_record",
+			reversed: "SELECT right_record.region IS NOT DISTINCT FROM left_record.region " +
+				"FROM left_record, right_record",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			comparator := differ.NewViewComparator(differ.DefaultOptions())
+			assert.True(t, comparator.AreEqual(
+				schema.View{Definition: tt.original},
+				schema.View{Definition: tt.reversed},
+			))
+		})
+	}
 }
 
 func TestPostgresOperatorRewritesApplyToAllStoredQueryObjects(t *testing.T) {
