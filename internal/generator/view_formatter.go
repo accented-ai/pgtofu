@@ -74,6 +74,11 @@ func formatViewQuery(query string) (string, error) {
 		return "", fmt.Errorf("format multiline CASE condition: %w", err)
 	}
 
+	formatted, err = formatMultilineCaseResults(formatted)
+	if err != nil {
+		return "", fmt.Errorf("format multiline CASE result: %w", err)
+	}
+
 	formatted, err = formatViewQueryLayout(formatted)
 	if err != nil {
 		return "", fmt.Errorf("format view query layout: %w", err)
@@ -252,6 +257,23 @@ type viewCaseCondition struct {
 	thenOffset int
 }
 
+type viewCaseResultFrame struct {
+	whenOffset int
+	thenOffset int
+}
+
+type viewCaseResult struct {
+	whenOffset int
+	thenOffset int
+	endOffset  int
+}
+
+type viewCaseResultLayout struct {
+	thenColumn int
+	thenEnd    int
+	thenIndent string
+}
+
 func formatMultilineCaseConditions(query string) (string, error) {
 	tokens, err := parser.NewLexer(query).Tokenize()
 	if err != nil {
@@ -355,6 +377,136 @@ func collectMultilineCaseConditions(tokens []parser.Token) []viewCaseCondition {
 	}
 
 	return conditions
+}
+
+func formatMultilineCaseResults(query string) (string, error) {
+	tokens, err := parser.NewLexer(query).Tokenize()
+	if err != nil {
+		return "", fmt.Errorf("tokenize formatted view query: %w", err)
+	}
+
+	results := collectMultilineCaseResults(tokens)
+	if len(results) == 0 {
+		return query, nil
+	}
+
+	lines := strings.Split(query, "\n")
+	lineStarts := viewQueryLineStarts(query)
+	indentAdds := make([]int, len(lines))
+	layoutByLine := make(map[int]viewCaseResultLayout, len(results))
+
+	for _, result := range results {
+		whenLine := viewQueryLineAt(lineStarts, result.whenOffset)
+		thenLine := viewQueryLineAt(lineStarts, result.thenOffset)
+
+		endLine := viewQueryLineAt(lineStarts, result.endOffset)
+		if whenLine >= len(lines) || thenLine >= len(lines) || endLine <= thenLine {
+			continue
+		}
+
+		thenColumn := result.thenOffset - lineStarts[thenLine]
+
+		thenEnd := thenColumn + len("THEN")
+		if thenEnd > len(lines[thenLine]) ||
+			strings.TrimSpace(lines[thenLine][:thenColumn]) == "" ||
+			strings.TrimSpace(lines[thenLine][thenEnd:]) == "" {
+			continue
+		}
+
+		layoutByLine[thenLine] = viewCaseResultLayout{
+			thenColumn: thenColumn,
+			thenEnd:    thenEnd,
+			thenIndent: leadingViewWhitespace(lines[whenLine]) + viewLayoutIndent,
+		}
+
+		for line := thenLine + 1; line <= endLine && line < len(lines); line++ {
+			indentAdds[line]++
+		}
+	}
+
+	if len(layoutByLine) == 0 {
+		return query, nil
+	}
+
+	var output strings.Builder
+
+	for lineIndex, line := range lines {
+		if lineIndex > 0 {
+			output.WriteByte('\n')
+		}
+
+		extraIndent := strings.Repeat(viewLayoutIndent, indentAdds[lineIndex])
+
+		layout, ok := layoutByLine[lineIndex]
+		if !ok {
+			output.WriteString(extraIndent)
+			output.WriteString(line)
+
+			continue
+		}
+
+		output.WriteString(extraIndent)
+		output.WriteString(strings.TrimRight(line[:layout.thenColumn], " \t"))
+		output.WriteByte('\n')
+		output.WriteString(extraIndent)
+		output.WriteString(layout.thenIndent)
+		output.WriteString("THEN ")
+		output.WriteString(strings.TrimSpace(line[layout.thenEnd:]))
+	}
+
+	return output.String(), nil
+}
+
+func collectMultilineCaseResults(tokens []parser.Token) []viewCaseResult {
+	frames := make([]viewCaseResultFrame, 0)
+	results := make([]viewCaseResult, 0)
+	lastOffset := -1
+
+	closeResult := func(frame *viewCaseResultFrame) {
+		if frame.whenOffset >= 0 && frame.thenOffset >= 0 && lastOffset >= frame.thenOffset {
+			results = append(results, viewCaseResult{
+				whenOffset: frame.whenOffset,
+				thenOffset: frame.thenOffset,
+				endOffset:  lastOffset,
+			})
+		}
+
+		frame.thenOffset = -1
+	}
+
+	for _, token := range tokens {
+		upper := strings.ToUpper(token.Literal)
+
+		switch upper {
+		case "CASE":
+			frames = append(frames, viewCaseResultFrame{whenOffset: -1, thenOffset: -1})
+		case "WHEN":
+			if len(frames) > 0 {
+				frame := &frames[len(frames)-1]
+				closeResult(frame)
+				frame.whenOffset = token.Start
+			}
+		case "THEN":
+			if len(frames) > 0 {
+				frames[len(frames)-1].thenOffset = token.Start
+			}
+		case "ELSE":
+			if len(frames) > 0 {
+				closeResult(&frames[len(frames)-1])
+			}
+		case "END":
+			if len(frames) > 0 {
+				closeResult(&frames[len(frames)-1])
+				frames = frames[:len(frames)-1]
+			}
+		}
+
+		if token.Type != parser.TokenEOF && token.Type != parser.TokenComment {
+			lastOffset = token.Start
+		}
+	}
+
+	return results
 }
 
 func viewQueryLineStarts(query string) []int {
@@ -576,7 +728,7 @@ func isBuiltinViewType(value string) bool {
 		"bool", "boolean", "box", "bpchar", "bytea", "char", "character", "cid",
 		"cidr", "circle", "cstring", "date", "decimal", "double", "float4",
 		"float8", "inet", "int", "int2", "int4", "int8", "integer", "internal",
-		"interval", "json", "jsonb", "line", "lseg", "macaddr", "macaddr8",
+		"interval", "json", "jsonb", "jsonpath", "line", "lseg", "macaddr", "macaddr8",
 		"money", "name", "numeric", "oid", "path", "pg_lsn", "point", "polygon",
 		"real", "record", "regclass", "regcollation", "regconfig", "regdictionary",
 		"regnamespace", "regoper", "regoperator", "regproc", "regprocedure", "regrole",

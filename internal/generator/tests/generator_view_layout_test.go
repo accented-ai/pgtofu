@@ -291,3 +291,61 @@ LEFT JOIN reporting.scores AS score
 	assert.NotContains(t, statement.SQL, "owner.id = record.owner_id")
 	assert.NotContains(t, statement.SQL, "score.maximum_value < record.minimum_score")
 }
+
+func TestViewFormattingIndentsMultilineCaseResultsAndJSONPathCast(t *testing.T) {
+	t.Parallel()
+
+	view := schema.View{
+		Schema: "reporting",
+		Name:   "record_decisions",
+		Definition: `SELECT
+    record.id,
+    CASE
+        WHEN record.status = 'rejected' THEN JSONB_BUILD_OBJECT(
+            'outcome', 'blocked',
+            'confidence', record.confidence
+        )
+        WHEN record.status = 'approved' THEN JSONB_BUILD_OBJECT(
+            'outcome', 'ready',
+            'confidence', record.confidence
+        )
+        ELSE '{}'::JSONB
+    END AS decision,
+    JSONB_PATH_EXISTS(
+        record.evidence,
+        '$?(@."confidence" >= 0.80)'::jsonpath
+    ) AS has_confident_evidence
+FROM reporting.records AS record`,
+	}
+	result := &differ.DiffResult{
+		Current: &schema.Database{},
+		Desired: &schema.Database{Views: []schema.View{view}},
+		Changes: []differ.Change{{
+			Type:       differ.ChangeTypeAddView,
+			ObjectName: differ.ViewKey(view.Schema, view.Name),
+		}},
+	}
+
+	statement, err := generator.NewDDLBuilder(result, true).BuildUpStatement(result.Changes[0])
+	require.NoError(t, err)
+
+	assert.Contains(t, statement.SQL, `CASE
+        WHEN record.status = 'rejected'
+            THEN JSONB_BUILD_OBJECT(
+                'outcome',
+                'blocked',
+                'confidence',
+                record.confidence
+            )
+        WHEN record.status = 'approved'
+            THEN JSONB_BUILD_OBJECT(
+                'outcome',
+                'ready',
+                'confidence',
+                record.confidence
+            )
+        ELSE '{}'::JSONB
+    END AS decision`)
+	assert.Contains(t, statement.SQL, `'$?(@."confidence" >= 0.80)'::JSONPATH`)
+	assert.NotContains(t, statement.SQL, "::jsonpath")
+}
