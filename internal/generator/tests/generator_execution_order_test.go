@@ -331,6 +331,7 @@ func TestGeneratorFunctionsBeforeExpressionIndexes(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, genResult.Migrations, 1)
 	require.NotNil(t, genResult.Migrations[0].UpFile)
+	require.NotNil(t, genResult.Migrations[0].DownFile)
 
 	upSQL := genResult.Migrations[0].UpFile.Content
 	functionPosition := strings.Index(upSQL,
@@ -342,6 +343,22 @@ func TestGeneratorFunctionsBeforeExpressionIndexes(t *testing.T) {
 	require.GreaterOrEqual(t, indexPosition, 0, "index statement not found")
 	require.Less(t, functionPosition, indexPosition,
 		"a function must be created before an expression index that calls it")
+
+	downSQL := genResult.Migrations[0].DownFile.Content
+	dropIndexPosition := strings.Index(
+		downSQL,
+		"DROP INDEX IF EXISTS search.idx_documents_search_trgm",
+	)
+	dropFunctionPosition := strings.Index(
+		downSQL,
+		"DROP FUNCTION IF EXISTS search.build_search_document",
+	)
+
+	require.GreaterOrEqual(t, dropIndexPosition, 0, "index drop statement not found")
+	require.GreaterOrEqual(t, dropFunctionPosition, 0, "function drop statement not found")
+	require.Less(t, dropIndexPosition, dropFunctionPosition,
+		"a referencing index must be dropped before its function")
+	assert.NotContains(t, downSQL, "CASCADE")
 }
 
 func TestGeneratorFunctionsBeforeReferencingCheckConstraints(t *testing.T) {

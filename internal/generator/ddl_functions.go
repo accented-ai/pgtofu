@@ -44,7 +44,9 @@ func (b *DDLBuilder) buildDropFunction(change differ.Change) (DDLStatement, erro
 		argTypes = "(" + strings.Join(formatFunctionDataTypes(fn.ArgumentTypes), ", ") + ")"
 	}
 
-	sql := fmt.Sprintf("DROP FUNCTION %s%s%s CASCADE;",
+	// PostgreSQL defaults to RESTRICT. If a dependency was not explicitly
+	// reversed, fail the migration instead of silently dropping that object.
+	sql := fmt.Sprintf("DROP FUNCTION %s%s%s;",
 		b.ifExists(),
 		QualifiedName(fn.Schema, fn.Name),
 		argTypes)

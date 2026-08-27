@@ -178,7 +178,6 @@ func TestDDLBuilder_FunctionOperations(t *testing.T) { //nolint:maintidx
 				"DROP FUNCTION",
 				"IF EXISTS",
 				"public.old_function",
-				"CASCADE",
 			},
 			wantUnsafe:     true,
 			wantRequiresTx: true,
@@ -290,6 +289,10 @@ func TestDDLBuilder_FunctionOperations(t *testing.T) { //nolint:maintidx
 
 			for _, want := range tt.wantSQL {
 				assert.Contains(t, stmt.SQL, want)
+			}
+
+			if tt.changeType == differ.ChangeTypeDropFunction {
+				assert.NotContains(t, stmt.SQL, "CASCADE")
 			}
 
 			assert.Equal(t, tt.wantUnsafe, stmt.IsUnsafe)
@@ -834,6 +837,7 @@ func TestDDLBuilder_FunctionDownForAddedFunction(t *testing.T) {
 	assert.Contains(t, stmt.SQL, "DROP FUNCTION")
 	assert.Contains(t, stmt.SQL, "IF EXISTS")
 	assert.Contains(t, stmt.SQL, fn.Name)
+	assert.NotContains(t, stmt.SQL, "CASCADE")
 }
 
 func TestDDLBuilder_FunctionRevertNewComment(t *testing.T) {
