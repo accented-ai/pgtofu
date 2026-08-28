@@ -15,13 +15,17 @@ COPY . .
 ARG VERSION=unknown
 ARG COMMIT=unknown
 ARG BUILD_TIME=unknown
+ARG TARGETOS
+ARG TARGETARCH
 
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+RUN CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" go build \
     -ldflags="-w -s -X 'main.version=${VERSION}' -X 'main.commit=${COMMIT}' -X 'main.buildTime=${BUILD_TIME}'" \
     -o pgtofu \
     ./cmd/pgtofu
 
-RUN go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@${MIGRATE_VERSION}
+RUN CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" go install \
+    -tags 'postgres' \
+    github.com/golang-migrate/migrate/v4/cmd/migrate@${MIGRATE_VERSION}
 
 FROM alpine:3.20
 
@@ -33,6 +37,8 @@ WORKDIR /app
 
 COPY --from=builder /build/pgtofu /usr/local/bin/pgtofu
 COPY --from=builder /go/bin/migrate /usr/local/bin/migrate
+
+RUN pgtofu version && migrate -version
 
 USER pgtofu
 
