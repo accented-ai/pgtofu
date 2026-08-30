@@ -387,12 +387,19 @@ func (n *sqlNormalizer) matchSetOperator() bool {
 }
 
 func (n *sqlNormalizer) expandCTEWildcards(stmt map[string]any) {
-	ctes, ok := stmt["with"].([]map[string]any)
-	if !ok {
-		return
+	n.expandCTEWildcardsWithScope(stmt, nil)
+}
+
+func (n *sqlNormalizer) expandCTEWildcardsWithScope(
+	stmt map[string]any,
+	visibleColumns map[string][]string,
+) {
+	columnsByCTE := maps.Clone(visibleColumns)
+	if columnsByCTE == nil {
+		columnsByCTE = make(map[string][]string)
 	}
 
-	columnsByCTE := make(map[string][]string, len(ctes))
+	ctes, _ := stmt["with"].([]map[string]any)
 	for _, cte := range ctes {
 		name, nameOK := cte["name"].(string)
 
@@ -401,11 +408,17 @@ func (n *sqlNormalizer) expandCTEWildcards(stmt map[string]any) {
 			continue
 		}
 
+		n.expandCTEWildcardsWithScope(cteStmt, columnsByCTE)
+
 		if columns := selectOutputNames(cteStmt); len(columns) > 0 {
 			columnsByCTE[name] = columns
 		}
 	}
 
+	expandStatementCTEWildcards(stmt, columnsByCTE)
+}
+
+func expandStatementCTEWildcards(stmt map[string]any, columnsByCTE map[string][]string) {
 	expandQueryTermCTEWildcard(stmt, columnsByCTE)
 
 	setOperations, _ := stmt["set_operations"].([]map[string]any)
@@ -813,7 +826,9 @@ func (n *sqlNormalizer) parseExpression(stopAtComma bool) map[string]any {
 		}
 
 		literal := n.normalizeTokenLiteral(tok)
-		parts = append(parts, literal)
+		if literal != "" {
+			parts = append(parts, literal)
+		}
 
 		n.advance()
 	}
@@ -868,6 +883,17 @@ func (n *sqlNormalizer) parseSubquery(outerParenDepth int) string {
 }
 
 func (n *sqlNormalizer) normalizeTokenLiteral(tok parser.Token) string {
+	if tok.Type == parser.TokenIdentifier || tok.Type == parser.TokenKeyword {
+		switch strings.ToUpper(tok.Literal) {
+		case "ASC":
+			return ""
+		case "TRUE":
+			return "'t'"
+		case "FALSE":
+			return "'f'"
+		}
+	}
+
 	switch tok.Type {
 	case parser.TokenIdentifier, parser.TokenKeyword:
 		return strings.ToLower(tok.Literal)

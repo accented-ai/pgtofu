@@ -232,6 +232,108 @@ UNION ALL
 	assertNormalizedEqual(t, source, formatted)
 }
 
+func TestNormalizeViewDefinitionHandlesExpandedWildcardInNestedCTE(t *testing.T) {
+	t.Parallel()
+
+	source := `
+WITH primary_items AS (
+    SELECT item.id AS item_id, item.owner_id
+    FROM public.items AS item
+), secondary_items AS (
+    SELECT item.id AS item_id, owner.id AS owner_id
+    FROM public.items AS item
+    INNER JOIN public.owners AS owner ON item.owner_id = owner.id
+), combined_items AS (
+    SELECT * FROM primary_items
+    UNION ALL
+    SELECT * FROM secondary_items
+), ranked_items AS (
+    SELECT
+        combined_items.item_id,
+        combined_items.owner_id,
+        ROW_NUMBER() OVER (
+            PARTITION BY combined_items.owner_id
+            ORDER BY combined_items.item_id ASC
+        ) AS item_rank
+    FROM combined_items
+)
+SELECT item_id, owner_id
+FROM ranked_items
+WHERE item_rank = 1;
+`
+
+	formatted := `
+ WITH primary_items AS (
+         SELECT item.id AS item_id,
+            item.owner_id
+           FROM public.items item
+        ), secondary_items AS (
+         SELECT item.id AS item_id,
+            owner.id AS owner_id
+           FROM (public.items item
+             JOIN public.owners owner ON ((owner.id = item.owner_id)))
+        ), combined_items AS (
+         SELECT primary_items.item_id,
+            primary_items.owner_id
+           FROM primary_items
+        UNION ALL
+         SELECT secondary_items.item_id,
+            secondary_items.owner_id
+           FROM secondary_items
+        ), ranked_items AS (
+         SELECT combined_items.item_id,
+            combined_items.owner_id,
+            row_number() OVER (
+                PARTITION BY combined_items.owner_id
+                ORDER BY combined_items.item_id
+            ) AS item_rank
+           FROM combined_items
+        )
+ SELECT item_id,
+    owner_id
+   FROM ranked_items
+  WHERE (item_rank = 1);
+`
+
+	assertNormalizedEqual(t, source, formatted)
+}
+
+func TestNormalizeViewDefinitionHandlesBooleanFunctionArguments(t *testing.T) {
+	t.Parallel()
+
+	source := `
+SELECT JSONB_BUILD_OBJECT('enabled', TRUE, 'archived', FALSE) AS attributes
+FROM public.items;
+`
+
+	formatted := `
+ SELECT jsonb_build_object(
+    'enabled',
+    't'::boolean,
+    'archived',
+    'f'::boolean
+ ) AS attributes
+ FROM public.items;
+`
+
+	assertNormalizedEqual(t, source, formatted)
+}
+
+func TestNormalizeViewDefinitionKeepsDescendingOrder(t *testing.T) {
+	t.Parallel()
+
+	ascending := differ.NormalizeViewDefinition(`
+SELECT item.id FROM public.items AS item ORDER BY item.id ASC;
+`)
+	descending := differ.NormalizeViewDefinition(`
+SELECT item.id FROM public.items AS item ORDER BY item.id DESC;
+`)
+
+	if ascending == descending {
+		t.Fatal("ascending and descending view definitions must remain distinct")
+	}
+}
+
 func TestNormalizeViewDefinitionHandlesImplicitCaseDefaultsAndUnknownCasts(t *testing.T) {
 	t.Parallel()
 

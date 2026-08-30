@@ -60,7 +60,8 @@ func canonicalPostgresMessageFields(message protoreflect.Message) string {
 	message.Range(func(field protoreflect.FieldDescriptor, value protoreflect.Value) bool {
 		name := string(field.Name())
 		if isPostgresLocationField(name) ||
-			isImplicitPostgresCaseDefault(message, field, value) {
+			isImplicitPostgresCaseDefault(message, field, value) ||
+			isDefaultPostgresAscendingSort(message, field, value) {
 			return true
 		}
 
@@ -434,6 +435,25 @@ func isImplicitPostgresCaseDefault(
 	node, ok := value.Message().Interface().(*pgquery.Node)
 
 	return ok && isPostgresNullNode(node)
+}
+
+func isDefaultPostgresAscendingSort(
+	message protoreflect.Message,
+	field protoreflect.FieldDescriptor,
+	value protoreflect.Value,
+) bool {
+	if field.Name() != "sortby_dir" {
+		return false
+	}
+
+	if _, ok := message.Interface().(*pgquery.SortBy); !ok {
+		return false
+	}
+
+	direction := pgquery.SortByDir(value.Enum())
+
+	return direction == pgquery.SortByDir_SORTBY_DEFAULT ||
+		direction == pgquery.SortByDir_SORTBY_ASC
 }
 
 func isPostgresNullNode(node *pgquery.Node) bool {
