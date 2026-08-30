@@ -99,6 +99,16 @@ func TestNormalizeViewDefinitionHandlesPostgresOperatorRewrites(t *testing.T) {
 			storedExpr: "NOT r.rank IS DISTINCT FROM 1",
 		},
 		{
+			name:       "row IS DISTINCT FROM becomes disjunction",
+			sourceExpr: "ROW(r.minimum_score, r.maximum_score) IS DISTINCT FROM ROW(1, 5)",
+			storedExpr: "r.minimum_score IS DISTINCT FROM 1 OR r.maximum_score IS DISTINCT FROM 5",
+		},
+		{
+			name:       "row IS NOT DISTINCT FROM becomes conjunction",
+			sourceExpr: "ROW(r.minimum_score, r.maximum_score) IS NOT DISTINCT FROM ROW(1, 5)",
+			storedExpr: "r.minimum_score IS NOT DISTINCT FROM 1 AND r.maximum_score IS NOT DISTINCT FROM 5",
+		},
+		{
 			name:       "ISNULL becomes IS NULL",
 			sourceExpr: "r.label ISNULL",
 			storedExpr: "r.label IS NULL",

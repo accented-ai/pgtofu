@@ -46,6 +46,33 @@ func canonicalPostgresView(definition string) (string, bool) {
 	return canonicalPostgresMessage(tree.ProtoReflect()), true
 }
 
+func canonicalPostgresExpression(expression string) (string, bool) {
+	expression = strings.TrimSpace(expression)
+	if expression == "" {
+		return "", false
+	}
+
+	viewASTNormalizeMu.Lock()
+	defer viewASTNormalizeMu.Unlock()
+
+	tree, err := wasmquery.Parse("SELECT " + expression)
+	if err != nil || len(tree.GetStmts()) != 1 {
+		return "", false
+	}
+
+	statement := tree.GetStmts()[0].GetStmt().GetSelectStmt()
+	if statement == nil || len(statement.GetTargetList()) != 1 {
+		return "", false
+	}
+
+	target := statement.GetTargetList()[0].GetResTarget()
+	if target == nil || target.GetVal() == nil {
+		return "", false
+	}
+
+	return canonicalPostgresNode(target.GetVal()), true
+}
+
 func canonicalPostgresMessage(message protoreflect.Message) string {
 	if node, ok := message.Interface().(*pgquery.Node); ok {
 		return canonicalPostgresNode(node)
@@ -178,12 +205,20 @@ func canonicalPostgresAExpr(expression *pgquery.A_Expr) string {
 	case pgquery.A_Expr_Kind_AEXPR_NOT_BETWEEN_SYM:
 		return canonicalPostgresBetween(expression, true, true)
 	case pgquery.A_Expr_Kind_AEXPR_DISTINCT:
+		if expanded, ok := canonicalPostgresRowDistinct(expression, false); ok {
+			return expanded
+		}
+
 		return canonicalPostgresComparison(
 			"is distinct from",
 			expression.GetLexpr(),
 			expression.GetRexpr(),
 		)
 	case pgquery.A_Expr_Kind_AEXPR_NOT_DISTINCT:
+		if expanded, ok := canonicalPostgresRowDistinct(expression, true); ok {
+			return expanded
+		}
+
 		return canonicalPostgresComparison(
 			"is not distinct from",
 			expression.GetLexpr(),
@@ -207,6 +242,42 @@ func canonicalPostgresAExpr(expression *pgquery.A_Expr) string {
 	default:
 		return canonicalPostgresMessageFields(expression.ProtoReflect())
 	}
+}
+
+func canonicalPostgresRowDistinct(expression *pgquery.A_Expr, negated bool) (string, bool) {
+	left := postgresRowElements(expression.GetLexpr())
+
+	right := postgresRowElements(expression.GetRexpr())
+	if len(left) == 0 || len(left) != len(right) {
+		return "", false
+	}
+
+	operator := "is distinct from"
+	booleanOperator := "or"
+
+	if negated {
+		operator = "is not distinct from"
+		booleanOperator = "and"
+	}
+
+	comparisons := make([]string, 0, len(left))
+	for index := range left {
+		comparisons = append(
+			comparisons,
+			canonicalPostgresComparison(operator, left[index], right[index]),
+		)
+	}
+
+	return canonicalPostgresBoolean(booleanOperator, comparisons...), true
+}
+
+func postgresRowElements(node *pgquery.Node) []*pgquery.Node {
+	node = unwrapIgnorableViewTypeCast(node)
+	if node == nil || node.GetRowExpr() == nil {
+		return nil
+	}
+
+	return node.GetRowExpr().GetArgs()
 }
 
 func canonicalPostgresBoolExpr(expression *pgquery.BoolExpr) string {

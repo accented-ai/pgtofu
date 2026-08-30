@@ -637,7 +637,7 @@ func (n *sqlNormalizer) parseSelectList() ([]map[string]any, map[string]any) {
 	return items, aliases
 }
 
-func (n *sqlNormalizer) parseFromClause() ([]map[string]any, string) { //nolint:cyclop,gocognit,gocyclo
+func (n *sqlNormalizer) parseFromClause() ([]map[string]any, string) { //nolint:cyclop,gocognit,gocyclo,maintidx
 	var (
 		tables       []map[string]any
 		primaryTable string
@@ -700,6 +700,22 @@ func (n *sqlNormalizer) parseFromClause() ([]map[string]any, string) { //nolint:
 					}
 				}
 
+				n.advance()
+			}
+
+			continue
+		}
+
+		if tokenLiteralEqual(n.current(), "LATERAL") {
+			n.advance()
+			n.skipParenthesizedFromSubquery()
+
+			if n.matchKeyword("AS") {
+				n.advance()
+			}
+
+			if n.current().Type == parser.TokenIdentifier ||
+				n.current().Type == parser.TokenQuotedIdentifier {
 				n.advance()
 			}
 
@@ -770,7 +786,30 @@ func (n *sqlNormalizer) parseFromClause() ([]map[string]any, string) { //nolint:
 	return tables, primaryTable
 }
 
-func (n *sqlNormalizer) parseExpression(stopAtComma bool) map[string]any {
+func (n *sqlNormalizer) skipParenthesizedFromSubquery() {
+	if n.current().Type != parser.TokenLParen {
+		return
+	}
+
+	depth := 0
+
+	for n.pos < len(n.tokens) {
+		switch n.current().Type {
+		case parser.TokenLParen:
+			depth++
+		case parser.TokenRParen:
+			depth--
+		}
+
+		n.advance()
+
+		if depth == 0 {
+			return
+		}
+	}
+}
+
+func (n *sqlNormalizer) parseExpression(stopAtComma bool) map[string]any { //nolint:gocognit
 	expr := make(map[string]any)
 
 	var parts []string
@@ -835,7 +874,15 @@ func (n *sqlNormalizer) parseExpression(stopAtComma bool) map[string]any {
 
 	if len(parts) > 0 {
 		normalized := strings.Join(parts, " ")
+
 		normalized = n.normalizeParentheses(normalized)
+		if strings.Contains(normalized, " is distinct from ") ||
+			strings.Contains(normalized, " is not distinct from ") {
+			if canonical, ok := canonicalPostgresExpression(normalized); ok {
+				normalized = canonical
+			}
+		}
+
 		expr["value"] = normalized
 	}
 

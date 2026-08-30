@@ -298,6 +298,60 @@ WHERE item_rank = 1;
 	assertNormalizedEqual(t, source, formatted)
 }
 
+func TestNormalizeViewDefinitionHandlesNestedCTEWildcardWithLateralJoin(t *testing.T) {
+	t.Parallel()
+
+	source := `
+WITH primary_items AS (
+    SELECT item.id AS item_id, item.owner_id
+    FROM public.items AS item
+), secondary_items AS (
+    SELECT item.id AS item_id, owner_binding.owner_id AS owner_id
+    FROM public.items AS item
+    INNER JOIN LATERAL (
+        SELECT owner.id AS owner_id
+        FROM public.owners AS owner
+        WHERE owner.id = item.owner_id
+        LIMIT 1
+    ) AS owner_binding ON TRUE
+), combined_items AS (
+    SELECT * FROM primary_items
+    UNION ALL
+    SELECT * FROM secondary_items
+)
+SELECT item_id, owner_id FROM combined_items;
+`
+
+	formatted := `
+ WITH primary_items AS (
+         SELECT item.id AS item_id,
+            item.owner_id
+           FROM public.items item
+        ), secondary_items AS (
+         SELECT item.id AS item_id,
+            owner_binding.owner_id AS owner_id
+           FROM (public.items item
+             JOIN LATERAL ( SELECT owner.id AS owner_id
+                   FROM public.owners owner
+                  WHERE (owner.id = item.owner_id)
+                 LIMIT 1) owner_binding ON (true))
+        ), combined_items AS (
+         SELECT primary_items.item_id,
+            primary_items.owner_id
+           FROM primary_items
+        UNION ALL
+         SELECT secondary_items.item_id,
+            secondary_items.owner_id
+           FROM secondary_items
+        )
+ SELECT item_id,
+    owner_id
+   FROM combined_items;
+`
+
+	assertNormalizedEqual(t, source, formatted)
+}
+
 func TestNormalizeViewDefinitionHandlesBooleanFunctionArguments(t *testing.T) {
 	t.Parallel()
 
