@@ -642,12 +642,19 @@ func normalizeSingleElementIn(expr string) string {
 }
 
 func normalizeArrayConstructorToIn(expr string) string {
+	parenthesizedArrayComparisonPattern := regexp.MustCompile(
+		`\s*(=|<>)\s*(any|all)\s*\(\s*\(\s*array\s*\[(.*?)\]\s*\)\s*\)`,
+	)
 	arrayComparisonPattern := regexp.MustCompile(
-		`\s*(=|<>)\s*(any|all)\s*\(\s*\(?array\s*\[(.*?)\]\s*\)?\s*\)`,
+		`\s*(=|<>)\s*(any|all)\s*\(\s*array\s*\[(.*?)\]\s*\)`,
 	)
 
 	for {
-		match := findArrayConstructorComparison(expr, arrayComparisonPattern)
+		match := findArrayConstructorComparison(
+			expr,
+			parenthesizedArrayComparisonPattern,
+			arrayComparisonPattern,
+		)
 		if match == nil {
 			return expr
 		}
@@ -683,6 +690,22 @@ type arrayConstructorComparisonMatch struct {
 }
 
 func findArrayConstructorComparison(
+	expr string,
+	patterns ...*regexp.Regexp,
+) *arrayConstructorComparisonMatch {
+	var earliest *arrayConstructorComparisonMatch
+
+	for _, pattern := range patterns {
+		match := findArrayConstructorComparisonForPattern(expr, pattern)
+		if match != nil && (earliest == nil || match.operatorStart < earliest.operatorStart) {
+			earliest = match
+		}
+	}
+
+	return earliest
+}
+
+func findArrayConstructorComparisonForPattern(
 	expr string,
 	pattern *regexp.Regexp,
 ) *arrayConstructorComparisonMatch {

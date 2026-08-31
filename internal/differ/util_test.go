@@ -232,6 +232,16 @@ func TestNormalizeExpression_CompareEquivalentConstraints(t *testing.T) {
 				"(reason <> ''::text)))",
 		},
 		{
+			name: "JSON accessor IN within OR",
+			fromSQL: "CHECK (result_payload IS NULL OR " +
+				"(JSONB_TYPEOF(result_payload) = 'object' AND " +
+				"result_payload ->> 'schema_version' IN ('result.v1', 'result.v2')))",
+			fromPostgres: "CHECK (((result_payload IS NULL) OR " +
+				"((jsonb_typeof(result_payload) = 'object'::text) AND " +
+				"((result_payload ->> 'schema_version'::text) = ANY " +
+				"(ARRAY['result.v1'::text, 'result.v2'::text])))))",
+		},
+		{
 			name:         "LIKE rendered as ~~ operator by PostgreSQL",
 			fromSQL:      "CHECK (slug = '' OR slug LIKE 'a%')",
 			fromPostgres: "CHECK (((slug = ''::text) OR (slug ~~ 'a%'::text)))",
