@@ -25,6 +25,11 @@ type viewQueryNames struct {
 	functions       map[string]int
 }
 
+type viewProtectedLiteral struct {
+	placeholder string
+	original    string
+}
+
 func formatViewQuery(query string) (string, error) {
 	query = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(query), ";"))
 
@@ -65,7 +70,18 @@ func formatViewQuery(query string) (string, error) {
 	formatter := dialects.NewPostgreSQLFormatter(formatterConfig)
 	configureViewFormatterLayout(formatterConfig.TokenizerConfig)
 
-	formatted := strings.TrimSpace(formatter.Format(normalized))
+	protected, literals, err := protectViewStringLiterals(normalized)
+	if err != nil {
+		return "", fmt.Errorf("protect view string literals: %w", err)
+	}
+
+	formatted := strings.TrimSpace(formatter.Format(protected))
+
+	formatted, err = restoreViewStringLiterals(formatted, literals)
+	if err != nil {
+		return "", fmt.Errorf("restore view string literals: %w", err)
+	}
+
 	formatted = strings.TrimSuffix(formatted, ";")
 	formatted = strings.TrimSpace(formatted)
 
@@ -99,6 +115,50 @@ func formatViewQuery(query string) (string, error) {
 	}
 
 	return formatted, nil
+}
+
+func protectViewStringLiterals(query string) (string, []viewProtectedLiteral, error) {
+	tokens, err := parser.NewLexer(query).Tokenize()
+	if err != nil {
+		return "", nil, fmt.Errorf("tokenize view query: %w", err)
+	}
+
+	literals := make([]viewProtectedLiteral, 0)
+	replacements := make([]viewTextReplacement, 0)
+
+	for _, token := range tokens {
+		if token.Type != parser.TokenString {
+			continue
+		}
+
+		placeholder := fmt.Sprintf("'__PGTOFU_VIEW_LITERAL_%06d__'", len(literals))
+		literals = append(literals, viewProtectedLiteral{
+			placeholder: placeholder,
+			original:    query[token.Start:token.End],
+		})
+		replacements = append(replacements, viewTextReplacement{
+			start:       token.Start,
+			end:         token.End,
+			replacement: placeholder,
+		})
+	}
+
+	return applyViewTextReplacements(query, replacements), literals, nil
+}
+
+func restoreViewStringLiterals(
+	query string,
+	literals []viewProtectedLiteral,
+) (string, error) {
+	for _, literal := range literals {
+		if strings.Count(query, literal.placeholder) != 1 {
+			return "", fmt.Errorf("placeholder %s was not preserved exactly", literal.placeholder)
+		}
+
+		query = strings.Replace(query, literal.placeholder, literal.original, 1)
+	}
+
+	return query, nil
 }
 
 func collectViewQueryNames(tree *pgquery.ParseResult) viewQueryNames {
