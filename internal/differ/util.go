@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/accented-ai/pgtofu/internal/parser"
 )
 
 func normalizeExpression(expr string) string {
@@ -16,6 +18,7 @@ func normalizeExpression(expr string) string {
 	expr = strings.ToLower(expr)
 	expr = normalizeLikeOperators(expr)
 	expr = normalizeQuotedIdentifiers(expr)
+	expr = normalizeDefaultFunctionQualifiers(expr)
 
 	for strings.HasPrefix(expr, "(") && strings.HasSuffix(expr, ")") {
 		inner := expr[1 : len(expr)-1]
@@ -65,6 +68,14 @@ func normalizeQuotedIdentifiers(expr string) string {
 	}
 
 	return result.String()
+}
+
+func normalizeDefaultFunctionQualifiers(expr string) string {
+	pattern := regexp.MustCompile(`\b(?:public|pg_catalog)\s*\.\s*([a-z_][a-z0-9_$]*)\s*\(`)
+
+	return rewriteOutsideStringLiterals(expr, func(segment string) string {
+		return pattern.ReplaceAllString(segment, "$1(")
+	})
 }
 
 func copySingleQuotedString(result *strings.Builder, expr string, start int) int {
@@ -158,14 +169,14 @@ func countParenDepth(s string) int {
 }
 
 func removeTypeCasts(expr string) string {
-	typeCasts := []string{
-		"::double precision", "::real", "::numeric", "::integer", "::bigint",
-		"::smallint", "::text[]", "::text", "::varchar", "::character varying",
-		"::boolean", "::timestamp", "::timestamptz", "::date", "::time",
-	}
-	for _, cast := range typeCasts {
-		expr = strings.ReplaceAll(expr, cast, "")
-	}
+	typeCastPattern := regexp.MustCompile(
+		`::\s*(?:double\s+precision|character\s+varying|timestamptz|timestamp|` +
+			`smallint|boolean|varchar|numeric|bigint|integer|jsonb|uuid|real|text|date|time|name)` +
+			`(?:\s*\[\s*\])?([^a-z0-9_$]|$)`,
+	)
+	expr = rewriteOutsideStringLiterals(expr, func(segment string) string {
+		return typeCastPattern.ReplaceAllString(segment, "$1")
+	})
 
 	expr = removeLiteralParens(expr)
 
@@ -173,6 +184,25 @@ func removeTypeCasts(expr string) string {
 	expr = strings.ReplaceAll(expr, " )", ")")
 
 	return expr
+}
+
+func rewriteOutsideStringLiterals(expr string, rewrite func(string) string) string {
+	var rewritten strings.Builder
+
+	for start := 0; start < len(expr); {
+		quote := strings.IndexByte(expr[start:], '\'')
+		if quote == -1 {
+			rewritten.WriteString(rewrite(expr[start:]))
+
+			break
+		}
+
+		quote += start
+		rewritten.WriteString(rewrite(expr[start:quote]))
+		start = copySingleQuotedString(&rewritten, expr, quote)
+	}
+
+	return rewritten.String()
 }
 
 func removeLiteralParens(expr string) string {
@@ -194,11 +224,27 @@ func removeComparisonParensOnce(expr string) string {
 	}
 
 	inner := expr[start+1 : end]
-	if isSimpleComparison(inner) || canRemoveArithmeticParens(inner, expr, end) {
+	if isFunctionCallParenthesis(expr, start) {
+		return expr[:start] + "\x00" + inner + "\x01" + expr[end+1:]
+	}
+
+	if isSimpleComparison(inner) ||
+		canRemoveArithmeticParens(inner, expr, end) ||
+		canRemoveFunctionArgumentParens(inner, expr, start, end) {
 		return expr[:start] + inner + expr[end+1:]
 	}
 
 	return expr[:start] + "\x00" + expr[start+1:end] + "\x01" + expr[end+1:]
+}
+
+func isFunctionCallParenthesis(expr string, openPos int) bool {
+	if openPos <= 0 {
+		return false
+	}
+
+	previous := expr[openPos-1]
+
+	return isIdentifierByte(previous) || previous == '"'
 }
 
 func canRemoveArithmeticParens(inner, fullExpr string, closePos int) bool {
@@ -236,6 +282,49 @@ func canRemoveArithmeticParens(inner, fullExpr string, closePos int) bool {
 	}
 
 	return innerPrec >= outerPrec
+}
+
+func canRemoveFunctionArgumentParens(inner, fullExpr string, openPos, closePos int) bool {
+	if !containsOperatorOutsideQuotes(inner, "||") {
+		return false
+	}
+
+	prev := previousNonSpaceIndex(fullExpr, openPos-1)
+	if prev >= 0 && fullExpr[prev] != '(' && fullExpr[prev] != ',' {
+		return false
+	}
+
+	next := nextNonSpaceIndex(fullExpr, closePos+1)
+
+	return next == len(fullExpr) || fullExpr[next] == ')' || fullExpr[next] == ','
+}
+
+func nextNonSpaceIndex(expr string, start int) int {
+	for i := start; i < len(expr); i++ {
+		switch expr[i] {
+		case ' ', '\t', '\n', '\r':
+			continue
+		default:
+			return i
+		}
+	}
+
+	return len(expr)
+}
+
+func containsOperatorOutsideQuotes(expr, operator string) bool {
+	tokens, err := parser.NewLexer(expr).Tokenize()
+	if err != nil {
+		return false
+	}
+
+	for _, token := range tokens {
+		if token.Type == parser.TokenOperator && token.Literal == operator {
+			return true
+		}
+	}
+
+	return false
 }
 
 func getLowestArithmeticPrecedence(expr string) int {

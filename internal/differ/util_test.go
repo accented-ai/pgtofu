@@ -279,3 +279,147 @@ func TestNormalizeExpression_CompareEquivalentConstraints(t *testing.T) {
 		})
 	}
 }
+
+func TestNormalizeExpression_PostgresCanonicalCheckForms(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		fromSQL      string
+		fromPostgres string
+	}{
+		{
+			name: "JSONB equality guarded by IS TRUE",
+			fromSQL: "CHECK ((JSONB_TYPEOF(document) = 'object' " +
+				"AND document -> 'enabled' = 'true'::JSONB " +
+				"AND document = source_text::JSONB) IS TRUE)",
+			fromPostgres: "CHECK ((((jsonb_typeof(document) = 'object'::text) AND " +
+				"((document -> 'enabled'::text) = 'true') AND " +
+				"(document = (source_text)::jsonb)) IS TRUE))",
+		},
+		{
+			name: "public digest over converted text",
+			fromSQL: "CHECK (content_hash ~ '^[0-9a-f]{64}$' AND " +
+				"content_hash = ENCODE(PUBLIC.DIGEST(CONVERT_TO(" +
+				"source_text, 'UTF8'), 'sha256'), 'hex'))",
+			fromPostgres: "CHECK (((content_hash ~ '^[0-9a-f]{64}$'::text) AND " +
+				"(content_hash = encode(digest(convert_to(source_text, 'UTF8'::name), " +
+				"'sha256'::text), 'hex'::text))))",
+		},
+		{
+			name: "UUID v5 over a concatenated value",
+			fromSQL: "CHECK (id = UUID_GENERATE_V5(" +
+				"'00000000-0000-0000-0000-000000000000'::UUID, " +
+				"'document:' || content_hash))",
+			fromPostgres: "CHECK ((id = uuid_generate_v5(" +
+				"'00000000-0000-0000-0000-000000000000', " +
+				"('document:'::text || content_hash))))",
+		},
+		{
+			name: "nested JSONB accessors guarded by IS TRUE",
+			fromSQL: "CHECK ((JSONB_TYPEOF(document) = 'object' " +
+				"AND document ->> 'version' = 'v1' " +
+				"AND document -> 'enabled' = 'true'::JSONB " +
+				"AND JSONB_TYPEOF(document -> 'items') = 'array' " +
+				"AND JSONB_ARRAY_LENGTH(document -> 'items') > 0 " +
+				"AND JSONB_TYPEOF(document -> 'metadata') = 'array' " +
+				"AND document = source_text::JSONB) IS TRUE)",
+			fromPostgres: "CHECK ((((jsonb_typeof(document) = 'object'::text) AND " +
+				"((document ->> 'version'::text) = 'v1'::text) AND " +
+				"((document -> 'enabled'::text) = 'true'::jsonb) AND " +
+				"(jsonb_typeof((document -> 'items'::text)) = 'array'::text) AND " +
+				"(jsonb_array_length((document -> 'items'::text)) > 0) AND " +
+				"(jsonb_typeof((document -> 'metadata'::text)) = 'array'::text) " +
+				"AND (document = (source_text)::jsonb)) IS TRUE))",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			normalizedSQL := normalizeExpression(tt.fromSQL)
+			normalizedPostgres := normalizeExpression(tt.fromPostgres)
+
+			if normalizedSQL != normalizedPostgres {
+				t.Errorf(
+					"normalized expressions do not match:\n  SQL:      %q\n  Postgres: %q",
+					normalizedSQL,
+					normalizedPostgres,
+				)
+			}
+		})
+	}
+}
+
+func TestNormalizeExpression_NullableRegexChecks(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		fromSQL      string
+		fromPostgres string
+	}{
+		{
+			name:    "nullable content hash",
+			fromSQL: "CHECK (content_hash IS NULL OR content_hash ~ '^[0-9a-f]{64}$')",
+			fromPostgres: "CHECK (((content_hash IS NULL) OR " +
+				"(content_hash ~ '^[0-9a-f]{64}$'::text)))",
+		},
+		{
+			name: "nullable slug",
+			fromSQL: "CHECK (slug IS NULL OR " +
+				"slug ~ '^[a-z0-9][a-z0-9-]{2,29}$')",
+			fromPostgres: "CHECK (((slug IS NULL) OR " +
+				"(slug ~ '^[a-z0-9][a-z0-9-]{2,29}$'::text)))",
+		},
+		{
+			name:    "nullable four-digit code",
+			fromSQL: "CHECK (optional_code IS NULL OR optional_code ~ '^[0-9]{4}$')",
+			fromPostgres: "CHECK (((optional_code IS NULL) OR " +
+				"(optional_code ~ '^[0-9]{4}$'::text)))",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			normalizedSQL := normalizeExpression(tt.fromSQL)
+			normalizedPostgres := normalizeExpression(tt.fromPostgres)
+
+			if normalizedSQL != normalizedPostgres {
+				t.Errorf(
+					"normalized expressions do not match:\n  SQL:      %q\n  Postgres: %q",
+					normalizedSQL,
+					normalizedPostgres,
+				)
+			}
+		})
+	}
+}
+
+func TestNormalizeDefaultFunctionQualifiers(t *testing.T) {
+	t.Parallel()
+
+	expression := "public.digest(payload) = secure.digest(payload) " +
+		"AND note = 'public.digest(payload)'"
+
+	if got, want := normalizeDefaultFunctionQualifiers(expression),
+		"digest(payload) = secure.digest(payload) AND note = 'public.digest(payload)'"; got != want {
+		t.Errorf("normalizeDefaultFunctionQualifiers() = %q, want %q", got, want)
+	}
+}
+
+func TestRemoveTypeCastsPreservesLiteralsAndCustomTypes(t *testing.T) {
+	t.Parallel()
+
+	expression := "id::uuid = owner_id::namespace_id " +
+		"AND payload::jsonb = source::jsonb_document AND note = 'value::uuid'"
+	want := "id = owner_id::namespace_id " +
+		"AND payload = source::jsonb_document AND note = 'value::uuid'"
+
+	if got := removeTypeCasts(expression); got != want {
+		t.Errorf("removeTypeCasts() = %q, want %q", got, want)
+	}
+}
