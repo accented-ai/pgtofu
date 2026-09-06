@@ -1129,27 +1129,23 @@ func (p *Parser) finalizeTableConstraints(table *schema.Table) {
 		}
 	}
 
-	usedNames := make(map[string]int)
+	reservedNames := make([]string, 0, len(table.Constraints))
 
 	for _, constraint := range table.Constraints {
 		if constraint.Name != "" {
-			usedNames[constraint.Name]++
+			reservedNames = append(reservedNames, constraint.Name)
 		}
 	}
+
+	nameAllocator := schema.NewIdentifierAllocator(reservedNames...)
 
 	for i := range table.Constraints {
 		constraint := &table.Constraints[i]
 
 		if constraint.Name == "" {
-			base := p.generateConstraintName(table.Name, constraint)
-
-			name := base
-			if n := usedNames[base]; n > 0 {
-				name = fmt.Sprintf("%s%d", base, n)
-			}
-
-			constraint.Name = name
-			usedNames[base]++
+			constraint.Name = nameAllocator.Allocate(
+				p.generateConstraintName(table.Name, constraint),
+			)
 		}
 
 		if constraint.Type == schema.ConstraintPrimaryKey ||
@@ -1232,7 +1228,7 @@ func (p *Parser) generateConstraintName(tableName string, constraint *schema.Con
 		name = tableName + "_constraint"
 	}
 
-	return schema.TruncateIdentifier(name)
+	return name
 }
 
 func (p *Parser) parseAlterTable(stmt string, db *schema.Database) error {

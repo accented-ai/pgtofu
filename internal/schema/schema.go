@@ -252,11 +252,7 @@ func NormalizeIdentifier(identifier string) string {
 // TruncateIdentifier mirrors PostgreSQL's silent truncation of identifiers
 // to NAMEDATALEN-1 bytes when they are stored in the catalog.
 func TruncateIdentifier(identifier string) string {
-	if len(identifier) > MaxIdentifierLength {
-		return identifier[:MaxIdentifierLength]
-	}
-
-	return identifier
+	return truncateIdentifier(identifier, MaxIdentifierLength)
 }
 
 func NormalizeSchemaName(schema string) string {

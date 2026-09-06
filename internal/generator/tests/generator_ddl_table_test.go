@@ -748,6 +748,43 @@ CREATE TABLE test_table (
 	)
 }
 
+func TestDDLBuilder_AddTableKeepsTruncatedConstraintNamesUnique(t *testing.T) {
+	t.Parallel()
+
+	desired := &schema.Database{}
+	p := parser.New()
+
+	require.NoError(t, p.ParseSQL(`CREATE TABLE test_schema.table_with_an_exceptionally_long_name (
+		column_with_an_exceptionally_long_name TEXT NOT NULL UNIQUE
+			CHECK (length(column_with_an_exceptionally_long_name) = 64)
+	);`, desired))
+
+	result := &differ.DiffResult{
+		Current: &schema.Database{},
+		Desired: desired,
+		Changes: []differ.Change{
+			{
+				Type:       differ.ChangeTypeAddTable,
+				ObjectName: "test_schema.table_with_an_exceptionally_long_name",
+			},
+		},
+	}
+	builder := generator.NewDDLBuilder(result, true)
+	stmt, err := builder.BuildUpStatement(result.Changes[0])
+
+	require.NoError(t, err)
+	assert.Contains(
+		t,
+		stmt.SQL,
+		"CONSTRAINT table_with_an_exceptionally_long_name_column_with_an_exceptiona UNIQUE",
+	)
+	assert.Contains(
+		t,
+		stmt.SQL,
+		"CONSTRAINT table_with_an_exceptionally_long_name_column_with_an_exception1 CHECK",
+	)
+}
+
 func TestDDLBuilder_AddTableWithMultiLineCheckConstraint(t *testing.T) {
 	t.Parallel()
 
