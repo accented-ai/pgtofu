@@ -176,6 +176,37 @@ func TestDropFunctionWithArgsDownMigration(t *testing.T) {
 	assert.Contains(t, downStmt.SQL, "RETURNS NUMERIC")
 }
 
+func TestDropFunctionDownMigrationRestoresComment(t *testing.T) {
+	t.Parallel()
+
+	fn := schema.Function{
+		Schema:        "reporting",
+		Name:          "record_is_ready",
+		ArgumentTypes: []string{"bigint"},
+		ArgumentNames: []string{"record_id"},
+		ReturnType:    "boolean",
+		Language:      "sql",
+		Body:          "SELECT record_id IS NOT NULL",
+		Volatility:    schema.VolatilityStable,
+		Comment:       "Reports whether a record is ready.",
+	}
+	current := &schema.Database{Functions: []schema.Function{fn}}
+	desired := &schema.Database{}
+
+	diffResult, err := differ.New(differ.DefaultOptions()).Compare(current, desired)
+	require.NoError(t, err)
+
+	generated, err := generator.New(testOptions()).Generate(diffResult)
+	require.NoError(t, err)
+	require.Len(t, generated.Migrations, 1)
+	require.NotNil(t, generated.Migrations[0].DownFile)
+
+	down := generated.Migrations[0].DownFile.Content
+	assert.Contains(t, down, "CREATE OR REPLACE FUNCTION reporting.RECORD_IS_READY")
+	assert.Contains(t, down, "COMMENT ON FUNCTION reporting.RECORD_IS_READY")
+	assert.Contains(t, down, fn.Comment)
+}
+
 func TestDropViewWithComplexDefinitionDownMigration(t *testing.T) {
 	t.Parallel()
 

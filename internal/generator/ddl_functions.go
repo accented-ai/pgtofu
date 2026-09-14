@@ -74,8 +74,19 @@ func (b *DDLBuilder) buildAddFunctionForDown(change differ.Change) (DDLStatement
 		return DDLStatement{}, newGeneratorError("buildAddFunctionForDown", &change, err)
 	}
 
+	var sql strings.Builder
+	appendStatement(&sql, definition)
+
+	if fn.Comment != "" {
+		_, target := functionCommentTargets(fn)
+		appendStatement(
+			&sql,
+			buildCommentStatement("FUNCTION", target, fn.Comment, true),
+		)
+	}
+
 	return DDLStatement{
-		SQL:         ensureStatementTerminated(definition),
+		SQL:         sql.String(),
 		Description: "Add function " + fn.Name,
 		RequiresTx:  true,
 	}, nil
