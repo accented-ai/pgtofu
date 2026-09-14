@@ -64,6 +64,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -218,7 +219,15 @@ func (g *Generator) orderSchemasByDependencies( //nolint:gocognit
 		for i := range changes {
 			change := &changes[i]
 
-			for _, dep := range change.DependsOn {
+			dependencies := change.DependsOn
+			if change.Type == differ.ChangeTypeModifyView {
+				dependencies = append(
+					slices.Clone(dependencies),
+					change.RollbackDependsOn...,
+				)
+			}
+
+			for _, dep := range dependencies {
 				depNormalized := normalizeObjectName(dep)
 
 				var (
@@ -240,9 +249,18 @@ func (g *Generator) orderSchemasByDependencies( //nolint:gocognit
 				}
 
 				if exists {
+					isModifiedViewPair := change.Type == differ.ChangeTypeModifyView &&
+						depChange.Type == differ.ChangeTypeModifyView
+					if !slices.Contains(change.DependsOn, dep) && !isModifiedViewPair {
+						continue
+					}
+
 					depSchema := string(extractSchema(depChange))
 					if depSchema != schemaName && dg.HasNode(depSchema) {
 						_ = dg.AddEdge(schemaName, depSchema)
+						if isModifiedViewPair {
+							_ = dg.AddEdge(depSchema, schemaName)
+						}
 					}
 				}
 			}
@@ -272,7 +290,9 @@ func (g *Generator) splitIntoBatches(changes []differ.Change) [][]differ.Change 
 		}
 
 		if len(currentBatch) >= g.Options.MaxOperationsPerFile {
-			if i+1 < len(changes) && g.canSplitBetween(currentBatch, changes[i+1], objectsInBatch) {
+			if i+1 < len(changes) &&
+				!modifiedViewDependencyCrossesBoundary(changes, i) &&
+				g.canSplitBetween(currentBatch, changes[i+1], objectsInBatch) {
 				batches = append(batches, currentBatch)
 				currentBatch = []differ.Change{}
 				objectsInBatch = make(map[string]bool)
@@ -321,7 +341,9 @@ func (g *Generator) hasDependencyInBatch(
 ) bool {
 	for _, dep := range nextChange.DependsOn {
 		depNormalized := normalizeObjectName(dep)
-		if objectsInBatch[depNormalized] {
+		if objectsInBatch[depNormalized] ||
+			(!strings.Contains(depNormalized, ".") &&
+				objectsInBatch[schema.DefaultSchema+"."+depNormalized]) {
 			return true
 		}
 	}
@@ -636,9 +658,12 @@ func (g *Generator) buildDownStatements(
 	dropTargets := g.identifyDropTargets(changes)
 	droppedTables := g.identifyDroppedTables(changes)
 
-	for i := len(changes) - 1; i >= 0; i-- {
-		change := changes[i]
+	orderedChanges, err := orderChangesForDown(changes)
+	if err != nil {
+		return nil, []string{err.Error()}
+	}
 
+	for _, change := range orderedChanges {
 		if g.shouldSkipCommentOnlyChange(change, dropTargets) {
 			continue
 		}

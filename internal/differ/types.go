@@ -75,14 +75,15 @@ const (
 )
 
 type Change struct {
-	Type        ChangeType
-	Severity    ChangeSeverity
-	Description string
-	ObjectType  string
-	ObjectName  string
-	Details     map[string]any
-	DependsOn   []string
-	Order       int
+	Type              ChangeType
+	Severity          ChangeSeverity
+	Description       string
+	ObjectType        string
+	ObjectName        string
+	Details           map[string]any
+	DependsOn         []string
+	RollbackDependsOn []string
+	Order             int
 }
 
 func (c *Change) String() string {

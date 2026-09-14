@@ -43,13 +43,17 @@ func (vc *ViewComparator) CreateAddChange(key string, view schema.View) Change {
 }
 
 func (vc *ViewComparator) CreateDropChange(key string, view schema.View) Change {
+	dependencies := extractViewDependencies(view.Definition)
+
 	return Change{
-		Type:        ChangeTypeDropView,
-		Severity:    SeverityBreaking,
-		Description: "Drop view: " + view.QualifiedName(),
-		ObjectType:  "view",
-		ObjectName:  key,
-		Details:     map[string]any{"view": view},
+		Type:              ChangeTypeDropView,
+		Severity:          SeverityBreaking,
+		Description:       "Drop view: " + view.QualifiedName(),
+		ObjectType:        "view",
+		ObjectName:        key,
+		Details:           map[string]any{"view": view},
+		DependsOn:         dependencies,
+		RollbackDependsOn: dependencies,
 	}
 }
 
@@ -63,13 +67,14 @@ func (vc *ViewComparator) CreateModifyChange(key string, current, desired schema
 
 	if !defEqual || !checkOptEqual {
 		return Change{
-			Type:        ChangeTypeModifyView,
-			Severity:    SeverityPotentiallyBreaking,
-			Description: "Modify view: " + desired.QualifiedName(),
-			ObjectType:  "view",
-			ObjectName:  key,
-			Details:     map[string]any{"current": current, "desired": desired},
-			DependsOn:   extractViewDependencies(desired.Definition),
+			Type:              ChangeTypeModifyView,
+			Severity:          SeverityPotentiallyBreaking,
+			Description:       "Modify view: " + desired.QualifiedName(),
+			ObjectType:        "view",
+			ObjectName:        key,
+			Details:           map[string]any{"current": current, "desired": desired},
+			DependsOn:         extractViewDependencies(desired.Definition),
+			RollbackDependsOn: extractViewDependencies(current.Definition),
 		}
 	}
 

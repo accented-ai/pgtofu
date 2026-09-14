@@ -1095,6 +1095,68 @@ func TestModifyViewDependsOnAddColumnMultipleTables(t *testing.T) {
 	}
 }
 
+func TestModifiedViewFollowsModifiedDependency(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{Views: []schema.View{
+		{
+			Schema:     schema.DefaultSchema,
+			Name:       "status_source",
+			Definition: "SELECT record_id AS legacy_record_id FROM records",
+		},
+		{
+			Schema:     schema.DefaultSchema,
+			Name:       "status_summary",
+			Definition: "SELECT legacy_record_id FROM status_source",
+		},
+	}}
+	desired := &schema.Database{Views: []schema.View{
+		{
+			Schema:     schema.DefaultSchema,
+			Name:       "status_source",
+			Definition: "SELECT record_id AS source_record_id FROM records",
+		},
+		{
+			Schema:     schema.DefaultSchema,
+			Name:       "status_summary",
+			Definition: "SELECT source_record_id FROM status_source",
+		},
+	}}
+
+	d := differ.New(differ.DefaultOptions())
+
+	result, err := d.Compare(current, desired)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	positions := make(map[string]int)
+
+	for index, change := range result.Changes {
+		if change.Type == differ.ChangeTypeModifyView {
+			positions[change.ObjectName] = index
+		}
+	}
+
+	providerPosition, hasProvider := positions["public.status_source"]
+	if !hasProvider {
+		t.Fatal("status_source view modification not found")
+	}
+
+	dependentPosition, hasDependent := positions["public.status_summary"]
+	if !hasDependent {
+		t.Fatal("status_summary view modification not found")
+	}
+
+	if providerPosition >= dependentPosition {
+		t.Errorf(
+			"provider view at %d should precede dependent view at %d",
+			providerPosition,
+			dependentPosition,
+		)
+	}
+}
+
 func TestModifyViewComesBeforeDropColumn(t *testing.T) {
 	t.Parallel()
 

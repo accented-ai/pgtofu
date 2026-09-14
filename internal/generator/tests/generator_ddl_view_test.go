@@ -171,3 +171,59 @@ func TestDDLBuilder_ModifyViewRenamesConflictingOutputColumnsThroughTemporaryNam
 	assert.Greater(t, firstFinalRename, secondTemporaryRename)
 	assert.Greater(t, secondFinalRename, firstFinalRename)
 }
+
+func TestGeneratorOrdersDependentViewChangesForUpAndDown(t *testing.T) {
+	t.Parallel()
+
+	current := &schema.Database{Views: []schema.View{
+		{
+			Schema:     "source_data",
+			Name:       "status_source",
+			Definition: "SELECT record_id AS legacy_record_id FROM records",
+		},
+		{
+			Schema:     "reporting",
+			Name:       "status_summary",
+			Definition: "SELECT legacy_record_id FROM source_data.status_source",
+		},
+	}}
+	desired := &schema.Database{Views: []schema.View{
+		{
+			Schema:     "source_data",
+			Name:       "status_source",
+			Definition: "SELECT record_id AS source_record_id FROM records",
+		},
+		{
+			Schema:     "reporting",
+			Name:       "status_summary",
+			Definition: "SELECT source_record_id FROM source_data.status_source",
+		},
+	}}
+
+	d := differ.New(differ.DefaultOptions())
+	result, err := d.Compare(current, desired)
+	require.NoError(t, err)
+
+	opts := testOptions()
+	opts.MaxOperationsPerFile = 1
+	generated, err := generator.New(opts).Generate(result)
+	require.NoError(t, err)
+	require.Len(t, generated.Migrations, 1,
+		"dependent view modifications must remain in one reversible migration")
+
+	up := generated.Migrations[0].UpFile.Content
+	down := generated.Migrations[0].DownFile.Content
+
+	require.Contains(t, up, "ALTER VIEW source_data.status_source")
+	require.Contains(t, up, "CREATE OR REPLACE VIEW reporting.status_summary")
+	require.Contains(t, down, "ALTER VIEW source_data.status_source")
+	require.Contains(t, down, "CREATE OR REPLACE VIEW reporting.status_summary")
+	assert.Less(t,
+		strings.Index(up, "ALTER VIEW source_data.status_source"),
+		strings.Index(up, "CREATE OR REPLACE VIEW reporting.status_summary"),
+	)
+	assert.Less(t,
+		strings.Index(down, "ALTER VIEW source_data.status_source"),
+		strings.Index(down, "CREATE OR REPLACE VIEW reporting.status_summary"),
+	)
+}
