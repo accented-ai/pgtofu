@@ -251,6 +251,82 @@ WHERE
 	require.Equal(t, expected, statement.SQL)
 }
 
+func TestViewFormattingSplitsEachLateralJoin(t *testing.T) {
+	t.Parallel()
+
+	view := schema.View{
+		Schema: "reporting",
+		Name:   "resolved_records",
+		Definition: `SELECT gap.id, binding.record_id
+FROM reporting.record_gaps AS gap
+INNER JOIN LATERAL (
+    SELECT event.id
+    FROM reporting.record_events AS event
+    WHERE event.gap_id = gap.id
+    ORDER BY event.created_at DESC
+    LIMIT 1
+) AS latest_event ON TRUE
+INNER JOIN reporting.records AS record
+    ON gap.record_id = record.id
+INNER JOIN LATERAL (
+    SELECT (ARRAY_AGG(candidate.id ORDER BY candidate.id))[1] AS record_id
+    FROM reporting.record_candidates AS candidate
+    WHERE candidate.record_id = record.id
+    HAVING COUNT(*) = 1
+) AS binding ON TRUE`,
+	}
+	result := &differ.DiffResult{
+		Current: &schema.Database{},
+		Desired: &schema.Database{Views: []schema.View{view}},
+		Changes: []differ.Change{{
+			Type:       differ.ChangeTypeAddView,
+			ObjectName: differ.ViewKey(view.Schema, view.Name),
+		}},
+	}
+
+	statement, err := generator.NewDDLBuilder(result, true).BuildUpStatement(result.Changes[0])
+	require.NoError(t, err)
+
+	assert.NotContains(t, statement.SQL, "INNER JOIN LATERAL")
+	assert.Equal(t, 2, strings.Count(statement.SQL, "INNER JOIN\n    LATERAL ("))
+}
+
+func TestViewFormattingIndentsMultilineWindowPartitions(t *testing.T) {
+	t.Parallel()
+
+	view := schema.View{
+		Schema: "reporting",
+		Name:   "ranked_records",
+		Definition: `SELECT
+    record.id,
+    ROW_NUMBER() OVER (
+        PARTITION BY record.tenant_id,
+        record.category,
+        record.state
+        ORDER BY record.created_at, record.id
+    ) AS record_rank
+FROM reporting.records AS record`,
+	}
+	result := &differ.DiffResult{
+		Current: &schema.Database{},
+		Desired: &schema.Database{Views: []schema.View{view}},
+		Changes: []differ.Change{{
+			Type:       differ.ChangeTypeAddView,
+			ObjectName: differ.ViewKey(view.Schema, view.Name),
+		}},
+	}
+
+	statement, err := generator.NewDDLBuilder(result, true).BuildUpStatement(result.Changes[0])
+	require.NoError(t, err)
+
+	assert.Contains(t, statement.SQL, `ROW_NUMBER() OVER (
+        PARTITION BY
+            record.tenant_id,
+            record.category,
+            record.state
+        ORDER BY`)
+}
+
 func TestViewFormattingOrdersJoinConditionRelations(t *testing.T) {
 	t.Parallel()
 

@@ -62,6 +62,11 @@ func formatViewQueryLayout(query string) (string, error) {
 		return "", err
 	}
 
+	formatted, err = formatViewWindowPartitions(formatted)
+	if err != nil {
+		return "", err
+	}
+
 	formatted, err = compactViewSources(formatted)
 	if err != nil {
 		return "", err
@@ -77,7 +82,97 @@ func formatViewQueryLayout(query string) (string, error) {
 		return "", err
 	}
 
+	formatted = formatViewLongJSONAccess(formatted)
+
 	return formatted, nil
+}
+
+func formatViewWindowPartitions(query string) (string, error) {
+	tokens, err := parser.NewLexer(query).Tokenize()
+	if err != nil {
+		return "", fmt.Errorf("tokenize window PARTITION layout: %w", err)
+	}
+
+	lineStarts := viewQueryLineStarts(query)
+	lines := strings.Split(query, "\n")
+	depths := viewTokenParenDepths(tokens)
+	replacements := make([]viewTextReplacement, 0)
+
+	for index, token := range tokens {
+		if !strings.EqualFold(token.Literal, "PARTITION") {
+			continue
+		}
+
+		byIndex := nextViewLayoutToken(tokens, index+1)
+		if byIndex >= len(tokens) || !strings.EqualFold(tokens[byIndex].Literal, "BY") {
+			continue
+		}
+
+		firstIndex := nextViewLayoutToken(tokens, byIndex+1)
+		if firstIndex >= len(tokens) || tokens[firstIndex].Type == parser.TokenEOF {
+			continue
+		}
+
+		partitionLine := viewQueryLineAt(lineStarts, token.Start)
+		if partitionLine >= len(lines) ||
+			viewQueryLineAt(lineStarts, tokens[firstIndex].Start) != partitionLine {
+			continue
+		}
+
+		partitionDepth := depths[index]
+		lastIndex := firstIndex
+		hasTopLevelComma := false
+
+		for candidate := firstIndex; candidate < len(tokens); candidate++ {
+			candidateToken := tokens[candidate]
+			if candidateToken.Type == parser.TokenEOF || depths[candidate] < partitionDepth ||
+				(depths[candidate] == partitionDepth &&
+					isViewWindowPartitionBoundary(candidateToken)) {
+				break
+			}
+
+			if candidateToken.Type == parser.TokenComma && depths[candidate] == partitionDepth {
+				hasTopLevelComma = true
+			}
+
+			lastIndex = candidate
+		}
+
+		lastLine := viewQueryLineAt(lineStarts, tokens[lastIndex].Start)
+		if !hasTopLevelComma || lastLine <= partitionLine {
+			continue
+		}
+
+		bodyIndent := leadingViewWhitespace(lines[partitionLine]) + viewLayoutIndent
+		replacements = append(replacements, viewTextReplacement{
+			start:       tokens[byIndex].End,
+			end:         tokens[firstIndex].Start,
+			replacement: "\n" + bodyIndent,
+		})
+
+		for line := partitionLine + 1; line <= lastLine; line++ {
+			replacements = append(replacements, viewTextReplacement{
+				start:       lineStarts[line],
+				end:         lineStarts[line],
+				replacement: viewLayoutIndent,
+			})
+		}
+	}
+
+	return applyViewTextReplacements(query, replacements), nil
+}
+
+func isViewWindowPartitionBoundary(token parser.Token) bool {
+	if token.Type == parser.TokenRParen || token.Type == parser.TokenSemicolon {
+		return true
+	}
+
+	switch strings.ToUpper(token.Literal) {
+	case "ORDER", "ROWS", "RANGE", "GROUPS", "EXCLUDE":
+		return true
+	default:
+		return false
+	}
 }
 
 func formatViewOffsets(query string) (string, error) {
@@ -131,7 +226,48 @@ func normalizeViewJoinClauses(query string) (string, error) {
 		return "", err
 	}
 
-	return splitInlineViewJoinQualifiers(aligned)
+	splitLaterals, err := splitInlineViewLateralJoins(aligned)
+	if err != nil {
+		return "", err
+	}
+
+	return splitInlineViewJoinQualifiers(splitLaterals)
+}
+
+func splitInlineViewLateralJoins(query string) (string, error) {
+	tokens, err := parser.NewLexer(query).Tokenize()
+	if err != nil {
+		return "", fmt.Errorf("tokenize LATERAL JOIN layout: %w", err)
+	}
+
+	lineStarts := viewQueryLineStarts(query)
+	lines := strings.Split(query, "\n")
+	replacements := make([]viewTextReplacement, 0)
+
+	for index, token := range tokens {
+		if !strings.EqualFold(token.Literal, "LATERAL") || index == 0 {
+			continue
+		}
+
+		join := tokens[index-1]
+		if !strings.EqualFold(join.Literal, "JOIN") {
+			continue
+		}
+
+		line := viewQueryLineAt(lineStarts, token.Start)
+		if line >= len(lines) || viewQueryLineAt(lineStarts, join.Start) != line ||
+			strings.TrimSpace(query[join.End:token.Start]) != "" {
+			continue
+		}
+
+		replacements = append(replacements, viewTextReplacement{
+			start:       join.End,
+			end:         token.Start,
+			replacement: "\n" + leadingViewWhitespace(lines[line]) + viewLayoutIndent,
+		})
+	}
+
+	return applyViewTextReplacements(query, replacements), nil
 }
 
 func alignViewJoinClauses(query string) (string, error) {
@@ -783,6 +919,31 @@ func viewLineTokensBalanced(
 
 func viewLineFitsCompactLimit(line string) bool {
 	return utf8.RuneCountInString(line) <= viewCompactLineLength
+}
+
+func formatViewLongJSONAccess(query string) string {
+	lines := strings.Split(query, "\n")
+	operators := []string{" #>> ", " #> ", " ->> ", " -> "}
+
+	for index, line := range lines {
+		if utf8.RuneCountInString(line) <= generatedSQLLineLength {
+			continue
+		}
+
+		for _, operator := range operators {
+			position := strings.Index(line, operator)
+			if position < 0 {
+				continue
+			}
+
+			lines[index] = strings.TrimRight(line[:position], " \t") + "\n" +
+				leadingViewWhitespace(line) + strings.TrimLeft(line[position:], " \t")
+
+			break
+		}
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 func configureViewFormatterLayout(config *dialects.TokenizerConfig) {
