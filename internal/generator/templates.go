@@ -1094,7 +1094,51 @@ func formatIndexDefinition(idx *schema.Index) (string, error) {
 		buf.Write(NormalizeWhereClause(idx.Where))
 	}
 
-	return buf.String(), nil
+	definition := buf.String()
+	if sqlLinesFit(definition, generatedSQLLineLength) {
+		return definition, nil
+	}
+
+	return formatMultilineIndexDefinition(idx), nil
+}
+
+func formatMultilineIndexDefinition(idx *schema.Index) string {
+	prefix := "CREATE "
+	if idx.IsUnique {
+		prefix += "UNIQUE "
+	}
+
+	prefix += "INDEX " + QuoteIdentifier(idx.Name) + " ON " +
+		QualifiedName(idx.Schema, idx.TableName)
+
+	if idx.Type != "" && idx.Type != "btree" {
+		prefix += " USING " + idx.Type
+	}
+
+	lines := []string{prefix + " (", formatMultilineColumns(idx.Columns), ")"}
+
+	if idx.NullsNotDistinct {
+		lines[len(lines)-1] += " NULLS NOT DISTINCT"
+	}
+
+	if len(idx.IncludeColumns) > 0 {
+		lines = append(lines, "INCLUDE (", formatMultilineColumns(idx.IncludeColumns), ")")
+	}
+
+	if len(idx.StorageParams) > 0 {
+		lines = append(lines, "WITH ("+formatStorageParams(idx.StorageParams)+")")
+	}
+
+	if idx.Where != "" {
+		where := "WHERE " + NormalizeWhereClause(idx.Where)
+		if sqlLinesFit(lines[len(lines)-1]+" "+where, generatedSQLLineLength) {
+			lines[len(lines)-1] += " " + where
+		} else {
+			lines = append(lines, where)
+		}
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 func formatStorageParams(params map[string]string) string {

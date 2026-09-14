@@ -2,7 +2,9 @@ package generator_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -278,7 +280,7 @@ func TestDDLBuilder_AdvancedIndexOperations(t *testing.T) { //nolint:maintidx
 				"documents_hnsw_idx",
 				"ON vectors.documents",
 				"USING hnsw",
-				"(embedding halfvec_cosine_ops)",
+				"embedding halfvec_cosine_ops",
 				"WITH (ef_construction = 64, m = 16)",
 				"WHERE",
 				"'primary'",
@@ -420,6 +422,10 @@ func TestDDLBuilder_AdvancedIndexOperations(t *testing.T) { //nolint:maintidx
 
 			for _, want := range tt.wantSQL {
 				assert.Contains(t, stmt.SQL, want)
+			}
+
+			for line := range strings.SplitSeq(stmt.SQL, "\n") {
+				assert.LessOrEqual(t, utf8.RuneCountInString(line), 170, line)
 			}
 
 			assert.True(t, stmt.RequiresTx)
