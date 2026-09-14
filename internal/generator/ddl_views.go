@@ -141,6 +141,17 @@ func (b *DDLBuilder) buildModifyView(change differ.Change) (DDLStatement, error)
 		return DDLStatement{}, newGeneratorError("buildModifyView", &change, err)
 	}
 
+	currentView := b.getView(change.ObjectName, b.result.Current)
+	if currentView != nil {
+		if renames := buildViewColumnRenameSQL(
+			view,
+			currentView.Definition,
+			view.Definition,
+		); renames != "" {
+			definition = renames + "\n\n" + definition
+		}
+	}
+
 	return DDLStatement{
 		SQL:         ensureStatementTerminated(definition),
 		Description: "Modify view " + view.Name,
@@ -194,6 +205,17 @@ func (b *DDLBuilder) buildRevertModifyView(change differ.Change) (DDLStatement, 
 	definition, err := formatViewDefinition(view, true)
 	if err != nil {
 		return DDLStatement{}, newGeneratorError("buildRevertModifyView", &change, err)
+	}
+
+	desiredView := b.getView(change.ObjectName, b.result.Desired)
+	if desiredView != nil {
+		if renames := buildViewColumnRenameSQL(
+			view,
+			desiredView.Definition,
+			view.Definition,
+		); renames != "" {
+			definition = renames + "\n\n" + definition
+		}
 	}
 
 	return DDLStatement{

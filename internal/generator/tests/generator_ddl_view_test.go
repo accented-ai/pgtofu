@@ -1,6 +1,7 @@
 package generator_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -74,4 +75,99 @@ func TestDDLBuilder_ViewOperations(t *testing.T) {
 			assert.Equal(t, tt.wantUnsafe, stmt.IsUnsafe)
 		})
 	}
+}
+
+func TestDDLBuilder_ModifyViewRenamesOutputColumns(t *testing.T) {
+	t.Parallel()
+
+	currentView := schema.View{
+		Schema: schema.DefaultSchema,
+		Name:   "status_source",
+		Definition: `SELECT
+record_id AS legacy_record_id,
+is_ready AS legacy_is_ready
+FROM records`,
+	}
+	desiredView := schema.View{
+		Schema: schema.DefaultSchema,
+		Name:   "status_source",
+		Definition: `SELECT
+record_id AS source_record_id,
+is_ready AS source_is_ready
+FROM records`,
+	}
+	change := differ.Change{
+		Type:       differ.ChangeTypeModifyView,
+		ObjectName: "public.status_source",
+	}
+	result := &differ.DiffResult{
+		Current: &schema.Database{Views: []schema.View{currentView}},
+		Desired: &schema.Database{Views: []schema.View{desiredView}},
+		Changes: []differ.Change{change},
+	}
+	builder := generator.NewDDLBuilder(result, true)
+
+	up, err := builder.BuildUpStatement(change)
+	require.NoError(t, err)
+	down, err := builder.BuildDownStatement(change)
+	require.NoError(t, err)
+
+	assert.Contains(t, up.SQL,
+		"ALTER VIEW public.status_source RENAME COLUMN legacy_record_id TO source_record_id;")
+	assert.Contains(t, up.SQL,
+		"ALTER VIEW public.status_source RENAME COLUMN legacy_is_ready TO source_is_ready;")
+	assert.Less(t,
+		strings.Index(up.SQL, "ALTER VIEW"),
+		strings.Index(up.SQL, "CREATE OR REPLACE VIEW"),
+	)
+	assert.Contains(t, down.SQL,
+		"ALTER VIEW public.status_source RENAME COLUMN source_record_id TO legacy_record_id;")
+	assert.Contains(t, down.SQL,
+		"ALTER VIEW public.status_source RENAME COLUMN source_is_ready TO legacy_is_ready;")
+	assert.Less(t,
+		strings.Index(down.SQL, "ALTER VIEW"),
+		strings.Index(down.SQL, "CREATE OR REPLACE VIEW"),
+	)
+}
+
+func TestDDLBuilder_ModifyViewRenamesConflictingOutputColumnsThroughTemporaryNames(t *testing.T) {
+	t.Parallel()
+
+	currentView := schema.View{
+		Schema:     schema.DefaultSchema,
+		Name:       "status_source",
+		Definition: "SELECT primary_status, fallback_status FROM records",
+	}
+	desiredView := schema.View{
+		Schema:     schema.DefaultSchema,
+		Name:       "status_source",
+		Definition: "SELECT primary_status AS fallback_status, fallback_status AS primary_status FROM records",
+	}
+	change := differ.Change{
+		Type:       differ.ChangeTypeModifyView,
+		ObjectName: "public.status_source",
+	}
+	result := &differ.DiffResult{
+		Current: &schema.Database{Views: []schema.View{currentView}},
+		Desired: &schema.Database{Views: []schema.View{desiredView}},
+		Changes: []differ.Change{change},
+	}
+	builder := generator.NewDDLBuilder(result, true)
+
+	up, err := builder.BuildUpStatement(change)
+	require.NoError(t, err)
+
+	firstTemporaryRename := strings.Index(up.SQL,
+		"RENAME COLUMN primary_status TO __pgtofu_view_column_1")
+	secondTemporaryRename := strings.Index(up.SQL,
+		"RENAME COLUMN fallback_status TO __pgtofu_view_column_2")
+	firstFinalRename := strings.Index(up.SQL,
+		"RENAME COLUMN __pgtofu_view_column_1 TO fallback_status")
+	secondFinalRename := strings.Index(up.SQL,
+		"RENAME COLUMN __pgtofu_view_column_2 TO primary_status")
+
+	assert.GreaterOrEqual(t, firstTemporaryRename, 0)
+	assert.Greater(t, secondTemporaryRename, firstTemporaryRename)
+	assert.Greater(t, firstFinalRename, secondTemporaryRename)
+	assert.Greater(t, secondFinalRename, firstFinalRename)
 }
