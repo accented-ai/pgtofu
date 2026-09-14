@@ -21,12 +21,13 @@ func (fc *FunctionComparator) Compare(result *DiffResult) {
 	newFunctions := findNewFunctions(currentFuncs, result.Desired.Functions)
 
 	fc.detectAddedFunctions(result, currentFuncs, desiredFuncs, newFunctions)
-	fc.detectDroppedFunctions(result, currentFuncs, desiredFuncs)
+	fc.detectDroppedFunctions(result, currentFuncs, desiredFuncs, result.Current.Functions)
 	fc.detectModifiedFunctions(
 		result,
 		currentFuncs,
 		desiredFuncs,
 		result.Current.Triggers,
+		result.Current.Functions,
 		newFunctions,
 	)
 }
@@ -71,6 +72,7 @@ func (fc *FunctionComparator) detectAddedFunctions(
 func (fc *FunctionComparator) detectDroppedFunctions(
 	result *DiffResult,
 	currentFuncs, desiredFuncs map[string]*schema.Function,
+	currentFunctions []schema.Function,
 ) {
 	for key, fn := range currentFuncs {
 		if _, exists := desiredFuncs[key]; !exists {
@@ -80,6 +82,10 @@ func (fc *FunctionComparator) detectDroppedFunctions(
 				Description: "Drop function: " + fn.Signature(),
 				ObjectType:  "function",
 				ObjectName:  key,
+				RollbackDependsOn: extractFunctionDependencies(
+					fn,
+					currentFunctions,
+				),
 				Details: map[string]any{
 					"function": fn,
 				},
@@ -92,6 +98,7 @@ func (fc *FunctionComparator) detectModifiedFunctions(
 	result *DiffResult,
 	currentFuncs, desiredFuncs map[string]*schema.Function,
 	triggers []schema.Trigger,
+	currentFunctions []schema.Function,
 	newFunctions []schema.Function,
 ) {
 	for key, desiredFn := range desiredFuncs {
@@ -136,6 +143,10 @@ func (fc *FunctionComparator) detectModifiedFunctions(
 				DependsOn: extractFunctionDependencies(
 					desiredFn,
 					newFunctions,
+				),
+				RollbackDependsOn: extractFunctionDependencies(
+					currentFn,
+					currentFunctions,
 				),
 				Details: map[string]any{
 					"current": currentFn,

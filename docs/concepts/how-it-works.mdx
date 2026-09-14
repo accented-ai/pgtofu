@@ -118,8 +118,9 @@ View definitions are normalized before comparison to handle formatting differenc
 
 When statically identifiable output columns change names at the same ordinal,
 pgtofu emits explicit `ALTER VIEW ... RENAME COLUMN` statements before replacing
-the definition. Modified views that depend on one another remain in one migration
-batch and are ordered from provider to dependent in both up and down migrations.
+the definition. Changes whose prior definitions depend on other changed objects
+remain in one migration batch, with tables and views restored before dependent
+indexes, functions, and triggers in down migrations.
 
 ## Phase 4: Generate
 

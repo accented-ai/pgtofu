@@ -64,7 +64,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -192,13 +191,14 @@ func (g *Generator) orderSchemasByDependencies( //nolint:gocognit
 	}
 
 	changeByObject := make(map[string]*differ.Change)
+	rollbackProviderByObject := make(map[string]*differ.Change)
 
 	for i := range allChanges {
 		change := &allChanges[i]
-		if change.ObjectName != "" {
-			normalized := normalizeObjectName(change.ObjectName)
-			changeByObject[normalized] = change
-			changeByObject[change.ObjectName] = change
+		registerChangeByObject(changeByObject, change.ObjectName, change)
+
+		if providesObjectOnRollback(*change) {
+			registerChangeByObject(rollbackProviderByObject, change.ObjectName, change)
 		}
 
 		if change.Details != nil {
@@ -207,9 +207,7 @@ func (g *Generator) orderSchemasByDependencies( //nolint:gocognit
 				change.Type == differ.ChangeTypeAddTable {
 				qualifiedName := table.QualifiedName()
 				if qualifiedName != "" {
-					normalized := normalizeObjectName(qualifiedName)
-					changeByObject[normalized] = change
-					changeByObject[qualifiedName] = change
+					registerChangeByObject(changeByObject, qualifiedName, change)
 				}
 			}
 		}
@@ -219,55 +217,63 @@ func (g *Generator) orderSchemasByDependencies( //nolint:gocognit
 		for i := range changes {
 			change := &changes[i]
 
-			dependencies := change.DependsOn
-			if change.Type == differ.ChangeTypeModifyView {
-				dependencies = append(
-					slices.Clone(dependencies),
-					change.RollbackDependsOn...,
-				)
-			}
-
-			for _, dep := range dependencies {
-				depNormalized := normalizeObjectName(dep)
-
-				var (
-					depChange *differ.Change
-					exists    bool
-				)
-
-				if depChange, exists = changeByObject[depNormalized]; !exists {
-					if depChange, exists = changeByObject[dep]; !exists {
-						if !strings.Contains(dep, ".") {
-							publicKey := fmt.Sprintf(
-								"%s.%s",
-								schema.DefaultSchema,
-								strings.ToLower(dep),
-							)
-							depChange, exists = changeByObject[publicKey]
-						}
-					}
+			for _, dependency := range change.DependsOn {
+				provider, exists := findChangeByObject(changeByObject, dependency)
+				if !exists {
+					continue
 				}
 
-				if exists {
-					isModifiedViewPair := change.Type == differ.ChangeTypeModifyView &&
-						depChange.Type == differ.ChangeTypeModifyView
-					if !slices.Contains(change.DependsOn, dep) && !isModifiedViewPair {
-						continue
-					}
+				providerSchema := string(extractSchema(provider))
+				if providerSchema != schemaName && dg.HasNode(providerSchema) {
+					_ = dg.AddEdge(schemaName, providerSchema)
+				}
+			}
 
-					depSchema := string(extractSchema(depChange))
-					if depSchema != schemaName && dg.HasNode(depSchema) {
-						_ = dg.AddEdge(schemaName, depSchema)
-						if isModifiedViewPair {
-							_ = dg.AddEdge(depSchema, schemaName)
-						}
-					}
+			for _, dependency := range change.RollbackDependsOn {
+				provider, exists := findChangeByObject(
+					rollbackProviderByObject,
+					dependency,
+				)
+				if !exists {
+					continue
+				}
+
+				providerSchema := string(extractSchema(provider))
+				if providerSchema != schemaName && dg.HasNode(providerSchema) {
+					_ = dg.AddEdge(providerSchema, schemaName)
 				}
 			}
 		}
 	}
 
 	return dg.CondensationOrder()
+}
+
+func registerChangeByObject(
+	changes map[string]*differ.Change,
+	objectName string,
+	change *differ.Change,
+) {
+	if objectName == "" {
+		return
+	}
+
+	for _, name := range dependencyLookupNames(objectName) {
+		changes[name] = change
+	}
+}
+
+func findChangeByObject(
+	changes map[string]*differ.Change,
+	objectName string,
+) (*differ.Change, bool) {
+	for _, name := range dependencyLookupNames(objectName) {
+		if change, exists := changes[name]; exists {
+			return change, true
+		}
+	}
+
+	return nil, false
 }
 
 func (g *Generator) splitIntoBatches(changes []differ.Change) [][]differ.Change {
