@@ -276,6 +276,11 @@ func (tc *TriggerComparator) detectDroppedTriggers(
 					"trigger": trigger,
 				},
 				DependsOn: tc.buildTriggerDependencies(trigger, result.Current, false),
+				RollbackDependsOn: tc.buildTriggerDependencies(
+					trigger,
+					result.Current,
+					true,
+				),
 			})
 		}
 	}

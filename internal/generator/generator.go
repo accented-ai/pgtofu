@@ -291,7 +291,7 @@ func (g *Generator) splitIntoBatches(changes []differ.Change) [][]differ.Change 
 
 		if len(currentBatch) >= g.Options.MaxOperationsPerFile {
 			if i+1 < len(changes) &&
-				!modifiedViewDependencyCrossesBoundary(changes, i) &&
+				!rollbackDependencyCrossesBoundary(changes, i) &&
 				g.canSplitBetween(currentBatch, changes[i+1], objectsInBatch) {
 				batches = append(batches, currentBatch)
 				currentBatch = []differ.Change{}

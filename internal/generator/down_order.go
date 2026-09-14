@@ -2,7 +2,6 @@ package generator
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/accented-ai/pgtofu/internal/differ"
@@ -17,37 +16,32 @@ func orderChangesForDown(changes []differ.Change) ([]differ.Change, error) {
 	}
 
 	dependencyGraph := graph.NewDirectedGraph[int]()
-	modifiedViews := make(map[string]int)
+	providers := make(map[string][]int)
 
 	for index, change := range reversed {
 		dependencyGraph.AddNode(index)
 
-		if change.Type != differ.ChangeTypeModifyView {
+		if !providesObjectOnRollback(change) {
 			continue
 		}
 
-		for _, name := range viewDependencyLookupNames(change.ObjectName) {
-			modifiedViews[name] = index
+		for _, name := range dependencyLookupNames(change.ObjectName) {
+			providers[name] = append(providers[name], index)
 		}
 	}
 
 	for dependentIndex, change := range reversed {
-		if change.Type != differ.ChangeTypeModifyView {
-			continue
-		}
-
 		for _, dependency := range change.RollbackDependsOn {
-			providerIndex, exists := modifiedViews[normalizeObjectName(dependency)]
-			if !exists && !strings.Contains(dependency, ".") {
-				providerIndex, exists = modifiedViews[strings.ToLower(dependency)]
-			}
+			for _, name := range dependencyLookupNames(dependency) {
+				for _, providerIndex := range providers[name] {
+					if providerIndex == dependentIndex {
+						continue
+					}
 
-			if !exists || providerIndex == dependentIndex {
-				continue
-			}
-
-			if err := dependencyGraph.AddEdge(dependentIndex, providerIndex); err != nil {
-				return nil, fmt.Errorf("order view rollback dependency: %w", err)
+					if err := dependencyGraph.AddEdge(dependentIndex, providerIndex); err != nil {
+						return nil, fmt.Errorf("order rollback dependency: %w", err)
+					}
+				}
 			}
 		}
 	}
@@ -65,7 +59,24 @@ func orderChangesForDown(changes []differ.Change) ([]differ.Change, error) {
 	return ordered, nil
 }
 
-func viewDependencyLookupNames(objectName string) []string {
+func providesObjectOnRollback(change differ.Change) bool {
+	switch change.Type {
+	case differ.ChangeTypeDropTable,
+		differ.ChangeTypeDropView,
+		differ.ChangeTypeDropMaterializedView,
+		differ.ChangeTypeDropFunction:
+		return true
+	case differ.ChangeTypeModifyView,
+		differ.ChangeTypeModifyMaterializedView,
+		differ.ChangeTypeModifyFunction:
+		_, hasCurrent := change.Details["current"]
+		return hasCurrent
+	default:
+		return false
+	}
+}
+
+func dependencyLookupNames(objectName string) []string {
 	normalized := normalizeObjectName(objectName)
 	names := []string{normalized}
 
@@ -77,23 +88,23 @@ func viewDependencyLookupNames(objectName string) []string {
 	return names
 }
 
-func modifiedViewDependencyCrossesBoundary(changes []differ.Change, splitAfter int) bool {
-	leftViews := modifiedViewNames(changes[:splitAfter+1])
-	rightViews := modifiedViewNames(changes[splitAfter+1:])
+func rollbackDependencyCrossesBoundary(changes []differ.Change, splitAfter int) bool {
+	leftProviders := rollbackProviderNames(changes[:splitAfter+1])
+	rightProviders := rollbackProviderNames(changes[splitAfter+1:])
 
-	return changesDependOnViews(changes[:splitAfter+1], rightViews) ||
-		changesDependOnViews(changes[splitAfter+1:], leftViews)
+	return changesDependOnRollbackProviders(changes[:splitAfter+1], rightProviders) ||
+		changesDependOnRollbackProviders(changes[splitAfter+1:], leftProviders)
 }
 
-func modifiedViewNames(changes []differ.Change) map[string]struct{} {
+func rollbackProviderNames(changes []differ.Change) map[string]struct{} {
 	names := make(map[string]struct{})
 
 	for _, change := range changes {
-		if change.Type != differ.ChangeTypeModifyView {
+		if !providesObjectOnRollback(change) {
 			continue
 		}
 
-		for _, name := range viewDependencyLookupNames(change.ObjectName) {
+		for _, name := range dependencyLookupNames(change.ObjectName) {
 			names[name] = struct{}{}
 		}
 	}
@@ -101,19 +112,14 @@ func modifiedViewNames(changes []differ.Change) map[string]struct{} {
 	return names
 }
 
-func changesDependOnViews(changes []differ.Change, viewNames map[string]struct{}) bool {
+func changesDependOnRollbackProviders(
+	changes []differ.Change,
+	providerNames map[string]struct{},
+) bool {
 	for _, change := range changes {
-		if change.Type != differ.ChangeTypeModifyView {
-			continue
-		}
-
-		dependencies := append(
-			slices.Clone(change.DependsOn),
-			change.RollbackDependsOn...,
-		)
-		for _, dependency := range dependencies {
-			for _, name := range viewDependencyLookupNames(dependency) {
-				if _, exists := viewNames[name]; exists {
+		for _, dependency := range change.RollbackDependsOn {
+			for _, name := range dependencyLookupNames(dependency) {
+				if _, exists := providerNames[name]; exists {
 					return true
 				}
 			}

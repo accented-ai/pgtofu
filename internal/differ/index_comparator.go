@@ -114,6 +114,10 @@ func (ic *IndexComparator) detectDroppedIndexes(
 				ObjectType: "index",
 				ObjectName: key,
 				Details:    map[string]any{"index": idx},
+				RollbackDependsOn: getIndexDependencies(
+					idx,
+					currentDB.Functions,
+				),
 			})
 		}
 	}
