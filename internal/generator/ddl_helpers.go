@@ -118,7 +118,10 @@ func buildCreateTableSQL(table *schema.Table) (string, error) {
 	}
 
 	for i := range table.Constraints {
-		definition, err := formatConstraintDefinition(&table.Constraints[i])
+		definition, err := formatConstraintDefinitionWithin(
+			&table.Constraints[i],
+			generatedSQLLineLength-len(sqlIndent)-1,
+		)
 		if err != nil {
 			return "", err
 		}

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/accented-ai/pgtofu/internal/differ"
 	"github.com/accented-ai/pgtofu/internal/schema"
@@ -550,14 +551,18 @@ func (b *DDLBuilder) buildAddConstraint(change differ.Change) (DDLStatement, err
 		)
 	}
 
-	definition, err := formatConstraintDefinition(constraint)
+	qualifiedTable := QualifiedName(table.Schema, table.Name)
+	prefix := "ALTER TABLE " + qualifiedTable + " ADD "
+
+	definition, err := formatConstraintDefinitionWithin(
+		constraint,
+		generatedSQLLineLength-utf8.RuneCountInString(prefix),
+	)
 	if err != nil {
 		return DDLStatement{}, newGeneratorError("buildAddConstraint", &change, err)
 	}
 
-	sql := fmt.Sprintf("ALTER TABLE %s ADD %s;",
-		QualifiedName(table.Schema, table.Name),
-		definition)
+	sql := prefix + definition + ";"
 
 	stmt := DDLStatement{
 		SQL:         sql,
@@ -601,66 +606,45 @@ func (b *DDLBuilder) buildDropConstraint(change differ.Change) (DDLStatement, er
 }
 
 func (b *DDLBuilder) buildModifyConstraint(change differ.Change) (DDLStatement, error) {
-	tableName, err := getDetailString(change.Details, DetailKeyTable)
-	if err != nil {
-		return DDLStatement{}, newGeneratorError("buildModifyConstraint", &change, err)
-	}
-
-	currentConstraint, err := getCurrentConstraint(change.Details)
-	if err != nil {
-		return DDLStatement{}, newGeneratorError("buildModifyConstraint", &change, err)
-	}
-
-	desiredConstraint, err := getDesiredConstraint(change.Details)
-	if err != nil {
-		return DDLStatement{}, newGeneratorError("buildModifyConstraint", &change, err)
-	}
-
-	schemaName, name := parseSchemaAndName(tableName)
-	if schemaName == "" {
-		schemaName = schema.DefaultSchema
-	}
-
-	qualifiedTable := QualifiedName(schemaName, name)
-
-	dropSQL := fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT %s%s;",
-		qualifiedTable,
-		b.ifExists(),
-		QuoteIdentifier(currentConstraint.Name))
-
-	definition, err := formatConstraintDefinition(desiredConstraint)
-	if err != nil {
-		return DDLStatement{}, newGeneratorError("buildModifyConstraint", &change, err)
-	}
-
-	addSQL := fmt.Sprintf("ALTER TABLE %s ADD %s;", qualifiedTable, definition)
-
-	sql := dropSQL + "\n" + addSQL
-
-	stmt := DDLStatement{
-		SQL:         sql,
-		Description: fmt.Sprintf("Modify constraint %s.%s", name, desiredConstraint.Name),
-		IsUnsafe:    true,
-		RequiresTx:  true,
-	}
-
-	return b.wrapWithCompressionToggle(stmt, tableName)
+	return b.buildModifyConstraintDirection(change, false)
 }
 
 func (b *DDLBuilder) buildReverseModifyConstraint(change differ.Change) (DDLStatement, error) {
+	return b.buildModifyConstraintDirection(change, true)
+}
+
+func (b *DDLBuilder) buildModifyConstraintDirection(
+	change differ.Change,
+	reverse bool,
+) (DDLStatement, error) {
+	operation := "buildModifyConstraint"
+	if reverse {
+		operation = "buildReverseModifyConstraint"
+	}
+
 	tableName, err := getDetailString(change.Details, DetailKeyTable)
 	if err != nil {
-		return DDLStatement{}, newGeneratorError("buildReverseModifyConstraint", &change, err)
+		return DDLStatement{}, newGeneratorError(operation, &change, err)
 	}
 
 	currentConstraint, err := getCurrentConstraint(change.Details)
 	if err != nil {
-		return DDLStatement{}, newGeneratorError("buildReverseModifyConstraint", &change, err)
+		return DDLStatement{}, newGeneratorError(operation, &change, err)
 	}
 
 	desiredConstraint, err := getDesiredConstraint(change.Details)
 	if err != nil {
-		return DDLStatement{}, newGeneratorError("buildReverseModifyConstraint", &change, err)
+		return DDLStatement{}, newGeneratorError(operation, &change, err)
+	}
+
+	droppedConstraint := currentConstraint
+	addedConstraint := desiredConstraint
+	action := "Modify"
+
+	if reverse {
+		droppedConstraint = desiredConstraint
+		addedConstraint = currentConstraint
+		action = "Revert"
 	}
 
 	schemaName, name := parseSchemaAndName(tableName)
@@ -673,20 +657,25 @@ func (b *DDLBuilder) buildReverseModifyConstraint(change differ.Change) (DDLStat
 	dropSQL := fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT %s%s;",
 		qualifiedTable,
 		b.ifExists(),
-		QuoteIdentifier(desiredConstraint.Name))
+		QuoteIdentifier(droppedConstraint.Name))
 
-	definition, err := formatConstraintDefinition(currentConstraint)
+	prefix := "ALTER TABLE " + qualifiedTable + " ADD "
+
+	definition, err := formatConstraintDefinitionWithin(
+		addedConstraint,
+		generatedSQLLineLength-utf8.RuneCountInString(prefix),
+	)
 	if err != nil {
-		return DDLStatement{}, newGeneratorError("buildReverseModifyConstraint", &change, err)
+		return DDLStatement{}, newGeneratorError(operation, &change, err)
 	}
 
-	addSQL := fmt.Sprintf("ALTER TABLE %s ADD %s;", qualifiedTable, definition)
+	addSQL := prefix + definition + ";"
 
 	sql := dropSQL + "\n" + addSQL
 
 	stmt := DDLStatement{
 		SQL:         sql,
-		Description: fmt.Sprintf("Revert constraint %s.%s", name, currentConstraint.Name),
+		Description: fmt.Sprintf("%s constraint %s.%s", action, name, addedConstraint.Name),
 		IsUnsafe:    true,
 		RequiresTx:  true,
 	}

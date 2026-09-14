@@ -1,7 +1,9 @@
 package generator_test
 
 import (
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	pgquery "github.com/pganalyze/pg_query_go/v6"
 	"github.com/stretchr/testify/require"
@@ -10,6 +12,114 @@ import (
 	"github.com/accented-ai/pgtofu/internal/generator"
 	"github.com/accented-ai/pgtofu/internal/schema"
 )
+
+func TestDDLBuilder_LongConstraintDefinitionsWrapForLinters(t *testing.T) {
+	t.Parallel()
+
+	columns := []schema.Column{
+		{Name: "id", DataType: "uuid", IsNullable: false, Position: 1},
+		{Name: "account_id", DataType: "uuid", IsNullable: false, Position: 2},
+		{Name: "parent_record_id", DataType: "uuid", IsNullable: false, Position: 3},
+		{Name: "catalog_partition", DataType: "text", IsNullable: false, Position: 4},
+		{Name: "external_reference", DataType: "text", IsNullable: false, Position: 5},
+		{Name: "state", DataType: "text", IsNullable: false, Position: 6},
+		{Name: "regional_catalog_namespace", DataType: "text", IsNullable: false, Position: 7},
+		{Name: "source_system_identifier", DataType: "text", IsNullable: false, Position: 8},
+	}
+	table := schema.Table{
+		Schema:  "reporting",
+		Name:    "records",
+		Columns: columns,
+		Constraints: []schema.Constraint{
+			{
+				Name:              "records_parent_record_assignment_identifier_fkey",
+				Type:              "FOREIGN KEY",
+				Columns:           []string{"account_id", "parent_record_id"},
+				ReferencedSchema:  "reporting",
+				ReferencedTable:   "parent_records_with_extended_retention_metadata",
+				ReferencedColumns: []string{"account_id", "id"},
+				OnDelete:          "RESTRICT",
+			},
+			{
+				Name: "records_catalog_partition_external_reference_unique",
+				Type: "UNIQUE",
+				Columns: []string{
+					"account_id",
+					"parent_record_id",
+					"catalog_partition",
+					"external_reference",
+					"regional_catalog_namespace",
+					"source_system_identifier",
+				},
+			},
+			{
+				Name: "records_state_and_external_reference_consistency_check",
+				Type: "CHECK",
+				Definition: "CHECK (((state = 'pending_review') AND " +
+					"(external_reference IS NOT NULL) AND (catalog_partition IS NOT NULL)) OR " +
+					"((state = 'archived_after_manual_review') AND " +
+					"(external_reference IS NOT NULL) AND (catalog_partition IS NOT NULL)))",
+			},
+		},
+	}
+	result := &differ.DiffResult{
+		Current: &schema.Database{},
+		Desired: &schema.Database{Tables: []schema.Table{table}},
+		Changes: []differ.Change{{
+			Type:       differ.ChangeTypeAddTable,
+			ObjectName: differ.TableKey(table.Schema, table.Name),
+		}},
+	}
+
+	statement, err := generator.NewDDLBuilder(result, true).BuildUpStatement(result.Changes[0])
+	require.NoError(t, err)
+
+	require.Contains(t, statement.SQL, "FOREIGN KEY (\n")
+	require.Contains(t, statement.SQL, "UNIQUE (\n")
+	require.Contains(t, statement.SQL, "CHECK (\n")
+	require.Contains(t, statement.SQL, "state = 'pending_review'")
+	require.NotContains(t, statement.SQL, "STATE =")
+	assertGeneratedSQLLineLengths(t, statement.SQL)
+
+	constraint := schema.Constraint{
+		Name: "records_extended_state_transition_policy_check",
+		Type: "CHECK",
+		Definition: "CHECK (state = " +
+			"'ready_after_all_required_external_catalog_validations_have_completed_successfully')",
+	}
+	result = &differ.DiffResult{
+		Current: &schema.Database{Tables: []schema.Table{{
+			Schema: table.Schema,
+			Name:   table.Name,
+		}}},
+		Desired: &schema.Database{Tables: []schema.Table{{
+			Schema:      table.Schema,
+			Name:        table.Name,
+			Constraints: []schema.Constraint{constraint},
+		}}},
+		Changes: []differ.Change{{
+			Type:       differ.ChangeTypeAddConstraint,
+			ObjectName: differ.TableKey(table.Schema, table.Name),
+			Details: map[string]any{
+				"table":      table.QualifiedName(),
+				"constraint": &constraint,
+			},
+		}},
+	}
+
+	statement, err = generator.NewDDLBuilder(result, true).BuildUpStatement(result.Changes[0])
+	require.NoError(t, err)
+	require.Contains(t, statement.SQL, "CHECK (\n")
+	assertGeneratedSQLLineLengths(t, statement.SQL)
+}
+
+func assertGeneratedSQLLineLengths(t *testing.T, sql string) {
+	t.Helper()
+
+	for line := range strings.SplitSeq(sql, "\n") {
+		require.LessOrEqual(t, utf8.RuneCountInString(line), 170, line)
+	}
+}
 
 func TestDDLBuilder_ConstraintIndentation_GroupedOR(t *testing.T) {
 	t.Parallel()

@@ -6,7 +6,9 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
+	"github.com/accented-ai/pgtofu/internal/parser"
 	"github.com/accented-ai/pgtofu/internal/schema"
 )
 
@@ -269,6 +271,201 @@ func formatConstraintDefinition( //nolint:cyclop,gocognit,gocyclo
 	return buf.String(), nil
 }
 
+func formatConstraintDefinitionWithin(
+	c *schema.Constraint,
+	maxLineLength int,
+) (string, error) {
+	definition, err := formatConstraintDefinition(c)
+	if err != nil || sqlLinesFit(definition, maxLineLength) {
+		return definition, err
+	}
+
+	switch c.Type {
+	case "CHECK":
+		return formatMultilineCheckConstraint(c)
+	case "FOREIGN KEY":
+		return formatMultilineForeignKeyConstraint(c), nil
+	case "PRIMARY KEY", "UNIQUE":
+		return formatMultilineKeyConstraint(c), nil
+	default:
+		return definition, nil
+	}
+}
+
+func formatMultilineCheckConstraint(c *schema.Constraint) (string, error) {
+	definition := NormalizeCheckConstraint(strings.TrimSpace(c.Definition))
+	content := definition
+
+	if strings.HasPrefix(strings.ToUpper(definition), "CHECK") {
+		var ok bool
+
+		content, ok = checkConstraintContent(definition)
+		if !ok {
+			return "", errors.New("invalid check constraint definition")
+		}
+	}
+
+	content = unwrapOuterParens(content)
+
+	protected, identifiers, err := protectCheckExpressionIdentifiers(content)
+	if err != nil {
+		return "", err
+	}
+
+	formatted, err := formatViewQuery("SELECT " + protected)
+	if err != nil {
+		return "", fmt.Errorf("format check constraint expression: %w", err)
+	}
+
+	for placeholder, identifier := range identifiers {
+		formatted = strings.ReplaceAll(formatted, placeholder, identifier)
+	}
+
+	expression, ok := strings.CutPrefix(formatted, "SELECT\n")
+	if !ok {
+		if inline, inlineOK := strings.CutPrefix(formatted, "SELECT "); inlineOK {
+			expression = sqlIndent + strings.TrimSpace(inline)
+			ok = true
+		}
+	}
+
+	if !ok || strings.TrimSpace(expression) == "" {
+		return "", errors.New("formatted check constraint expression is empty")
+	}
+
+	return constraintNamePrefix(c) + "CHECK (\n" + expression + "\n)", nil
+}
+
+func protectCheckExpressionIdentifiers(
+	expression string,
+) (string, map[string]string, error) {
+	tokens, err := parser.NewLexer(expression).Tokenize()
+	if err != nil {
+		return "", nil, fmt.Errorf("tokenize check constraint expression: %w", err)
+	}
+
+	replacements := make([]viewTextReplacement, 0)
+	identifiers := make(map[string]string)
+
+	for index, token := range tokens {
+		if token.Type != parser.TokenIdentifier || isCheckExpressionFunction(tokens, index) ||
+			isCheckExpressionType(tokens, index) {
+			continue
+		}
+
+		placeholder := fmt.Sprintf("pgtofu_identifier_%08d", len(identifiers))
+		for utf8.RuneCountInString(placeholder) < utf8.RuneCountInString(token.Literal) {
+			placeholder += "_"
+		}
+
+		replacements = append(replacements, viewTextReplacement{
+			start:       token.Start,
+			end:         token.End,
+			replacement: placeholder,
+		})
+		identifiers[placeholder] = token.Literal
+	}
+
+	return applyViewTextReplacements(expression, replacements), identifiers, nil
+}
+
+func isCheckExpressionFunction(tokens []parser.Token, index int) bool {
+	return index+1 < len(tokens) && tokens[index+1].Type == parser.TokenLParen
+}
+
+func isCheckExpressionType(tokens []parser.Token, index int) bool {
+	if index > 0 && tokens[index-1].Type == parser.TokenColon {
+		return true
+	}
+
+	return index > 0 && strings.EqualFold(tokens[index-1].Literal, "AS")
+}
+
+func formatMultilineForeignKeyConstraint(c *schema.Constraint) string {
+	lines := []string{
+		constraintNamePrefix(c) + "FOREIGN KEY (",
+		formatMultilineColumns(c.Columns),
+		")",
+	}
+
+	referenced := c.ReferencedTable
+	if c.ReferencedSchema != "" {
+		referenced = schema.QualifiedName(c.ReferencedSchema, c.ReferencedTable)
+	}
+
+	if len(c.ReferencedColumns) == 0 {
+		lines = append(lines, "REFERENCES "+referenced)
+	} else {
+		lines = append(lines, "REFERENCES "+referenced+" (")
+		lines = append(lines, formatMultilineColumns(c.ReferencedColumns), ")")
+	}
+
+	if c.OnDelete != "" && c.OnDelete != "NO ACTION" {
+		lines = append(lines, "ON DELETE "+c.OnDelete)
+	}
+
+	if c.OnUpdate != "" && c.OnUpdate != "NO ACTION" {
+		lines = append(lines, "ON UPDATE "+c.OnUpdate)
+	}
+
+	return appendConstraintTiming(strings.Join(lines, "\n"), c)
+}
+
+func formatMultilineKeyConstraint(c *schema.Constraint) string {
+	definition := constraintNamePrefix(c) + c.Type + " (\n" +
+		formatMultilineColumns(c.Columns) + "\n)"
+
+	return appendConstraintTiming(definition, c)
+}
+
+func formatMultilineColumns(columns []string) string {
+	formatted := make([]string, len(columns))
+	for index, column := range columns {
+		if isExpression(column) {
+			formatted[index] = sqlIndent + column
+		} else {
+			formatted[index] = sqlIndent + QuoteIdentifier(column)
+		}
+
+		if index < len(columns)-1 {
+			formatted[index] += ","
+		}
+	}
+
+	return strings.Join(formatted, "\n")
+}
+
+func constraintNamePrefix(c *schema.Constraint) string {
+	if c.Name == "" {
+		return ""
+	}
+
+	return "CONSTRAINT " + QuoteIdentifier(c.Name) + " "
+}
+
+func appendConstraintTiming(definition string, c *schema.Constraint) string {
+	if !c.IsDeferrable {
+		return definition
+	}
+
+	timing := "DEFERRABLE"
+	if c.InitiallyDeferred {
+		timing += " INITIALLY DEFERRED"
+	}
+
+	return definition + "\n" + timing
+}
+
+func sqlLinesFit(sql string, maxLineLength int) bool {
+	for line := range strings.SplitSeq(sql, "\n") {
+		if utf8.RuneCountInString(line) > maxLineLength {
+			return false
+		}
+	}
+
+	return true
+}
+
 func formatCheckConstraintDefinition(def string) string {
 	lines := compactSQLLines(def)
 	if len(lines) == 0 {
@@ -297,7 +494,7 @@ func formatSingleLineCheckConstraintDefinition(def string) (string, bool) {
 		return "", false
 	}
 
-	content, _ = unwrapOuterParens(content)
+	content = unwrapOuterParens(content)
 
 	terms := splitTopLevelKeyword(content, "OR")
 	if len(terms) < 2 || !shouldFormatSingleLineCheckTerms(terms) {
@@ -365,16 +562,14 @@ func compactSQLLines(sql string) []string {
 	return lines
 }
 
-func unwrapOuterParens(expr string) (string, int) {
+func unwrapOuterParens(expr string) string {
 	unwrapped := strings.TrimSpace(expr)
-	count := 0
 
 	for isWrappedInParens(unwrapped) {
 		unwrapped = strings.TrimSpace(unwrapped[1 : len(unwrapped)-1])
-		count++
 	}
 
-	return unwrapped, count
+	return unwrapped
 }
 
 func isWrappedInParens(expr string) bool {
