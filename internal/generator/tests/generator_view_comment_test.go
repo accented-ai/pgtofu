@@ -504,7 +504,7 @@ func TestViewDefinitionAndCommentChangeGeneratedOnceAndReverted(t *testing.T) {
 		Views: []schema.View{{
 			Schema:     "reporting",
 			Name:       "item_classifications",
-			Definition: "SELECT item_id, status, category FROM reporting.items",
+			Definition: "SELECT item_id, COALESCE(category, status) AS status FROM reporting.items",
 			Comment:    "Classifies items using their current status and category.",
 		}},
 	}

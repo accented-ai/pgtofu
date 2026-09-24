@@ -102,6 +102,13 @@ func (g *Generator) Generate(result *differ.DiffResult) (*GenerateResult, error)
 		}, nil
 	}
 
+	if err := validateViewColumnReplacements(
+		result.Changes,
+		g.Options.GenerateDownMigrations,
+	); err != nil {
+		return nil, err
+	}
+
 	genResult := &GenerateResult{
 		Migrations: []MigrationPair{},
 		Warnings:   []string{},

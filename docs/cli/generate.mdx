@@ -188,6 +188,12 @@ pgtofu automatically orders operations based on dependencies:
 
 For DROP operations, the order is reversed.
 
+## View Output Columns
+
+PostgreSQL permits `CREATE OR REPLACE VIEW` to append output columns, but it cannot remove existing output columns. When pgtofu can determine that an up or generated down migration would remove a view column, generation stops before writing files.
+
+Write an explicit migration that rebuilds the view and any dependent objects, and review ownership and grants before applying it.
+
 ## Version Auto-Detection
 
 When `--start-version` is not specified, pgtofu scans the output directory for existing migration files and continues from the next version:
