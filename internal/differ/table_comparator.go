@@ -69,12 +69,13 @@ func (tc *TableComparator) detectDroppedTables(
 	for key, table := range currentMap {
 		if _, exists := desiredMap[key]; !exists {
 			result.Changes = append(result.Changes, Change{
-				Type:        ChangeTypeDropTable,
-				Severity:    SeverityBreaking,
-				Description: "Drop table: " + table.QualifiedName(),
-				ObjectType:  "table",
-				ObjectName:  key,
-				Details:     map[string]any{"table": table},
+				Type:              ChangeTypeDropTable,
+				Severity:          SeverityBreaking,
+				Description:       "Drop table: " + table.QualifiedName(),
+				ObjectType:        "table",
+				ObjectName:        key,
+				Details:           map[string]any{"table": table},
+				RollbackDependsOn: getTableDependencies(table, result.Current.Functions),
 			})
 		}
 	}
