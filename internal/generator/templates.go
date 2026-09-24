@@ -348,8 +348,10 @@ func protectCheckExpressionIdentifiers(
 	identifiers := make(map[string]string)
 
 	for index, token := range tokens {
-		if token.Type != parser.TokenIdentifier || isCheckExpressionFunction(tokens, index) ||
-			isCheckExpressionType(tokens, index) {
+		if token.Type != parser.TokenIdentifier ||
+			isCheckExpressionFunction(tokens, index) ||
+			isCheckExpressionType(tokens, index) ||
+			isCheckExpressionArrayConstructor(tokens, index) {
 			continue
 		}
 
@@ -371,6 +373,11 @@ func protectCheckExpressionIdentifiers(
 
 func isCheckExpressionFunction(tokens []parser.Token, index int) bool {
 	return index+1 < len(tokens) && tokens[index+1].Type == parser.TokenLParen
+}
+
+func isCheckExpressionArrayConstructor(tokens []parser.Token, index int) bool {
+	return strings.EqualFold(tokens[index].Literal, "ARRAY") &&
+		index+1 < len(tokens) && tokens[index+1].Type == parser.TokenLBracket
 }
 
 func isCheckExpressionType(tokens []parser.Token, index int) bool {
