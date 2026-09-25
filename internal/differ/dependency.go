@@ -372,6 +372,15 @@ func (d *Differ) implicitlyDependsOn( //nolint:cyclop,gocognit,gocyclo,maintidx
 		return true
 	}
 
+	if change.Type == ChangeTypeDropFunction &&
+		(otherChange.Type == ChangeTypeDropView ||
+			otherChange.Type == ChangeTypeModifyView ||
+			otherChange.Type == ChangeTypeDropMaterializedView ||
+			otherChange.Type == ChangeTypeModifyMaterializedView) &&
+		slices.Contains(otherChange.RollbackDependsOn, change.ObjectName) {
+		return true
+	}
+
 	if change.Type == ChangeTypeDropTable &&
 		otherChange.Type == ChangeTypeDropConstraint &&
 		slices.Contains(otherChange.DependsOn, change.ObjectName) {

@@ -2,6 +2,7 @@ package generator
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/accented-ai/pgtofu/internal/differ"
@@ -46,6 +47,10 @@ func orderChangesForDown(changes []differ.Change) ([]differ.Change, error) {
 		}
 	}
 
+	if err := addViewRollbackEdgesForAddedFunctions(dependencyGraph, reversed); err != nil {
+		return nil, err
+	}
+
 	order, err := dependencyGraph.TopologicalSort()
 	if err != nil {
 		return nil, fmt.Errorf("order down migration: %w", err)
@@ -57,6 +62,33 @@ func orderChangesForDown(changes []differ.Change) ([]differ.Change, error) {
 	}
 
 	return ordered, nil
+}
+
+func addViewRollbackEdgesForAddedFunctions(
+	dependencyGraph *graph.DirectedGraph[int],
+	changes []differ.Change,
+) error {
+	for functionIndex, change := range changes {
+		if change.Type != differ.ChangeTypeAddFunction {
+			continue
+		}
+
+		for viewIndex, viewChange := range changes {
+			switch viewChange.Type {
+			case differ.ChangeTypeAddView,
+				differ.ChangeTypeModifyView,
+				differ.ChangeTypeAddMaterializedView,
+				differ.ChangeTypeModifyMaterializedView:
+				if slices.Contains(viewChange.DependsOn, change.ObjectName) {
+					if err := dependencyGraph.AddEdge(functionIndex, viewIndex); err != nil {
+						return fmt.Errorf("order rollback function drop: %w", err)
+					}
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 func providesObjectOnRollback(change differ.Change) bool {
