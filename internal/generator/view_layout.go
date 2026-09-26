@@ -77,6 +77,11 @@ func formatViewQueryLayout(query string) (string, error) {
 		return "", err
 	}
 
+	formatted, err = formatViewSelectModifiers(formatted)
+	if err != nil {
+		return "", err
+	}
+
 	formatted, err = formatViewArrayConstructors(formatted)
 	if err != nil {
 		return "", err
@@ -1231,6 +1236,155 @@ func formatViewSingleTargets(query string) (string, error) {
 	}
 
 	return strings.Join(result, "\n"), nil
+}
+
+func formatViewSelectModifiers(query string) (string, error) {
+	tokens, err := parser.NewLexer(query).Tokenize()
+	if err != nil {
+		return "", fmt.Errorf("tokenize SELECT modifier layout: %w", err)
+	}
+
+	lineStarts := viewQueryLineStarts(query)
+	lines := strings.Split(query, "\n")
+	replacements := make([]viewTextReplacement, 0)
+
+	for index, token := range tokens {
+		if len(replacements) > 0 && token.Start < replacements[len(replacements)-1].end {
+			continue
+		}
+
+		replacement, ok := viewSelectModifierReplacement(query, tokens, index, lineStarts, lines)
+		if ok {
+			replacements = append(replacements, replacement)
+		}
+	}
+
+	return applyViewTextReplacements(query, replacements), nil
+}
+
+func viewSelectModifierReplacement(
+	query string,
+	tokens []parser.Token,
+	selectIndex int,
+	lineStarts []int,
+	lines []string,
+) (viewTextReplacement, bool) {
+	selectToken := tokens[selectIndex]
+	if selectToken.Type != parser.TokenKeyword ||
+		!strings.EqualFold(selectToken.Literal, "SELECT") || selectIndex+1 >= len(tokens) {
+		return viewTextReplacement{}, false
+	}
+
+	selectLine := viewQueryLineAt(lineStarts, selectToken.Start)
+	if !strings.EqualFold(strings.TrimSpace(lines[selectLine]), "SELECT") {
+		return viewTextReplacement{}, false
+	}
+
+	modifierIndex := selectIndex + 1
+	modifierToken := tokens[modifierIndex]
+
+	modifierLine := viewQueryLineAt(lineStarts, modifierToken.Start)
+	if modifierLine != selectLine+1 {
+		return viewTextReplacement{}, false
+	}
+
+	endIndex := viewSelectModifierEnd(tokens, modifierIndex)
+	if endIndex < 0 || endIndex+1 >= len(tokens) {
+		return viewTextReplacement{}, false
+	}
+
+	endLine := viewQueryLineAt(lineStarts, tokens[endIndex].End-1)
+
+	target := tokens[endIndex+1]
+	if target.Type == parser.TokenEOF || target.Type == parser.TokenComment ||
+		viewQueryLineAt(lineStarts, target.Start) > endLine+1 {
+		return viewTextReplacement{}, false
+	}
+
+	modifierText, ok := viewSelectModifierText(query, tokens, modifierIndex, endIndex, lineStarts)
+	if !ok || utf8.RuneCountInString(lines[selectLine])+1+
+		utf8.RuneCountInString(strings.Split(modifierText, "\n")[0]) > generatedSQLLineLength {
+		return viewTextReplacement{}, false
+	}
+
+	return viewTextReplacement{
+		start: selectToken.End,
+		end:   target.Start,
+		replacement: " " + modifierText + "\n" +
+			leadingViewWhitespace(lines[modifierLine]),
+	}, true
+}
+
+func viewSelectModifierEnd(tokens []parser.Token, modifierIndex int) int {
+	modifier := tokens[modifierIndex]
+	if modifier.Type != parser.TokenKeyword {
+		return -1
+	}
+
+	if strings.EqualFold(modifier.Literal, "ALL") {
+		return modifierIndex
+	}
+
+	if !strings.EqualFold(modifier.Literal, "DISTINCT") {
+		return -1
+	}
+
+	if modifierIndex+1 >= len(tokens) ||
+		!strings.EqualFold(tokens[modifierIndex+1].Literal, "ON") {
+		return modifierIndex
+	}
+
+	if modifierIndex+2 >= len(tokens) || tokens[modifierIndex+2].Type != parser.TokenLParen {
+		return -1
+	}
+
+	depth := 0
+
+	for i := modifierIndex + 2; i < len(tokens); i++ {
+		switch tokens[i].Type {
+		case parser.TokenLParen:
+			depth++
+		case parser.TokenRParen:
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+
+	return -1
+}
+
+func viewSelectModifierText(
+	query string,
+	tokens []parser.Token,
+	modifierIndex int,
+	endIndex int,
+	lineStarts []int,
+) (string, bool) {
+	modifierLines := strings.Split(
+		query[tokens[modifierIndex].Start:tokens[endIndex].End], "\n",
+	)
+	if len(modifierLines) == 1 {
+		return modifierLines[0], true
+	}
+
+	// Spaces inside a multiline token can be part of a literal or identifier.
+	for _, token := range tokens[modifierIndex : endIndex+1] {
+		if viewQueryLineAt(lineStarts, token.Start) != viewQueryLineAt(lineStarts, token.End-1) {
+			return "", false
+		}
+	}
+
+	for i := 1; i < len(modifierLines); i++ {
+		if !strings.HasPrefix(modifierLines[i], viewLayoutIndent) {
+			return "", false
+		}
+
+		modifierLines[i] = strings.TrimPrefix(modifierLines[i], viewLayoutIndent)
+	}
+
+	return strings.Join(modifierLines, "\n"), true
 }
 
 func viewSelectTargetRange(tokens []parser.Token, selectIndex int) (int, int, bool) {
