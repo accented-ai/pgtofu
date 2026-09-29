@@ -3,6 +3,8 @@ package generator
 import (
 	"regexp"
 	"strings"
+
+	"github.com/accented-ai/pgtofu/internal/parser"
 )
 
 func NormalizeSQL(sql string) string {
@@ -95,6 +97,40 @@ func NormalizeDataType(dataType string) string {
 	}
 
 	return upper
+}
+
+func uppercaseBuiltinCastTypes(expression string) string {
+	tokens, err := parser.NewLexer(expression).Tokenize()
+	if err != nil {
+		return expression
+	}
+
+	replacements := make(map[int]string)
+	markBuiltinCastTypes(tokens, replacements)
+
+	if len(replacements) == 0 {
+		return expression
+	}
+
+	var output strings.Builder
+
+	position := 0
+
+	for index, token := range tokens {
+		replacement, ok := replacements[index]
+		if !ok {
+			continue
+		}
+
+		output.WriteString(expression[position:token.Start])
+		output.WriteString(replacement)
+
+		position = token.End
+	}
+
+	output.WriteString(expression[position:])
+
+	return output.String()
 }
 
 func normalizeBooleans(s string) string {

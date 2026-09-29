@@ -1064,6 +1064,11 @@ func formatIndexDefinition(idx *schema.Index) (string, error) {
 		return "", errors.New("index requires at least one column")
 	}
 
+	columns := make([]string, len(idx.Columns))
+	for i, column := range idx.Columns {
+		columns[i] = uppercaseBuiltinCastTypes(column)
+	}
+
 	var buf tokenBuffer
 	if idx.IsUnique {
 		buf.Write("CREATE UNIQUE INDEX")
@@ -1080,7 +1085,7 @@ func formatIndexDefinition(idx *schema.Index) (string, error) {
 		buf.Write(idx.Type)
 	}
 
-	buf.Write(fmt.Sprintf("(%s)", quoteColumns(idx.Columns)))
+	buf.Write(fmt.Sprintf("(%s)", quoteColumns(columns)))
 
 	if idx.NullsNotDistinct {
 		buf.Write("NULLS NOT DISTINCT")
@@ -1098,7 +1103,7 @@ func formatIndexDefinition(idx *schema.Index) (string, error) {
 
 	if idx.Where != "" {
 		buf.Write("WHERE")
-		buf.Write(NormalizeWhereClause(idx.Where))
+		buf.Write(uppercaseBuiltinCastTypes(NormalizeWhereClause(idx.Where)))
 	}
 
 	definition := buf.String()
@@ -1106,10 +1111,10 @@ func formatIndexDefinition(idx *schema.Index) (string, error) {
 		return definition, nil
 	}
 
-	return formatMultilineIndexDefinition(idx), nil
+	return formatMultilineIndexDefinition(idx, columns), nil
 }
 
-func formatMultilineIndexDefinition(idx *schema.Index) string {
+func formatMultilineIndexDefinition(idx *schema.Index, columns []string) string {
 	prefix := "CREATE "
 	if idx.IsUnique {
 		prefix += "UNIQUE "
@@ -1122,7 +1127,7 @@ func formatMultilineIndexDefinition(idx *schema.Index) string {
 		prefix += " USING " + idx.Type
 	}
 
-	lines := []string{prefix + " (", formatMultilineColumns(idx.Columns), ")"}
+	lines := []string{prefix + " (", formatMultilineColumns(columns), ")"}
 
 	if idx.NullsNotDistinct {
 		lines[len(lines)-1] += " NULLS NOT DISTINCT"
@@ -1137,7 +1142,7 @@ func formatMultilineIndexDefinition(idx *schema.Index) string {
 	}
 
 	if idx.Where != "" {
-		where := "WHERE " + NormalizeWhereClause(idx.Where)
+		where := "WHERE " + uppercaseBuiltinCastTypes(NormalizeWhereClause(idx.Where))
 		if sqlLinesFit(lines[len(lines)-1]+" "+where, generatedSQLLineLength) {
 			lines[len(lines)-1] += " " + where
 		} else {

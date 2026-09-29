@@ -753,6 +753,49 @@ func TestDDLBuilder_ModifyIndexDownMigration(t *testing.T) {
 	assert.NotContains(t, stmt.SQL, "INCLUDE")
 }
 
+func TestDDLBuilder_ModifyIndexDownMigrationFormatsCastTypes(t *testing.T) {
+	t.Parallel()
+
+	currentIndex := &schema.Index{
+		Schema:    "example",
+		Name:      "idx_event_records_external_reference_identifier_with_selection_rule",
+		TableName: "event_records",
+		Columns: []string{
+			"event_id",
+			"((metadata ->> 'external_reference_identifier'::text))",
+		},
+		Where: "metadata::jsonb ? 'selected::text'",
+	}
+	desiredIndex := *currentIndex
+	desiredIndex.Columns = []string{
+		"event_id", "(metadata ->> 'external_reference_identifier')",
+	}
+
+	result := &differ.DiffResult{
+		Current: &schema.Database{Tables: []schema.Table{{
+			Schema: "example", Name: "event_records", Indexes: []schema.Index{*currentIndex},
+		}}},
+		Desired: &schema.Database{Tables: []schema.Table{{
+			Schema: "example", Name: "event_records", Indexes: []schema.Index{desiredIndex},
+		}}},
+		Changes: []differ.Change{{
+			Type:       differ.ChangeTypeModifyIndex,
+			ObjectName: "example." + currentIndex.Name,
+			Details: map[string]any{
+				"current": currentIndex,
+				"desired": &desiredIndex,
+			},
+		}},
+	}
+
+	stmt, err := generator.NewDDLBuilder(result, true).BuildDownStatement(result.Changes[0])
+	require.NoError(t, err)
+
+	assert.Contains(t, stmt.SQL,
+		"\n    ((metadata ->> 'external_reference_identifier'::TEXT))")
+	assert.Contains(t, stmt.SQL, "WHERE metadata::JSONB ? 'selected::text'")
+}
+
 func TestDDLBuilder_ModifyIndexDownMigrationFormatsQuantifiedComparison(t *testing.T) {
 	t.Parallel()
 

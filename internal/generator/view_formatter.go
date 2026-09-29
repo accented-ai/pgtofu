@@ -263,7 +263,7 @@ func normalizeViewQueryStyle(query string, names viewQueryNames) (string, error)
 		insertions[i] = append(insertions[i], "INNER ")
 	}
 
-	markViewCastTypes(tokens, replacements)
+	markBuiltinCastTypes(tokens, replacements)
 
 	var (
 		output   strings.Builder
@@ -693,7 +693,7 @@ func hasExplicitJoinType(tokens []parser.Token, index int) bool {
 	}
 }
 
-func markViewCastTypes(tokens []parser.Token, replacements map[int]string) {
+func markBuiltinCastTypes(tokens []parser.Token, replacements map[int]string) {
 	for i := range tokens {
 		if tokens[i].Type == parser.TokenColon && i+1 < len(tokens) &&
 			tokens[i+1].Type == parser.TokenColon {
