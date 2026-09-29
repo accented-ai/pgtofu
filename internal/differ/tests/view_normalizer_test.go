@@ -352,6 +352,57 @@ SELECT item_id, owner_id FROM combined_items;
 	assertNormalizedEqual(t, source, formatted)
 }
 
+func TestNormalizeViewDefinitionDetectsLateralSubqueryChanges(t *testing.T) {
+	t.Parallel()
+
+	current := `
+SELECT item.id
+FROM inventory.items AS item
+INNER JOIN LATERAL (
+    SELECT candidate.id
+    FROM inventory.candidates AS candidate
+    WHERE candidate.item_id = item.id
+    ORDER BY candidate.id
+    LIMIT 1
+) AS picked ON TRUE`
+
+	tests := []struct {
+		name    string
+		desired string
+	}{
+		{
+			name:    "changed lateral limit",
+			desired: strings.Replace(current, "LIMIT 1", "LIMIT 2", 1),
+		},
+		{
+			name: "added scoped lateral join",
+			desired: strings.Replace(current,
+				"WHERE candidate.item_id = item.id",
+				`INNER JOIN LATERAL (
+        SELECT 1
+        FROM inventory.authorities AS authority
+        WHERE authority.candidate_id = candidate.id
+        OFFSET 0
+    ) AS scoped_authority ON TRUE
+    WHERE candidate.item_id = item.id`, 1),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			comparator := differ.NewViewComparator(differ.DefaultOptions())
+			if comparator.AreEqual(
+				schema.View{Definition: current},
+				schema.View{Definition: tt.desired},
+			) {
+				t.Fatal("changed lateral subquery should modify the view")
+			}
+		})
+	}
+}
+
 func TestNormalizeViewDefinitionHandlesBooleanFunctionArguments(t *testing.T) {
 	t.Parallel()
 

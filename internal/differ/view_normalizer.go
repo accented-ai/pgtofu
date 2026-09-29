@@ -708,7 +708,7 @@ func (n *sqlNormalizer) parseFromClause() ([]map[string]any, string) { //nolint:
 
 		if tokenLiteralEqual(n.current(), "LATERAL") {
 			n.advance()
-			n.skipParenthesizedFromSubquery()
+			subquery := n.parseParenthesizedFromSubquery()
 
 			if n.matchKeyword("AS") {
 				n.advance()
@@ -717,6 +717,12 @@ func (n *sqlNormalizer) parseFromClause() ([]map[string]any, string) { //nolint:
 			if n.current().Type == parser.TokenIdentifier ||
 				n.current().Type == parser.TokenQuotedIdentifier {
 				n.advance()
+			}
+
+			if subquery != nil {
+				tables = append(tables, map[string]any{
+					"lateral": subquery,
+				})
 			}
 
 			continue
@@ -786,12 +792,15 @@ func (n *sqlNormalizer) parseFromClause() ([]map[string]any, string) { //nolint:
 	return tables, primaryTable
 }
 
-func (n *sqlNormalizer) skipParenthesizedFromSubquery() {
+func (n *sqlNormalizer) parseParenthesizedFromSubquery() map[string]any {
 	if n.current().Type != parser.TokenLParen {
-		return
+		return nil
 	}
 
-	depth := 0
+	n.advance()
+
+	depth := 1
+	start := n.pos
 
 	for n.pos < len(n.tokens) {
 		switch n.current().Type {
@@ -801,12 +810,17 @@ func (n *sqlNormalizer) skipParenthesizedFromSubquery() {
 			depth--
 		}
 
-		n.advance()
-
 		if depth == 0 {
-			return
+			break
 		}
+
+		n.advance()
 	}
+
+	subquery := &sqlNormalizer{tokens: n.tokens[start:n.pos]}
+	n.advance()
+
+	return subquery.parseSelectStatement()
 }
 
 func (n *sqlNormalizer) parseExpression(stopAtComma bool) map[string]any { //nolint:gocognit
