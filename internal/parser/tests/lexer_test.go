@@ -99,6 +99,13 @@ func TestLexerOperators(t *testing.T) {
 		{"double pipe", "a || b", []string{"||"}},
 		{"single ampersand", "a & b", []string{"&"}},
 		{"single pipe", "a | b", []string{"|"}},
+		{"JSONB key", "data ? key", []string{"?"}},
+		{"JSONB any key", "data ?| keys", []string{"?|"}},
+		{"JSONB all keys", "data ?& keys", []string{"?&"}},
+		{
+			"other PostgreSQL operators", "a @> b % c ^ d !~ e",
+			[]string{"@", ">", "%", "^", "!", "~"},
+		},
 		{"tilde", "~a", []string{"~"}},
 		{"hash", "a # b", []string{"#"}},
 		{"mixed operators", "a && b || c", []string{"&&", "||"}},
