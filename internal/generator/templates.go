@@ -1255,7 +1255,7 @@ func formatFunctionDefinition(f *schema.Function) (string, error) {
 	sb.WriteString(funcSignature)
 	sb.WriteString("\n\n")
 	sb.WriteString("RETURNS ")
-	sb.WriteString(formatFunctionDataType(f.ReturnType))
+	sb.WriteString(formatFunctionReturnType(f.ReturnType))
 	sb.WriteString(" AS $$\n")
 
 	if body != "" {

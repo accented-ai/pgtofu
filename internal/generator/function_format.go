@@ -3,6 +3,7 @@ package generator
 import (
 	"strings"
 
+	"github.com/accented-ai/pgtofu/internal/parser"
 	"github.com/accented-ai/pgtofu/internal/schema"
 )
 
@@ -44,6 +45,56 @@ func formatFunctionDataTypes(dataTypes []string) []string {
 	}
 
 	return formatted
+}
+
+func formatFunctionReturnType(returnType string) string {
+	returnType = strings.TrimSpace(returnType)
+
+	formatted := formatFunctionDataType(returnType)
+	if len(returnType) < len("TABLE") || !strings.EqualFold(returnType[:len("TABLE")], "TABLE") {
+		return formatted
+	}
+
+	tokens, err := parser.NewLexer(returnType).Tokenize()
+	if err != nil || len(tokens) < 3 ||
+		!strings.EqualFold(tokens[0].Literal, "TABLE") ||
+		tokens[1].Type != parser.TokenLParen {
+		return formatted
+	}
+
+	output := []byte(formatted)
+	depth := 0
+	wantColumnName := false
+
+	for _, token := range tokens[1:] {
+		switch token.Type {
+		case parser.TokenLParen:
+			depth++
+			if depth == 1 {
+				wantColumnName = true
+			}
+		case parser.TokenRParen:
+			depth--
+		case parser.TokenComma:
+			if depth == 1 {
+				wantColumnName = true
+			}
+		case parser.TokenComment:
+			continue
+		default:
+			if depth == 1 && wantColumnName {
+				if token.Type == parser.TokenIdentifier || token.Type == parser.TokenKeyword {
+					for i := token.Start; i < token.End; i++ {
+						output[i] = lowerASCIIByte(output[i])
+					}
+				}
+
+				wantColumnName = false
+			}
+		}
+	}
+
+	return string(output)
 }
 
 func formatFunctionDataType(dataType string) string {
@@ -114,6 +165,14 @@ func formatFunctionDataType(dataType string) string {
 func upperASCIIByte(ch byte) byte {
 	if ch >= 'a' && ch <= 'z' {
 		return ch - 'a' + 'A'
+	}
+
+	return ch
+}
+
+func lowerASCIIByte(ch byte) byte {
+	if ch >= 'A' && ch <= 'Z' {
+		return ch - 'A' + 'a'
 	}
 
 	return ch

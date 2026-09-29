@@ -606,6 +606,37 @@ func TestDDLBuilder_FunctionDefinitionFormatsDataTypesUppercase(t *testing.T) {
 	assert.Contains(t, commentStmt.SQL, "COMMENT ON FUNCTION "+signature+" IS")
 }
 
+func TestDDLBuilder_FunctionDefinitionFormatsTableReturnColumns(t *testing.T) {
+	t.Parallel()
+
+	currentFn := schema.Function{
+		Schema:     "example",
+		Name:       "item_summary",
+		ReturnType: `TABLE(ITEM_ID uuid, "DisplayName" text, amount numeric(10, 2))`,
+		Language:   "sql",
+		Body:       "SELECT NULL::UUID, 'old'::TEXT, 1.0::NUMERIC",
+	}
+	desiredFn := currentFn
+	desiredFn.Body = "SELECT NULL::UUID, 'new'::TEXT, 2.0::NUMERIC"
+
+	result, err := differ.New(differ.DefaultOptions()).Compare(
+		&schema.Database{Functions: []schema.Function{currentFn}},
+		&schema.Database{Functions: []schema.Function{desiredFn}},
+	)
+	require.NoError(t, err)
+	require.Len(t, result.Changes, 1)
+
+	builder := generator.NewDDLBuilder(result, true)
+	up, err := builder.BuildUpStatement(result.Changes[0])
+	require.NoError(t, err)
+	down, err := builder.BuildDownStatement(result.Changes[0])
+	require.NoError(t, err)
+
+	const returnClause = `RETURNS TABLE(item_id UUID, "DisplayName" TEXT, amount NUMERIC(10, 2)) AS $$`
+	assert.Contains(t, up.SQL, returnClause)
+	assert.Contains(t, down.SQL, returnClause)
+}
+
 func TestDDLBuilder_FunctionDropComment(t *testing.T) {
 	t.Parallel()
 
