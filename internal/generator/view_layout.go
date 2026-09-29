@@ -706,6 +706,11 @@ func collectViewSourceLayouts(
 			continue
 		}
 
+		if strings.EqualFold(token.Literal, "JOIN") &&
+			strings.EqualFold(tokens[relationIndex].Literal, "LATERAL") {
+			continue
+		}
+
 		relationLine := viewQueryLineAt(lineStarts, tokens[relationIndex].Start)
 		if relationLine != keywordLine+1 || relationLine >= len(lines) {
 			continue

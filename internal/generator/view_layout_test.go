@@ -60,3 +60,16 @@ func TestFormatViewArrayConstructors(t *testing.T) {
 		})
 	}
 }
+
+func TestFormatViewLayoutKeepsCrossJoinLateralSplit(t *testing.T) {
+	t.Parallel()
+
+	formatted, err := formatViewQueryLayout(`SELECT item.id, detail.value
+FROM example.items AS item
+CROSS JOIN LATERAL
+    (
+        SELECT item.id AS value
+    ) AS detail`)
+	require.NoError(t, err)
+	assert.Contains(t, formatted, "CROSS JOIN\n    LATERAL\n    (")
+}
