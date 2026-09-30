@@ -18,8 +18,8 @@ var viewASTNormalizeMu sync.Mutex //nolint:gochecknoglobals
 
 func (vn *viewNormalizer) definitionsEqual(current, desired string) bool {
 	var (
-		currentAST, currentOK = canonicalPostgresView(current)
-		desiredAST, desiredOK = canonicalPostgresView(desired)
+		currentAST, currentOK = canonicalPostgresView(current, vn.currentColumns)
+		desiredAST, desiredOK = canonicalPostgresView(desired, vn.desiredColumns)
 	)
 
 	if currentOK && desiredOK && currentAST == desiredAST {
@@ -29,7 +29,7 @@ func (vn *viewNormalizer) definitionsEqual(current, desired string) bool {
 	return vn.normalizeDefinition(current) == vn.normalizeDefinition(desired)
 }
 
-func canonicalPostgresView(definition string) (string, bool) {
+func canonicalPostgresView(definition string, columns map[string][]string) (string, bool) {
 	definition = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(definition), ";"))
 	if definition == "" {
 		return "", false
@@ -42,6 +42,8 @@ func canonicalPostgresView(definition string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
+
+	expandPostgresRelationWildcards(tree.ProtoReflect(), columns)
 
 	return canonicalPostgresMessage(tree.ProtoReflect()), true
 }
@@ -87,6 +89,7 @@ func canonicalPostgresMessageFields(message protoreflect.Message) string {
 	message.Range(func(field protoreflect.FieldDescriptor, value protoreflect.Value) bool {
 		name := string(field.Name())
 		if isPostgresLocationField(name) ||
+			isPostgresAnonymousTargetName(message, name) ||
 			isImplicitPostgresCaseDefault(message, field, value) ||
 			isDefaultPostgresAscendingSort(message, field, value) {
 			return true
@@ -99,6 +102,13 @@ func canonicalPostgresMessageFields(message protoreflect.Message) string {
 	sort.Strings(fields)
 
 	return string(message.Descriptor().FullName()) + "{" + strings.Join(fields, ",") + "}"
+}
+
+func isPostgresAnonymousTargetName(message protoreflect.Message, field string) bool {
+	target, ok := message.Interface().(*pgquery.ResTarget)
+
+	return ok && field == "name" && target.GetName() == "?column?" &&
+		postgresImplicitOutputName(target.GetVal()) == "?column?"
 }
 
 func canonicalPostgresNode(node *pgquery.Node) string {

@@ -12,6 +12,9 @@ var viewDependencyPattern = regexp.MustCompile(
 )
 
 func (d *Differ) compareViews(result *DiffResult) {
+	d.viewComp.normalizer.currentColumns = postgresRelationColumns(result.Current)
+	d.viewComp.normalizer.desiredColumns = postgresRelationColumns(result.Desired)
+
 	currentViews := buildViewMap(result.Current.Views)
 	desiredViews := buildViewMap(result.Desired.Views)
 
@@ -126,7 +129,7 @@ func (d *Differ) processMaterializedViewChanges(
 
 	for key, desiredView := range desiredViews {
 		if currentView, exists := currentViews[key]; exists {
-			defEqual := NewViewNormalizer().definitionsEqual(
+			defEqual := d.viewComp.normalizer.definitionsEqual(
 				currentView.Definition,
 				desiredView.Definition,
 			)

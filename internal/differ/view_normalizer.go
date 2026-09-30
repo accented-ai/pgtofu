@@ -11,6 +11,8 @@ import (
 )
 
 type viewNormalizer struct {
+	currentColumns               map[string][]string
+	desiredColumns               map[string][]string
 	typeCastPattern              *regexp.Regexp
 	intervalPattern              *regexp.Regexp
 	anyArrayPattern              *regexp.Regexp
