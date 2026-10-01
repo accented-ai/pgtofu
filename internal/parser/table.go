@@ -829,14 +829,21 @@ func normalizeIdentifierList(p *Parser, list string) []string {
 }
 
 func isConstraint(def string) bool {
-	upper := strings.ToUpper(strings.TrimSpace(def))
+	tokens, err := NewLexer(def).Tokenize()
+	if err != nil || len(tokens) < 2 || tokens[0].Type == TokenQuotedIdentifier {
+		return false
+	}
 
-	return strings.HasPrefix(upper, "CONSTRAINT ") ||
-		strings.HasPrefix(upper, "PRIMARY KEY") ||
-		strings.HasPrefix(upper, "FOREIGN KEY") ||
-		strings.HasPrefix(upper, "UNIQUE") ||
-		strings.HasPrefix(upper, "CHECK") ||
-		strings.HasPrefix(upper, "EXCLUDE")
+	switch upperLiteral(tokens, 0) {
+	case "CONSTRAINT", "UNIQUE", "CHECK":
+		return true
+	case "PRIMARY", "FOREIGN":
+		return upperLiteral(tokens, 1) == "KEY"
+	case "EXCLUDE":
+		return upperLiteral(tokens, 1) == "USING" || tokens[1].Type == TokenLParen
+	default:
+		return false
+	}
 }
 
 func (p *Parser) parseConstraint(def string) (schema.Constraint, error) {

@@ -643,7 +643,7 @@ func isIdentifierStart(r rune) bool {
 }
 
 func isIdentifierPart(r rune) bool {
-	return isIdentifierStart(r) || unicode.IsDigit(r)
+	return isIdentifierStart(r) || unicode.IsDigit(r) || r == '$'
 }
 
 func isDollarTagChar(r rune) bool {
