@@ -67,6 +67,11 @@ func formatViewQueryLayout(query string) (string, error) {
 		return "", err
 	}
 
+	formatted, err = compactViewValuesSources(formatted)
+	if err != nil {
+		return "", err
+	}
+
 	formatted, err = compactViewSources(formatted)
 	if err != nil {
 		return "", err
