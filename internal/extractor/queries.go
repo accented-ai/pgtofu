@@ -111,7 +111,9 @@ const (
 				'pg_class'
 			) as table_comment,
 			pg_catalog.pg_get_userbyid(c.relowner) as owner,
-			ts.spcname as tablespace
+			ts.spcname as tablespace,
+			c.relrowsecurity,
+			c.relforcerowsecurity
 		FROM information_schema.tables t
 		JOIN pg_catalog.pg_class c ON c.relname = t.table_name
 		JOIN pg_catalog.pg_namespace n ON n.nspname = t.table_schema AND c.relnamespace = n.oid

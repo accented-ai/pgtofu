@@ -69,6 +69,7 @@ pgvector
 pgxpool
 plpgsql
 pmezard
+polrelid
 PostGIS
 PostgREST
 proisstrict

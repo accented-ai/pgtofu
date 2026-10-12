@@ -35,6 +35,8 @@ func (e *Extractor) extractTables(ctx context.Context) ([]schema.Table, error) {
 			scanner.String("comment"),
 			scanner.String("owner"),
 			scanner.String("tablespace"),
+			&table.RowSecurityEnabled,
+			&table.RowSecurityForced,
 		); err != nil {
 			return util.WrapError("scan table", err)
 		}
@@ -73,6 +75,7 @@ func (e *Extractor) enrichTable(ctx context.Context, table *schema.Table) error 
 		{"extract constraints", e.enrichConstraints},
 		{"extract indexes", e.enrichIndexes},
 		{"extract partition info", e.enrichPartitions},
+		{"extract policies", e.extractPolicies},
 	}
 
 	for _, enricher := range enrichers {
