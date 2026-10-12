@@ -120,6 +120,7 @@ func (d *Differ) Compare(current, desired *schema.Database) (*DiffResult, error)
 	d.compareMaterializedViews(result)
 	d.functionComp.Compare(result)
 	d.triggerComp.Compare(result)
+	d.compareRowSecurity(result)
 	d.compareHypertables(result)
 	d.compareContinuousAggregates(result)
 	d.filterDuplicateCAIndexChanges(result)
@@ -368,6 +369,9 @@ func (d *Differ) computeStats(result *DiffResult) {
 			ChangeTypeModifyColumnNullability,
 			ChangeTypeModifyColumnDefault:
 			result.Stats.ColumnsModified++
+			result.Stats.TablesModified++
+		case ChangeTypeModifyTableRowSecurity, ChangeTypeAddPolicy,
+			ChangeTypeDropPolicy, ChangeTypeModifyPolicy:
 			result.Stats.TablesModified++
 		case ChangeTypeAddIndex:
 			result.Stats.IndexesAdded++
