@@ -76,10 +76,10 @@ func (b *customTypeBuilder) BuildDown(
 	ddlBuilder *DDLBuilder,
 ) (DDLStatement, error) {
 	if change.Type == differ.ChangeTypeAddCustomType {
-		return ddlBuilder.buildDropCustomType(change)
+		return ddlBuilder.buildDropCustomTypeForDown(change)
 	}
 
-	return ddlBuilder.buildAddCustomType(change)
+	return ddlBuilder.buildAddCustomTypeForDown(change)
 }
 
 type sequenceBuilder struct{}

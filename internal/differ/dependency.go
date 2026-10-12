@@ -288,7 +288,8 @@ func getColumnFromChange(change *Change) (tableName, columnName string, ok bool)
 
 	col, ok := change.Details["column"].(*schema.Column)
 	if !ok || col == nil {
-		return "", "", false
+		columnName, hasName := change.Details["column_name"].(string)
+		return tableName, columnName, hasName && columnName != ""
 	}
 
 	return tableName, col.Name, true
@@ -298,6 +299,10 @@ func (d *Differ) implicitlyDependsOn( //nolint:cyclop,gocognit,gocyclo,maintidx
 	change *Change,
 	otherChange *Change,
 ) bool {
+	if policyChangeDependsOn(change, otherChange) {
+		return true
+	}
+
 	if change.Type != ChangeTypeAddSchema && otherChange.Type == ChangeTypeAddSchema {
 		changeSchema := extractSchemaFromChange(change)
 

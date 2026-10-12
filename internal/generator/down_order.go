@@ -78,7 +78,9 @@ func addViewRollbackEdgesForAddedFunctions(
 			case differ.ChangeTypeAddView,
 				differ.ChangeTypeModifyView,
 				differ.ChangeTypeAddMaterializedView,
-				differ.ChangeTypeModifyMaterializedView:
+				differ.ChangeTypeModifyMaterializedView,
+				differ.ChangeTypeAddPolicy,
+				differ.ChangeTypeModifyPolicy:
 				if slices.Contains(viewChange.DependsOn, change.ObjectName) {
 					if err := dependencyGraph.AddEdge(functionIndex, viewIndex); err != nil {
 						return fmt.Errorf("order rollback function drop: %w", err)
@@ -94,6 +96,7 @@ func addViewRollbackEdgesForAddedFunctions(
 func providesObjectOnRollback(change differ.Change) bool {
 	switch change.Type {
 	case differ.ChangeTypeDropTable,
+		differ.ChangeTypeDropCustomType,
 		differ.ChangeTypeDropView,
 		differ.ChangeTypeDropMaterializedView,
 		differ.ChangeTypeDropFunction:
@@ -126,6 +129,23 @@ func rollbackDependencyCrossesBoundary(changes []differ.Change, splitAfter int) 
 
 	return changesDependOnRollbackProviders(changes[:splitAfter+1], rightProviders) ||
 		changesDependOnRollbackProviders(changes[splitAfter+1:], leftProviders)
+}
+
+func hasOpenPolicyRecreation(changes []differ.Change) bool {
+	open := make(map[string]bool)
+
+	for _, change := range changes {
+		switch change.Type {
+		case differ.ChangeTypeDropPolicy:
+			if recreate, _ := change.Details["recreate"].(bool); recreate {
+				open[change.ObjectName] = true
+			}
+		case differ.ChangeTypeAddPolicy:
+			delete(open, change.ObjectName)
+		}
+	}
+
+	return len(open) > 0
 }
 
 func rollbackProviderNames(changes []differ.Change) map[string]struct{} {

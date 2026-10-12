@@ -325,6 +325,10 @@ func (g *Generator) canSplitBetween(
 	nextChange differ.Change,
 	objectsInBatch map[string]bool,
 ) bool {
+	if hasOpenPolicyRecreation(currentBatch) {
+		return false
+	}
+
 	if g.hasDependencyInBatch(nextChange, objectsInBatch) {
 		return false
 	}

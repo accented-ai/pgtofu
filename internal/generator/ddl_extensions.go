@@ -173,7 +173,18 @@ func (b *DDLBuilder) buildCreateExtensionSQL(ext *schema.Extension) string {
 }
 
 func (b *DDLBuilder) buildAddCustomType(change differ.Change) (DDLStatement, error) {
-	ct := b.getCustomType(change.ObjectName, b.result.Desired)
+	return b.buildCreateCustomType(change, b.result.Desired)
+}
+
+func (b *DDLBuilder) buildAddCustomTypeForDown(change differ.Change) (DDLStatement, error) {
+	return b.buildCreateCustomType(change, b.result.Current)
+}
+
+func (b *DDLBuilder) buildCreateCustomType(
+	change differ.Change,
+	db *schema.Database,
+) (DDLStatement, error) {
+	ct := b.getCustomType(change.ObjectName, db)
 	if ct == nil {
 		return DDLStatement{}, fmt.Errorf("custom type not found: %s", change.ObjectName)
 	}
@@ -197,12 +208,24 @@ func (b *DDLBuilder) buildAddCustomType(change differ.Change) (DDLStatement, err
 }
 
 func (b *DDLBuilder) buildDropCustomType(change differ.Change) (DDLStatement, error) {
-	ct := b.getCustomType(change.ObjectName, b.result.Current)
+	return b.buildRemoveCustomType(change, b.result.Current)
+}
+
+func (b *DDLBuilder) buildDropCustomTypeForDown(change differ.Change) (DDLStatement, error) {
+	return b.buildRemoveCustomType(change, b.result.Desired)
+}
+
+func (b *DDLBuilder) buildRemoveCustomType(
+	change differ.Change,
+	db *schema.Database,
+) (DDLStatement, error) {
+	ct := b.getCustomType(change.ObjectName, db)
 	if ct == nil {
 		return DDLStatement{}, fmt.Errorf("custom type not found: %s", change.ObjectName)
 	}
 
-	sql := fmt.Sprintf("DROP TYPE %s%s CASCADE;",
+	// A cascading type drop can silently remove policies and their protection.
+	sql := fmt.Sprintf("DROP TYPE %s%s;",
 		b.ifExists(), QualifiedName(ct.Schema, ct.Name))
 
 	return DDLStatement{
