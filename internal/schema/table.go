@@ -7,15 +7,18 @@ import (
 )
 
 type Table struct {
-	Schema            string             `json:"schema"`
-	Name              string             `json:"name"`
-	Columns           []Column           `json:"columns"`
-	Constraints       []Constraint       `json:"constraints,omitempty"`
-	Indexes           []Index            `json:"indexes,omitempty"`
-	Comment           string             `json:"comment,omitempty"`
-	Owner             string             `json:"owner,omitempty"`
-	Tablespace        string             `json:"tablespace,omitempty"`
-	PartitionStrategy *PartitionStrategy `json:"partition_strategy,omitempty"`
+	Schema             string             `json:"schema"`
+	Name               string             `json:"name"`
+	Columns            []Column           `json:"columns"`
+	Constraints        []Constraint       `json:"constraints,omitempty"`
+	Indexes            []Index            `json:"indexes,omitempty"`
+	Comment            string             `json:"comment,omitempty"`
+	Owner              string             `json:"owner,omitempty"`
+	Tablespace         string             `json:"tablespace,omitempty"`
+	PartitionStrategy  *PartitionStrategy `json:"partition_strategy,omitempty"`
+	RowSecurityEnabled bool               `json:"row_security_enabled,omitempty"`
+	RowSecurityForced  bool               `json:"row_security_forced,omitempty"`
+	Policies           []Policy           `json:"policies,omitempty"`
 }
 
 type PartitionStrategy struct {
@@ -149,6 +152,10 @@ func (t *Table) Sort() {
 
 	sort.Slice(t.Indexes, func(i, j int) bool {
 		return t.Indexes[i].Name < t.Indexes[j].Name
+	})
+
+	sort.Slice(t.Policies, func(i, j int) bool {
+		return t.Policies[i].Name < t.Policies[j].Name
 	})
 }
 
