@@ -1239,6 +1239,10 @@ func (p *Parser) generateConstraintName(tableName string, constraint *schema.Con
 }
 
 func (p *Parser) parseAlterTable(stmt string, db *schema.Database) error {
+	if handled, err := p.parseRowSecurity(stmt, db); handled || err != nil {
+		return err
+	}
+
 	if !hasKeyword(strings.ToUpper(stmt), "TIMESCALEDB.COMPRESS") {
 		return nil
 	}
