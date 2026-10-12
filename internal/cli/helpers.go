@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/accented-ai/pgtofu/internal/parser"
@@ -66,6 +67,8 @@ func loadDesiredSchema(path string) (*schema.Database, error) {
 }
 
 func parseDirectory(p *parser.Parser, path string, db *schema.Database) error {
+	var sqlFiles []string
+
 	err := filepath.WalkDir(path, func(filePath string, d os.DirEntry, err error) error {
 		if err != nil {
 			return util.WrapError("walking directory", err)
@@ -79,14 +82,29 @@ func parseDirectory(p *parser.Parser, path string, db *schema.Database) error {
 			return nil
 		}
 
-		if err := p.ParseFileWithoutProcessingDeferred(filePath, db); err != nil {
-			return util.WrapError("parse file "+filePath, err)
-		}
+		sqlFiles = append(sqlFiles, filePath)
 
 		return nil
 	})
 	if err != nil {
 		return util.WrapError("parse directory", err)
+	}
+
+	sort.SliceStable(sqlFiles, func(i, j int) bool {
+		iPolicy := isPolicyFile(path, sqlFiles[i])
+
+		jPolicy := isPolicyFile(path, sqlFiles[j])
+		if iPolicy != jPolicy {
+			return !iPolicy
+		}
+
+		return sqlFiles[i] < sqlFiles[j]
+	})
+
+	for _, filePath := range sqlFiles {
+		if err := p.ParseFileWithoutProcessingDeferred(filePath, db); err != nil {
+			return util.WrapError("parse file "+filePath, err)
+		}
 	}
 
 	if err := p.ProcessDeferredPartitions(db); err != nil {
@@ -96,6 +114,21 @@ func parseDirectory(p *parser.Parser, path string, db *schema.Database) error {
 	validatePartitions(db)
 
 	return nil
+}
+
+func isPolicyFile(root, filePath string) bool {
+	relative, err := filepath.Rel(root, filePath)
+	if err != nil {
+		return false
+	}
+
+	for _, directory := range strings.Split(filepath.Dir(relative), string(filepath.Separator)) {
+		if directory == "policies" {
+			return true
+		}
+	}
+
+	return false
 }
 
 func validatePartitions(db *schema.Database) { //nolint:gocognit

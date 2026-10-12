@@ -184,6 +184,7 @@ func (p *Parser) parseDirectoryContents(dirPath string, db *schema.Database) err
 		"indexes",
 		"views",
 		"functions",
+		"policies",
 		"timescaledb",
 	}
 

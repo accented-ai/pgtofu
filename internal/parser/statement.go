@@ -16,6 +16,7 @@ const (
 	StmtCreateType
 	StmtCreateSequence
 	StmtCreateSchema
+	StmtCreatePolicy
 	StmtAlterTable
 	StmtComment
 	StmtSelectCreateHypertable
@@ -99,6 +100,8 @@ func DetectStatementType(tokens []Token) StatementType { //nolint:cyclop,gocyclo
 			return StmtCreateSequence
 		case "SCHEMA":
 			return StmtCreateSchema
+		case "POLICY":
+			return StmtCreatePolicy
 		case "OR":
 			if len(parts) > 3 && parts[2] == "REPLACE" {
 				switch parts[3] {
@@ -172,6 +175,8 @@ func detectStatementTypeFromSQL(sql string) StatementType {
 		return StmtCreateSequence
 	case strings.HasPrefix(upper, "CREATE SCHEMA"):
 		return StmtCreateSchema
+	case strings.HasPrefix(upper, "CREATE POLICY"):
+		return StmtCreatePolicy
 	case strings.HasPrefix(upper, "ALTER TABLE"):
 		return StmtAlterTable
 	case strings.HasPrefix(upper, "COMMENT ON"):

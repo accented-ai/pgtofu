@@ -33,6 +33,7 @@ func NewParserRegistry() *ParserRegistry {
 	r.Register(NewTypeParser())
 	r.Register(NewSequenceParser())
 	r.Register(NewAlterTableParser())
+	r.Register(&PolicyParser{})
 	r.Register(NewHypertableParser())
 	r.Register(NewCompressionPolicyParser())
 	r.Register(NewRetentionPolicyParser())
