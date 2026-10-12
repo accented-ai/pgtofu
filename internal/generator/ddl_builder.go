@@ -125,6 +125,8 @@ func (b *DDLBuilder) buildAddTableForDown(change differ.Change) (DDLStatement, e
 		}
 	}
 
+	appendStatement(&sb, tableRowSecuritySQL(&schema.Table{}, table))
+
 	return DDLStatement{
 		SQL:         sb.String(),
 		Description: "Add table " + table.Name,

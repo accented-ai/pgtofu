@@ -39,6 +39,10 @@ func NewDDLBuilderRegistry() *DDLBuilderRegistry {
 	r.Register(differ.ChangeTypeModifyColumnDefault, &columnBuilder{})
 	r.Register(differ.ChangeTypeModifyColumnComment, &columnBuilder{})
 	r.Register(differ.ChangeTypeModifyTableComment, &tableBuilder{})
+	r.Register(differ.ChangeTypeModifyTableRowSecurity, &rowSecurityBuilder{})
+	r.Register(differ.ChangeTypeAddPolicy, &policyBuilder{})
+	r.Register(differ.ChangeTypeDropPolicy, &policyBuilder{})
+	r.Register(differ.ChangeTypeModifyPolicy, &policyBuilder{})
 	r.Register(differ.ChangeTypeAddConstraint, &constraintBuilder{})
 	r.Register(differ.ChangeTypeDropConstraint, &constraintBuilder{})
 	r.Register(differ.ChangeTypeModifyConstraint, &constraintBuilder{})
@@ -108,6 +112,8 @@ func (r *DDLBuilderRegistry) BuildDown(
 		differ.ChangeTypeDropSequence:            differ.ChangeTypeAddSequence,
 		differ.ChangeTypeAddTable:                differ.ChangeTypeDropTable,
 		differ.ChangeTypeDropTable:               differ.ChangeTypeAddTable,
+		differ.ChangeTypeAddPolicy:               differ.ChangeTypeDropPolicy,
+		differ.ChangeTypeDropPolicy:              differ.ChangeTypeAddPolicy,
 		differ.ChangeTypeAddColumn:               differ.ChangeTypeDropColumn,
 		differ.ChangeTypeDropColumn:              differ.ChangeTypeAddColumn,
 		differ.ChangeTypeAddConstraint:           differ.ChangeTypeDropConstraint,
@@ -141,6 +147,8 @@ func (r *DDLBuilderRegistry) BuildDown(
 		differ.ChangeTypeModifyColumnComment:       differ.ChangeTypeModifyColumnComment,
 		differ.ChangeTypeModifyExtension:           differ.ChangeTypeModifyExtension,
 		differ.ChangeTypeModifyTableComment:        differ.ChangeTypeModifyTableComment,
+		differ.ChangeTypeModifyTableRowSecurity:    differ.ChangeTypeModifyTableRowSecurity,
+		differ.ChangeTypeModifyPolicy:              differ.ChangeTypeModifyPolicy,
 		differ.ChangeTypeModifyView:                differ.ChangeTypeModifyView,
 		differ.ChangeTypeModifyMaterializedView:    differ.ChangeTypeModifyMaterializedView,
 		differ.ChangeTypeModifyFunction:            differ.ChangeTypeModifyFunction,
