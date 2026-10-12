@@ -114,6 +114,61 @@ CREATE TABLE orders (
 );
 ```
 
+## Row-Level Security
+
+Declare row-level security after the table definition, or in a file under `policies/`.
+pgtofu reads policy files after the other schema files.
+
+```sql
+CREATE TABLE documents (
+    organization_id TEXT NOT NULL,
+    document_id INTEGER NOT NULL,
+    PRIMARY KEY (organization_id, document_id)
+);
+
+ALTER TABLE documents ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY organization_scope ON documents
+    FOR ALL TO PUBLIC
+    USING (organization_id = current_setting('app.organization_id', true))
+    WITH CHECK (organization_id = current_setting('app.organization_id', true));
+
+COMMENT ON POLICY organization_scope ON documents IS 'Organization boundary';
+```
+
+This policy filters reads and checks writes against the transaction's organization setting.
+Set it with `SELECT set_config('app.organization_id', 'your-organization', true)` inside the application transaction.
+An absent setting admits no rows.
+
+pgtofu supports `ENABLE`, `DISABLE`, `FORCE`, and `NO FORCE ROW LEVEL SECURITY` as independent table attributes.
+Table owners normally bypass policies; `FORCE` also applies them to the owner.
+Superusers and roles with `BYPASSRLS` still bypass policies. [PostgreSQL row security](https://www.postgresql.org/docs/current/ddl-rowsecurity.html)
+
+Policies support `AS PERMISSIVE` or `AS RESTRICTIVE`, all five commands (`ALL`, `SELECT`, `INSERT`, `UPDATE`, `DELETE`), explicit role lists, `USING`, `WITH CHECK`, and comments.
+The defaults are `PERMISSIVE`, `ALL`, and `PUBLIC`.
+`INSERT` accepts only `WITH CHECK`; `SELECT` and `DELETE` accept only `USING`.
+For `ALL` and `UPDATE`, an omitted `WITH CHECK` uses the `USING` expression. [PostgreSQL policy syntax](https://www.postgresql.org/docs/current/sql-createpolicy.html)
+
+Edit or remove the desired `CREATE POLICY` declaration to change or drop a policy.
+Policy definition changes use transactional drop and recreation, so clauses can be removed and the command or mode can change.
+Comment changes use `COMMENT ON POLICY` without replacing the policy.
+RLS and policy definition changes are classified as `POTENTIALLY_BREAKING` because they can change access.
+
+pgtofu extracts policy definitions from `pg_policy` and compares them after PostgreSQL deparsing.
+Policy creation follows its table, columns, referenced relations, functions, and types.
+Policies are removed before those dependencies are dropped or their referenced column types change, then restored in the correct order on rollback.
+Type drops refuse unexpected dependencies instead of cascading into policies.
+A temporary removal and recreation stays in one migration even when the operation limit is smaller.
+Keep the default transaction mode to apply these changes atomically.
+
+Roles and grants remain authored migrations.
+Use explicit role names or `PUBLIC`; `CURRENT_ROLE`, `CURRENT_USER`, and `SESSION_USER` cannot be resolved from schema files and are rejected.
+Declare flags separately from other `ALTER TABLE` actions.
+Policies on partition parents are supported; independent policies and flags on individual partition children are not modeled.
+
+Extract a fresh current schema after upgrading pgtofu to include its RLS metadata.
+Older JSON snapshots omit the table flags and policies and therefore represent disabled row security with no policies.
+
 ## Constraints
 
 ### Primary Key

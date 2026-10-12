@@ -55,7 +55,7 @@ migrate -path ./migrations -database "$DATABASE_URL" up
 
 ## Features
 
-**PostgreSQL**: Tables, views, materialized views, functions, triggers, sequences, indexes (partial, covering, expression), constraints (PK, FK, UNIQUE, CHECK, EXCLUDE), custom types (enum, composite, domain), partitioning (HASH, RANGE, LIST), generated/identity columns.
+**PostgreSQL**: Tables, row-level security and policies, views, materialized views, functions, triggers, sequences, indexes (partial, covering, expression), constraints (PK, FK, UNIQUE, CHECK, EXCLUDE), custom types (enum, composite, domain), partitioning (HASH, RANGE, LIST), generated/identity columns.
 
 **TimescaleDB**: Hypertables, compression policies, retention policies, continuous aggregates.
 

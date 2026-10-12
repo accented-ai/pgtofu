@@ -9,7 +9,7 @@ The extractor connects to your PostgreSQL database and queries the system catalo
 
 ### What Gets Extracted
 
-- **Tables** - Columns, constraints, indexes, partitioning
+- **Tables** - Columns, constraints, indexes, partitioning, row security flags and policies
 - **Views** - Regular and materialized views with definitions
 - **Functions** - All languages, with full body and attributes
 - **Triggers** - Table triggers with conditions
@@ -122,6 +122,13 @@ the definition. Changes whose prior definitions depend on other changed objects
 remain in one migration batch, with tables and views restored before dependent
 indexes, functions, and triggers in down migrations.
 
+### Policy Comparison
+
+Policies are identified by their table and name.
+pgtofu compares the command, permissive or restrictive mode, role set, both expressions, and comments.
+Expression comparison handles common PostgreSQL catalog rewrites while preserving literal case, quoted identifiers, and meaningful casts.
+See [row-level security](/features/postgresql#row-level-security) for declarations and migration behavior.
+
 ## Phase 4: Generate
 
 The generator creates golang-migrate compatible migration files from the detected changes.
@@ -176,7 +183,8 @@ Recommended directory structure:
 
 ```
 schema/
-├── extensions.sql
+├── extensions/
+│   └── extensions.sql
 ├── types/
 │   └── enums.sql
 ├── tables/
@@ -186,11 +194,14 @@ schema/
 │   └── reports.sql
 ├── functions/
 │   └── triggers.sql
+├── policies/
+│   └── organization_scope.sql
 └── timescaledb/
     └── policies.sql
 ```
 
-pgtofu discovers all `.sql` files recursively. The directory structure is for your organization only.
+The CLI discovers `.sql` files recursively and reads them in filename order, with files under `policies/` read after the other schema files.
+Keep each table's policy declarations after its table definition, or put them in `policies/`.
 
 ## Best Practices
 

@@ -4,6 +4,7 @@ attrelid
 atttypid
 bidichk
 bpchar
+BYPASSRLS
 BTRIM
 cagg
 confrelid
