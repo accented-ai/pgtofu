@@ -101,6 +101,14 @@ func buildPolicyChange(change differ.Change, ddl *DDLBuilder, down bool) (DDLSta
 	}
 
 	target := policyQualifiedName(schemaName, tableName)
+	if commentOnly, _ := change.Details["comment_only"].(bool); commentOnly {
+		return DDLStatement{
+			SQL: buildCommentStatement("POLICY",
+				policyIdentifier(policy.Name)+" ON "+target, policy.Comment, false),
+			Description: change.Description, RequiresTx: true,
+		}, nil
+	}
+
 	drop := fmt.Sprintf(
 		"DROP POLICY %s%s ON %s;",
 		ddl.ifExists(),
@@ -178,6 +186,11 @@ func createPolicySQL(
 	}
 
 	sql += ";"
+	if policy.Comment != "" {
+		sql += "\n" + buildCommentStatement("POLICY", policyIdentifier(policy.Name)+" ON "+
+			policyQualifiedName(schemaName, tableName), policy.Comment, false)
+	}
+
 	if !idempotent {
 		return sql, nil
 	}

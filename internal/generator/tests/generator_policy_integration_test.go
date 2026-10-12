@@ -34,6 +34,7 @@ func TestPostgresPolicyRoundTrip(t *testing.T) {
 	assertPolicyConvergence(t, ctx, e, "policy_roundtrip", initial)
 
 	variants := []string{
+		strings.ReplaceAll(initialSQL, "Scope boundary", "Scope''s boundary"),
 		strings.ReplaceAll(initialSQL, "id integer", "id bigint"),
 		strings.ReplaceAll(initialSQL, "current_organization", "current_tenant"),
 		strings.ReplaceAll(initialSQL, "FOR ALL TO", "AS RESTRICTIVE FOR UPDATE TO"),
@@ -234,6 +235,7 @@ func postgresPolicySchema(name string) string {
 		CREATE POLICY "Quoted""Scope" ON fixture.documents AS RESTRICTIVE FOR SELECT TO fixture_service
 			USING (state IN ('OPEN', 'CLOSED') AND EXISTS (
 				SELECT 1 FROM fixture.grants g WHERE g.organization_id = documents.organization_id));
+		COMMENT ON POLICY organization_scope ON fixture.documents IS 'Scope boundary';
 	`, "fixture", name)
 }
 

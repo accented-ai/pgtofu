@@ -7,6 +7,7 @@ type Policy struct {
 	Roles           []PolicyRole `json:"roles,omitempty"`
 	UsingExpression string       `json:"using_expression,omitempty"`
 	CheckExpression string       `json:"check_expression,omitempty"`
+	Comment         string       `json:"comment,omitempty"`
 }
 
 // Public distinguishes the PUBLIC keyword from an explicitly named role.

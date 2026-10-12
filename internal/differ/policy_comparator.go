@@ -50,11 +50,28 @@ func (d *Differ) compareTablePolicies(result *DiffResult, current, desired *sche
 
 	for name, policy := range desiredPolicies {
 		if previous, exists := currentPolicies[name]; exists {
-			if !policiesEqual(previous, policy) {
+			if d.options.IgnoreComments {
+				copyPolicy := *policy
+				copyPolicy.Comment = previous.Comment
+				policy = &copyPolicy
+			}
+
+			definitionsEqual := policiesEqual(previous, policy)
+
+			commentsEqual := normalizeComment(previous.Comment) == normalizeComment(policy.Comment)
+			if !definitionsEqual || !commentsEqual {
 				result.Changes = append(
 					result.Changes,
-					policyChange(ChangeTypeModifyPolicy, desired,
-						policy, map[string]any{"current": previous, "desired": policy}),
+					policyChange(
+						ChangeTypeModifyPolicy,
+						desired,
+						policy,
+						map[string]any{
+							"current":      previous,
+							"desired":      policy,
+							"comment_only": definitionsEqual,
+						},
+					),
 				)
 			}
 		} else {
@@ -81,9 +98,18 @@ func policyChange(
 	details["schema"] = table.Schema
 	details["table_name"] = table.Name
 
+	severity := SeverityPotentiallyBreaking
+	if commentOnly, _ := details["comment_only"].(bool); commentOnly {
+		severity = SeveritySafe
+	}
+
+	verb := map[ChangeType]string{
+		ChangeTypeAddPolicy: "Add", ChangeTypeDropPolicy: "Drop", ChangeTypeModifyPolicy: "Modify",
+	}[kind]
+
 	return Change{
-		Type: kind, Severity: SeverityPotentiallyBreaking,
-		Description: fmt.Sprintf("%s policy %s on %s", strings.ReplaceAll(string(kind), "_", " "),
+		Type: kind, Severity: severity,
+		Description: fmt.Sprintf("%s policy %s on %s", verb,
 			policy.Name, table.QualifiedName()),
 		ObjectType: "policy", ObjectName: table.QualifiedName() + "." + policy.Name,
 		Details: details,

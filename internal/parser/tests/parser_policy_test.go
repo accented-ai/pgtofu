@@ -123,12 +123,18 @@ func TestParsePolicyNamesAreTableLocal(t *testing.T) {
 		CREATE POLICY tenant ON first USING (true);
 		CREATE POLICY tenant ON second USING (false);
 		CREATE POLICY "Tenant" ON first USING (false);
+		COMMENT ON POLICY tenant ON first IS 'first';
+		COMMENT ON POLICY tenant ON second IS 'second';
+		COMMENT ON POLICY "Tenant" ON first IS 'quoted';
 		CREATE POLICY tenant ON first USING (false);
 	`, db))
 	require.Len(t, p.GetErrors(), 1)
 	assert.Contains(t, p.GetErrors()[0].Message, "duplicate policy")
 	assert.Len(t, db.Tables[0].Policies, 2)
 	assert.Len(t, db.Tables[1].Policies, 1)
+	assert.Equal(t, "first", db.Tables[0].Policies[0].Comment)
+	assert.Equal(t, "quoted", db.Tables[0].Policies[1].Comment)
+	assert.Equal(t, "second", db.Tables[1].Policies[0].Comment)
 }
 
 func TestParsePolicyDirectory(t *testing.T) {

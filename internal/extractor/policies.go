@@ -23,7 +23,8 @@ const queryPolicies = `
 			ELSE pg_catalog.pg_get_userbyid(role_oid)::text END
 			FROM unnest(p.polroles) AS role_oid ORDER BY role_oid),
 		pg_catalog.pg_get_expr(p.polqual, p.polrelid),
-		pg_catalog.pg_get_expr(p.polwithcheck, p.polrelid)
+		pg_catalog.pg_get_expr(p.polwithcheck, p.polrelid),
+		pg_catalog.obj_description(p.oid, 'pg_policy')
 	FROM pg_catalog.pg_policy p
 	JOIN pg_catalog.pg_class c ON c.oid = p.polrelid
 	JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
@@ -40,8 +41,17 @@ func (e *Extractor) extractPolicies(ctx context.Context, table *schema.Table) er
 			policy schema.Policy
 			roles  []string
 		)
-		if err := rows.Scan(&policy.Name, &policy.Command, &policy.Permissive, &roles,
-			scanner.String("using"), scanner.String("check")); err != nil {
+		if err := rows.Scan(
+			&policy.Name,
+			&policy.Command,
+			&policy.Permissive,
+			&roles,
+			scanner.String(
+				"using",
+			),
+			scanner.String("check"),
+			scanner.String("comment"),
+		); err != nil {
 			return util.WrapError("scan policy", err)
 		}
 
@@ -51,6 +61,7 @@ func (e *Extractor) extractPolicies(ctx context.Context, table *schema.Table) er
 
 		policy.UsingExpression = scanner.GetString("using")
 		policy.CheckExpression = scanner.GetString("check")
+		policy.Comment = scanner.GetString("comment")
 		policies = append(policies, policy)
 
 		return nil

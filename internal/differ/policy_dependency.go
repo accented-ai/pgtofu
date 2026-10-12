@@ -23,6 +23,12 @@ func (d *Differ) preparePolicyDependencies(result *DiffResult) {
 			policy := &current.Policies[j]
 			if next := policyMap(desired.Policies)[policy.Name]; next != nil &&
 				policyNeedsRecreation(current, policy, result) {
+				if d.options.IgnoreComments {
+					copyPolicy := *next
+					copyPolicy.Comment = policy.Comment
+					next = &copyPolicy
+				}
+
 				name := current.QualifiedName() + "." + policy.Name
 				result.Changes = slices.DeleteFunc(result.Changes, func(change Change) bool {
 					return change.Type == ChangeTypeModifyPolicy && change.ObjectName == name

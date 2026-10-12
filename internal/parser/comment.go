@@ -18,6 +18,7 @@ const (
 	commentObjectFunction
 	commentObjectExtension
 	commentObjectTypeAlias
+	commentObjectPolicy
 )
 
 type commentStatement struct {
@@ -25,6 +26,7 @@ type commentStatement struct {
 	schemaName   string
 	objectName   string
 	columnName   string
+	policyName   string
 	functionArgs []string
 	commentText  string
 	isNull       bool
@@ -46,6 +48,8 @@ func (p *Parser) parseComment(stmt string, db *schema.Database) error { //nolint
 	}
 
 	switch parsed.objectType {
+	case commentObjectPolicy:
+		return applyPolicyComment(db, parsed, commentValue)
 	case commentObjectTable:
 		table := db.GetTable(parsed.schemaName, parsed.objectName)
 		if table != nil {
@@ -197,6 +201,15 @@ func (p *Parser) parseCommentStatement(stmt string) (*commentStatement, error) {
 	statement := &commentStatement{}
 
 	switch upperLiteral(tokens, objIdx) {
+	case "POLICY":
+		statement.objectType = commentObjectPolicy
+
+		return p.populatePolicyComment(
+			statement,
+			stmt,
+			tokens,
+			nextNonCommentIndex(tokens, objIdx+1),
+		)
 	case "TABLE":
 		statement.objectType = commentObjectTable
 		nameStart := nextNonCommentIndex(tokens, objIdx+1)
@@ -251,6 +264,46 @@ func (p *Parser) parseCommentStatement(stmt string) (*commentStatement, error) {
 	default:
 		return nil, NewParseError("unsupported COMMENT ON target")
 	}
+}
+
+func applyPolicyComment(db *schema.Database, statement *commentStatement, value string) error {
+	if table := db.GetTable(statement.schemaName, statement.objectName); table != nil {
+		for i := range table.Policies {
+			if table.Policies[i].Name == statement.policyName {
+				table.Policies[i].Comment = value
+				return nil
+			}
+		}
+	}
+
+	return NewParseError("policy not found for comment: " + statement.policyName)
+}
+
+func (p *Parser) populatePolicyComment(
+	statement *commentStatement,
+	stmt string,
+	tokens []Token,
+	nameIdx int,
+) (*commentStatement, error) {
+	if nameIdx >= len(tokens) {
+		return nil, NewParseError("missing policy name")
+	}
+
+	name := tokens[nameIdx].Literal
+	if tokens[nameIdx].Type == TokenQuotedIdentifier {
+		name = strings.ReplaceAll(name[1:len(name)-1], `""`, `"`)
+	} else {
+		name = strings.ToLower(name)
+	}
+
+	statement.policyName = schema.TruncateIdentifier(name)
+
+	onIdx := nextNonCommentIndex(tokens, nameIdx+1)
+	if onIdx >= len(tokens) || upperLiteral(tokens, onIdx) != "ON" {
+		return nil, NewParseError("missing ON keyword after policy name")
+	}
+
+	return p.populateTableLikeComment(statement, stmt, tokens, nextNonCommentIndex(tokens, onIdx+1))
 }
 
 func (p *Parser) populateTableComment(
