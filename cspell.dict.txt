@@ -53,6 +53,7 @@ metricsIndex
 Mintlify
 myschema
 nestif
+NOBYPASSRLS
 nolint
 nolintlint
 NotNilf
@@ -61,6 +62,7 @@ partrelid
 partstrat
 pflag
 pganalyze
+pgconn
 pgcrypto
 pgquery
 pgservicefile
