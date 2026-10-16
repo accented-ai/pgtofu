@@ -44,6 +44,7 @@ func canonicalPostgresView(definition string, columns map[string][]string) (stri
 	}
 
 	expandPostgresRelationWildcards(tree.ProtoReflect(), columns)
+	normalizePostgresViewAliases(tree.ProtoReflect())
 
 	return canonicalPostgresMessage(tree.ProtoReflect()), true
 }
