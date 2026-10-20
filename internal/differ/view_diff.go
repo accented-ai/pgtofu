@@ -178,6 +178,10 @@ func buildMaterializedViewMap(views []schema.MaterializedView) map[string]*schem
 }
 
 func extractViewDependencies(definition string) []string {
+	if dependencies, ok := postgresRelationDependencies(definition); ok {
+		return dependencies
+	}
+
 	matches := viewDependencyPattern.FindAllStringSubmatch(definition, -1)
 	if len(matches) == 0 {
 		return nil
