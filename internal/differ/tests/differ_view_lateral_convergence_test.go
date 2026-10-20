@@ -187,7 +187,9 @@ func assertViewDefinitionChange(t *testing.T, current, desired *schema.Database,
 
 	for _, change := range result.Changes {
 		if change.Type == differ.ChangeTypeModifyView ||
-			change.Type == differ.ChangeTypeModifyMaterializedView {
+			change.Type == differ.ChangeTypeModifyMaterializedView ||
+			change.Type == differ.ChangeTypeAddView ||
+			change.Type == differ.ChangeTypeAddMaterializedView {
 			return
 		}
 	}

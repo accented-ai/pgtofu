@@ -33,7 +33,7 @@ func TestDiffer_CompareViews(t *testing.T) {
 			expectedTypes:   []differ.ChangeType{differ.ChangeTypeAddView},
 		},
 		{
-			name: "modify view",
+			name: "rebuild view with added output",
 			current: &schema.Database{
 				Views: []schema.View{
 					{
@@ -52,8 +52,11 @@ func TestDiffer_CompareViews(t *testing.T) {
 					},
 				},
 			},
-			expectedChanges: 1,
-			expectedTypes:   []differ.ChangeType{differ.ChangeTypeModifyView},
+			expectedChanges: 2,
+			expectedTypes: []differ.ChangeType{
+				differ.ChangeTypeDropView,
+				differ.ChangeTypeAddView,
+			},
 		},
 		{
 			name: "drop view",

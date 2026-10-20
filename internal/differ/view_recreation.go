@@ -6,14 +6,74 @@ import (
 	"github.com/accented-ai/pgtofu/internal/schema"
 )
 
-func (d *Differ) processViewRecreationForColumnTypeChanges(result *DiffResult) {
-	tablesWithTypeChanges := d.findTablesWithColumnTypeChanges(result.Changes)
-	if len(tablesWithTypeChanges) == 0 {
-		return
+func (d *Differ) processViewRecreation(result *DiffResult) {
+	affected := d.findTablesWithColumnTypeChanges(result.Changes)
+	for _, change := range result.Changes {
+		switch change.Type {
+		case ChangeTypeDropView, ChangeTypeDropMaterializedView,
+			ChangeTypeAddView, ChangeTypeAddMaterializedView:
+			affected[change.ObjectName] = true
+		case ChangeTypeModifyView:
+			current, currentOK := change.Details["current"].(schema.View)
+
+			desired, desiredOK := change.Details["desired"].(schema.View)
+			if currentOK && desiredOK && viewOutputCountChanges(current, desired) {
+				affected[change.ObjectName] = true
+			}
+		}
 	}
 
-	d.processViewsForTypeChanges(result, tablesWithTypeChanges)
-	d.processMaterializedViewsForTypeChanges(result, tablesWithTypeChanges)
+	desiredViews := buildViewMap(result.Desired.Views)
+	desiredMaterializedViews := buildMaterializedViewMap(result.Desired.MaterializedViews)
+
+	// Rebuild surviving dependents explicitly so a cascading drop cannot lose
+	// an unchanged view, its comment, or a materialized view's indexes.
+	for changed := true; changed; {
+		changed = false
+
+		for _, view := range result.Current.Views {
+			if markDependentView(affected, view.QualifiedName(), view.Definition) {
+				changed = true
+			}
+
+			if desired := desiredViews[ViewKey(view.Schema, view.Name)]; desired != nil &&
+				markDependentView(affected, view.QualifiedName(), desired.Definition) {
+				changed = true
+			}
+		}
+
+		for _, view := range result.Current.MaterializedViews {
+			if markDependentView(affected, view.QualifiedName(), view.Definition) {
+				changed = true
+			}
+
+			if desired := desiredMaterializedViews[ViewKey(view.Schema, view.Name)]; desired != nil &&
+				markDependentView(affected, view.QualifiedName(), desired.Definition) {
+				changed = true
+			}
+		}
+	}
+
+	d.recreateAffectedViews(result, affected)
+	d.recreateAffectedMaterializedViews(result, affected)
+}
+
+func viewOutputCountChanges(current, desired schema.View) bool {
+	currentColumns := postgresViewOutputNames(current.Definition)
+	desiredColumns := postgresViewOutputNames(desired.Definition)
+
+	return len(currentColumns) > 0 && len(desiredColumns) > 0 &&
+		len(currentColumns) != len(desiredColumns)
+}
+
+func markDependentView(affected map[string]bool, name, definition string) bool {
+	if affected[name] || !viewDependsOnAnyTable(extractViewDependencies(definition), affected) {
+		return false
+	}
+
+	affected[name] = true
+
+	return true
 }
 
 func (d *Differ) findTablesWithColumnTypeChanges(changes []Change) map[string]bool {
@@ -31,9 +91,9 @@ func (d *Differ) findTablesWithColumnTypeChanges(changes []Change) map[string]bo
 	return tables
 }
 
-func (d *Differ) processViewsForTypeChanges(
+func (d *Differ) recreateAffectedViews(
 	result *DiffResult,
-	tablesWithTypeChanges map[string]bool,
+	affected map[string]bool,
 ) {
 	currentViews := buildViewMap(result.Current.Views)
 	desiredViews := buildViewMap(result.Desired.Views)
@@ -41,14 +101,17 @@ func (d *Differ) processViewsForTypeChanges(
 	viewsWithChanges := make(map[string]int) // key -> index in Changes
 
 	for i, change := range result.Changes {
+		if isCommentOnlyObjectChange(&change, ChangeTypeModifyView) {
+			continue
+		}
+
 		if change.Type == ChangeTypeModifyView || change.Type == ChangeTypeDropView {
 			viewsWithChanges[change.ObjectName] = i
 		}
 	}
 
 	for key, desiredView := range desiredViews {
-		deps := extractViewDependencies(desiredView.Definition)
-		if !viewDependsOnAnyTable(deps, tablesWithTypeChanges) {
+		if !affected[key] {
 			continue
 		}
 
@@ -64,9 +127,9 @@ func (d *Differ) processViewsForTypeChanges(
 	}
 }
 
-func (d *Differ) processMaterializedViewsForTypeChanges(
+func (d *Differ) recreateAffectedMaterializedViews(
 	result *DiffResult,
-	tablesWithTypeChanges map[string]bool,
+	affected map[string]bool,
 ) {
 	currentViews := buildMaterializedViewMap(result.Current.MaterializedViews)
 	desiredViews := buildMaterializedViewMap(result.Desired.MaterializedViews)
@@ -74,6 +137,10 @@ func (d *Differ) processMaterializedViewsForTypeChanges(
 	viewsWithChanges := make(map[string]int) // key -> index
 
 	for i, change := range result.Changes {
+		if isCommentOnlyObjectChange(&change, ChangeTypeModifyMaterializedView) {
+			continue
+		}
+
 		if change.Type == ChangeTypeModifyMaterializedView ||
 			change.Type == ChangeTypeDropMaterializedView {
 			viewsWithChanges[change.ObjectName] = i
@@ -81,8 +148,7 @@ func (d *Differ) processMaterializedViewsForTypeChanges(
 	}
 
 	for key, desiredView := range desiredViews {
-		deps := extractViewDependencies(desiredView.Definition)
-		if !viewDependsOnAnyTable(deps, tablesWithTypeChanges) {
+		if !affected[key] {
 			continue
 		}
 
@@ -165,11 +231,11 @@ func (d *Differ) convertModifyViewToDropAdd(
 		ObjectName:  key,
 		Details: map[string]any{
 			"view":              currentView,
-			"for_type_change":   true,
 			"original_change":   originalChange,
 			"will_be_recreated": true,
 		},
-		DependsOn: deps,
+		DependsOn:         deps,
+		RollbackDependsOn: deps,
 	}
 
 	result.Changes = append(result.Changes, Change{
@@ -179,9 +245,8 @@ func (d *Differ) convertModifyViewToDropAdd(
 		ObjectType:  "view",
 		ObjectName:  key,
 		Details: map[string]any{
-			"view":            *desiredView,
-			"for_type_change": true,
-			"is_recreation":   true,
+			"view":          *desiredView,
+			"is_recreation": true,
 		},
 		DependsOn: extractViewDependencies(desiredView.Definition),
 	})
@@ -195,27 +260,26 @@ func (d *Differ) addViewRecreationChanges(
 	result.Changes = append(result.Changes, Change{
 		Type:        ChangeTypeDropView,
 		Severity:    SeverityPotentiallyBreaking,
-		Description: "Drop view for column type change: " + currentView.QualifiedName(),
+		Description: "Drop view for recreation: " + currentView.QualifiedName(),
 		ObjectType:  "view",
 		ObjectName:  key,
 		Details: map[string]any{
 			"view":              *currentView,
-			"for_type_change":   true,
 			"will_be_recreated": true,
 		},
-		DependsOn: extractViewDependencies(currentView.Definition),
+		DependsOn:         extractViewDependencies(currentView.Definition),
+		RollbackDependsOn: extractViewDependencies(currentView.Definition),
 	})
 
 	result.Changes = append(result.Changes, Change{
 		Type:        ChangeTypeAddView,
 		Severity:    SeveritySafe,
-		Description: "Recreate view after column type change: " + desiredView.QualifiedName(),
+		Description: "Recreate view: " + desiredView.QualifiedName(),
 		ObjectType:  "view",
 		ObjectName:  key,
 		Details: map[string]any{
-			"view":            *desiredView,
-			"for_type_change": true,
-			"is_recreation":   true,
+			"view":          *desiredView,
+			"is_recreation": true,
 		},
 		DependsOn: extractViewDependencies(desiredView.Definition),
 	})
@@ -257,11 +321,11 @@ func (d *Differ) convertModifyMaterializedViewToDropAdd(
 		ObjectName:  key,
 		Details: map[string]any{
 			"view":              currentView,
-			"for_type_change":   true,
 			"original_change":   originalChange,
 			"will_be_recreated": true,
 		},
-		DependsOn: deps,
+		DependsOn:         deps,
+		RollbackDependsOn: deps,
 	}
 
 	result.Changes = append(result.Changes, Change{
@@ -271,9 +335,8 @@ func (d *Differ) convertModifyMaterializedViewToDropAdd(
 		ObjectType:  "materialized_view",
 		ObjectName:  key,
 		Details: map[string]any{
-			"view":            *desiredView,
-			"for_type_change": true,
-			"is_recreation":   true,
+			"view":          *desiredView,
+			"is_recreation": true,
 		},
 		DependsOn: extractViewDependencies(desiredView.Definition),
 	})
@@ -287,27 +350,26 @@ func (d *Differ) addMaterializedViewRecreationChanges(
 	result.Changes = append(result.Changes, Change{
 		Type:        ChangeTypeDropMaterializedView,
 		Severity:    SeverityPotentiallyBreaking,
-		Description: "Drop materialized view for column type change: " + currentView.QualifiedName(),
+		Description: "Drop materialized view for recreation: " + currentView.QualifiedName(),
 		ObjectType:  "materialized_view",
 		ObjectName:  key,
 		Details: map[string]any{
 			"view":              *currentView,
-			"for_type_change":   true,
 			"will_be_recreated": true,
 		},
-		DependsOn: extractViewDependencies(currentView.Definition),
+		DependsOn:         extractViewDependencies(currentView.Definition),
+		RollbackDependsOn: extractViewDependencies(currentView.Definition),
 	})
 
 	result.Changes = append(result.Changes, Change{
 		Type:        ChangeTypeAddMaterializedView,
 		Severity:    SeveritySafe,
-		Description: "Recreate materialized view after column type change: " + desiredView.QualifiedName(),
+		Description: "Recreate materialized view: " + desiredView.QualifiedName(),
 		ObjectType:  "materialized_view",
 		ObjectName:  key,
 		Details: map[string]any{
-			"view":            *desiredView,
-			"for_type_change": true,
-			"is_recreation":   true,
+			"view":          *desiredView,
+			"is_recreation": true,
 		},
 		DependsOn: extractViewDependencies(desiredView.Definition),
 	})

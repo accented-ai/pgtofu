@@ -897,14 +897,14 @@ func TestModifyViewDependsOnAddColumn(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	addColumnIndex, modifyViewIndex := -1, -1
+	addColumnIndex, addViewIndex := -1, -1
 
 	for i, change := range result.Changes {
 		switch change.Type {
 		case differ.ChangeTypeAddColumn:
 			addColumnIndex = i
-		case differ.ChangeTypeModifyView:
-			modifyViewIndex = i
+		case differ.ChangeTypeAddView:
+			addViewIndex = i
 		}
 	}
 
@@ -912,15 +912,15 @@ func TestModifyViewDependsOnAddColumn(t *testing.T) {
 		t.Fatal("ADD_COLUMN change not found")
 	}
 
-	if modifyViewIndex == -1 {
-		t.Fatal("MODIFY_VIEW change not found")
+	if addViewIndex == -1 {
+		t.Fatal("ADD_VIEW change not found")
 	}
 
-	if addColumnIndex >= modifyViewIndex {
+	if addColumnIndex >= addViewIndex {
 		t.Errorf(
-			"ADD_COLUMN (index %d) should come before MODIFY_VIEW (index %d)",
+			"ADD_COLUMN (index %d) should come before ADD_VIEW (index %d)",
 			addColumnIndex,
-			modifyViewIndex,
+			addViewIndex,
 		)
 	}
 }
@@ -1067,14 +1067,14 @@ func TestModifyViewDependsOnAddColumnMultipleTables(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	addColumnIndex, modifyViewIndex := -1, -1
+	addColumnIndex, addViewIndex := -1, -1
 
 	for i, change := range result.Changes {
 		switch change.Type {
 		case differ.ChangeTypeAddColumn:
 			addColumnIndex = i
-		case differ.ChangeTypeModifyView:
-			modifyViewIndex = i
+		case differ.ChangeTypeAddView:
+			addViewIndex = i
 		}
 	}
 
@@ -1082,15 +1082,15 @@ func TestModifyViewDependsOnAddColumnMultipleTables(t *testing.T) {
 		t.Fatal("ADD_COLUMN change not found")
 	}
 
-	if modifyViewIndex == -1 {
-		t.Fatal("MODIFY_VIEW change not found")
+	if addViewIndex == -1 {
+		t.Fatal("ADD_VIEW change not found")
 	}
 
-	if addColumnIndex >= modifyViewIndex {
+	if addColumnIndex >= addViewIndex {
 		t.Errorf(
-			"ADD_COLUMN (index %d) should come before MODIFY_VIEW (index %d)",
+			"ADD_COLUMN (index %d) should come before ADD_VIEW (index %d)",
 			addColumnIndex,
-			modifyViewIndex,
+			addViewIndex,
 		)
 	}
 }
@@ -1157,7 +1157,7 @@ func TestModifiedViewFollowsModifiedDependency(t *testing.T) {
 	}
 }
 
-func TestModifyViewComesBeforeDropColumn(t *testing.T) {
+func TestRecreatedViewDropsBeforeDropColumn(t *testing.T) {
 	t.Parallel()
 
 	current := &schema.Database{
@@ -1208,14 +1208,14 @@ func TestModifyViewComesBeforeDropColumn(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	dropColumnIndex, modifyViewIndex := -1, -1
+	dropColumnIndex, dropViewIndex := -1, -1
 
 	for i, change := range result.Changes {
 		switch change.Type {
 		case differ.ChangeTypeDropColumn:
 			dropColumnIndex = i
-		case differ.ChangeTypeModifyView:
-			modifyViewIndex = i
+		case differ.ChangeTypeDropView:
+			dropViewIndex = i
 		}
 	}
 
@@ -1223,14 +1223,14 @@ func TestModifyViewComesBeforeDropColumn(t *testing.T) {
 		t.Fatal("DROP_COLUMN change not found")
 	}
 
-	if modifyViewIndex == -1 {
-		t.Fatal("MODIFY_VIEW change not found")
+	if dropViewIndex == -1 {
+		t.Fatal("DROP_VIEW change not found")
 	}
 
-	if modifyViewIndex >= dropColumnIndex {
+	if dropViewIndex >= dropColumnIndex {
 		t.Errorf(
-			"MODIFY_VIEW (index %d) should come before DROP_COLUMN (index %d)",
-			modifyViewIndex,
+			"DROP_VIEW (index %d) should come before DROP_COLUMN (index %d)",
+			dropViewIndex,
 			dropColumnIndex,
 		)
 	}
@@ -1358,14 +1358,14 @@ func TestSchemaQualifiedTableNamesInViewDependencies(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	addColumnIndex, modifyViewIndex := -1, -1
+	addColumnIndex, addViewIndex := -1, -1
 
 	for i, change := range result.Changes {
 		switch change.Type {
 		case differ.ChangeTypeAddColumn:
 			addColumnIndex = i
-		case differ.ChangeTypeModifyView:
-			modifyViewIndex = i
+		case differ.ChangeTypeAddView:
+			addViewIndex = i
 		}
 	}
 
@@ -1373,15 +1373,15 @@ func TestSchemaQualifiedTableNamesInViewDependencies(t *testing.T) {
 		t.Fatal("ADD_COLUMN change not found")
 	}
 
-	if modifyViewIndex == -1 {
-		t.Fatal("MODIFY_VIEW change not found")
+	if addViewIndex == -1 {
+		t.Fatal("ADD_VIEW change not found")
 	}
 
-	if addColumnIndex >= modifyViewIndex {
+	if addColumnIndex >= addViewIndex {
 		t.Errorf(
-			"ADD_COLUMN (index %d) should come before MODIFY_VIEW (index %d)",
+			"ADD_COLUMN (index %d) should come before ADD_VIEW (index %d)",
 			addColumnIndex,
-			modifyViewIndex,
+			addViewIndex,
 		)
 	}
 }

@@ -27,7 +27,7 @@ func (d *Differ) resolveDependencies(result *DiffResult) error {
 
 		for _, dep := range change.DependsOn {
 			for j := range result.Changes {
-				if providesObject(&result.Changes[j], dep) {
+				if !isViewDrop(change) && providesObject(&result.Changes[j], dep) {
 					graph.addEdge(i, j)
 				}
 			}
@@ -301,7 +301,7 @@ func (d *Differ) implicitlyDependsOn( //nolint:cyclop,gocognit,gocyclo,maintidx
 	change *Change,
 	otherChange *Change,
 ) bool {
-	if triggerChangeDependsOn(change, otherChange) {
+	if viewRecreationDependsOn(change, otherChange) || triggerChangeDependsOn(change, otherChange) {
 		return true
 	}
 

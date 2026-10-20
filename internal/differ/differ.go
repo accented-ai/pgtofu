@@ -126,7 +126,7 @@ func (d *Differ) Compare(current, desired *schema.Database) (*DiffResult, error)
 	d.compareHypertables(result)
 	d.compareContinuousAggregates(result)
 	d.filterDuplicateCAIndexChanges(result)
-	d.processViewRecreationForColumnTypeChanges(result)
+	d.processViewRecreation(result)
 	d.processContinuousAggregateRecreationForColumnChanges(result)
 	addViewFunctionDependencies(result)
 
