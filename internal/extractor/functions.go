@@ -6,6 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/accented-ai/pgtofu/internal/parser"
 	"github.com/accented-ai/pgtofu/internal/schema"
 	"github.com/accented-ai/pgtofu/internal/util"
 )
@@ -96,6 +97,16 @@ func (e *Extractor) extractTriggers(ctx context.Context) ([]schema.Trigger, erro
 		}
 
 		trig.Comment = scanner.GetString("comment")
+
+		parsed := &schema.Database{}
+		if err := parser.New().ParseSQL(trig.Definition, parsed); err != nil {
+			return util.WrapError("parse extracted trigger definition", err)
+		}
+
+		if len(parsed.Triggers) == 1 {
+			trig.WhenCondition = parsed.Triggers[0].WhenCondition
+		}
+
 		triggers = append(triggers, trig)
 
 		return nil

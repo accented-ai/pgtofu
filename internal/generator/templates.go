@@ -1364,8 +1364,9 @@ func formatTriggerDefinition(t *schema.Trigger) (string, error) {
 	}
 
 	if t.WhenCondition != "" {
-		sb.WriteString("\nWHEN ")
+		sb.WriteString("\nWHEN (")
 		sb.WriteString(t.WhenCondition)
+		sb.WriteString(")")
 	}
 
 	sb.WriteString("\nEXECUTE FUNCTION ")

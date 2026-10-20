@@ -153,10 +153,11 @@ func (ic *IndexComparator) detectModifiedIndexes(
 					desiredIdx.Name,
 					desiredIdx.QualifiedTableName(),
 				),
-				ObjectType: "index",
-				ObjectName: key,
-				Details:    map[string]any{"current": currentIdx, "desired": desiredIdx},
-				DependsOn:  getIndexDependencies(desiredIdx, desiredDB.Functions),
+				ObjectType:        "index",
+				ObjectName:        key,
+				Details:           map[string]any{"current": currentIdx, "desired": desiredIdx},
+				DependsOn:         getIndexDependencies(desiredIdx, desiredDB.Functions),
+				RollbackDependsOn: getIndexDependencies(currentIdx, currentDB.Functions),
 			})
 		}
 	}

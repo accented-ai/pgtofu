@@ -110,8 +110,7 @@ func TestDDLBuilder_TriggerOperations(t *testing.T) {
 			wantSQL: []string{
 				"CREATE TRIGGER",
 				"conditional_trigger",
-				"WHEN",
-				"NEW.status = 'completed'",
+				"WHEN (NEW.status = 'completed')",
 				"EXECUTE FUNCTION public.HANDLE_COMPLETION",
 			},
 			wantUnsafe:     false,

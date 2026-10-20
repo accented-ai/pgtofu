@@ -47,7 +47,11 @@ func orderChangesForDown(changes []differ.Change) ([]differ.Change, error) {
 		}
 	}
 
-	if err := addViewRollbackEdgesForAddedFunctions(dependencyGraph, reversed); err != nil {
+	if err := addRollbackRecreationEdges(dependencyGraph, reversed); err != nil {
+		return nil, err
+	}
+
+	if err := addRollbackEdgesForAddedObjects(dependencyGraph, reversed); err != nil {
 		return nil, err
 	}
 
@@ -64,12 +68,53 @@ func orderChangesForDown(changes []differ.Change) ([]differ.Change, error) {
 	return ordered, nil
 }
 
-func addViewRollbackEdgesForAddedFunctions(
+func addRollbackRecreationEdges(
 	dependencyGraph *graph.DirectedGraph[int],
 	changes []differ.Change,
 ) error {
-	for functionIndex, change := range changes {
-		if change.Type != differ.ChangeTypeAddFunction {
+	for restoreIndex, restore := range changes {
+		for removeIndex, remove := range changes {
+			if !isRecreationPair(restore, remove) {
+				continue
+			}
+
+			if err := dependencyGraph.AddEdge(restoreIndex, removeIndex); err != nil {
+				return fmt.Errorf("order rollback object recreation: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func isRecreationPair(drop, add differ.Change) bool {
+	if drop.ObjectName != add.ObjectName || drop.ObjectType != add.ObjectType {
+		return false
+	}
+
+	switch drop.Type {
+	case differ.ChangeTypeDropView:
+		return add.Type == differ.ChangeTypeAddView
+	case differ.ChangeTypeDropMaterializedView:
+		return add.Type == differ.ChangeTypeAddMaterializedView
+	case differ.ChangeTypeDropTrigger:
+		return add.Type == differ.ChangeTypeAddTrigger
+	case differ.ChangeTypeDropPolicy:
+		return add.Type == differ.ChangeTypeAddPolicy
+	default:
+		return false
+	}
+}
+
+func addRollbackEdgesForAddedObjects(
+	dependencyGraph *graph.DirectedGraph[int],
+	changes []differ.Change,
+) error {
+	for providerIndex, change := range changes {
+		if change.Type != differ.ChangeTypeAddFunction &&
+			change.Type != differ.ChangeTypeAddView &&
+			change.Type != differ.ChangeTypeAddMaterializedView &&
+			change.Type != differ.ChangeTypeAddColumn {
 			continue
 		}
 
@@ -79,11 +124,15 @@ func addViewRollbackEdgesForAddedFunctions(
 				differ.ChangeTypeModifyView,
 				differ.ChangeTypeAddMaterializedView,
 				differ.ChangeTypeModifyMaterializedView,
+				differ.ChangeTypeAddIndex,
+				differ.ChangeTypeModifyIndex,
+				differ.ChangeTypeAddTrigger,
+				differ.ChangeTypeModifyTrigger,
 				differ.ChangeTypeAddPolicy,
 				differ.ChangeTypeModifyPolicy:
 				if slices.Contains(viewChange.DependsOn, change.ObjectName) {
-					if err := dependencyGraph.AddEdge(functionIndex, viewIndex); err != nil {
-						return fmt.Errorf("order rollback function drop: %w", err)
+					if err := dependencyGraph.AddEdge(providerIndex, viewIndex); err != nil {
+						return fmt.Errorf("order rollback object drop: %w", err)
 					}
 				}
 			}
@@ -110,6 +159,7 @@ func providesObjectOnRollback(change differ.Change) bool {
 
 		return index != nil && index.IsUnique && !index.IsPartial() && !index.IsExpression()
 	case differ.ChangeTypeDropTable,
+		differ.ChangeTypeDropColumn,
 		differ.ChangeTypeDropCustomType,
 		differ.ChangeTypeDropView,
 		differ.ChangeTypeDropMaterializedView,
@@ -145,17 +195,27 @@ func rollbackDependencyCrossesBoundary(changes []differ.Change, splitAfter int) 
 		changesDependOnRollbackProviders(changes[splitAfter+1:], leftProviders)
 }
 
-func hasOpenPolicyRecreation(changes []differ.Change) bool {
+func hasOpenRecreation(changes []differ.Change) bool {
 	open := make(map[string]bool)
 
 	for _, change := range changes {
+		key := change.ObjectType + "\x00" + change.ObjectName
 		switch change.Type {
-		case differ.ChangeTypeDropPolicy:
-			if recreate, _ := change.Details["recreate"].(bool); recreate {
-				open[change.ObjectName] = true
+		case differ.ChangeTypeDropPolicy,
+			differ.ChangeTypeDropView,
+			differ.ChangeTypeDropMaterializedView,
+			differ.ChangeTypeDropTrigger:
+			recreate, _ := change.Details["recreate"].(bool)
+
+			willBeRecreated, _ := change.Details["will_be_recreated"].(bool)
+			if recreate || willBeRecreated {
+				open[key] = true
 			}
-		case differ.ChangeTypeAddPolicy:
-			delete(open, change.ObjectName)
+		case differ.ChangeTypeAddPolicy,
+			differ.ChangeTypeAddView,
+			differ.ChangeTypeAddMaterializedView,
+			differ.ChangeTypeAddTrigger:
+			delete(open, key)
 		}
 	}
 

@@ -301,6 +301,10 @@ func (d *Differ) implicitlyDependsOn( //nolint:cyclop,gocognit,gocyclo,maintidx
 	change *Change,
 	otherChange *Change,
 ) bool {
+	if triggerChangeDependsOn(change, otherChange) {
+		return true
+	}
+
 	if policyChangeDependsOn(change, otherChange) {
 		return true
 	}
@@ -380,6 +384,12 @@ func (d *Differ) implicitlyDependsOn( //nolint:cyclop,gocognit,gocyclo,maintidx
 	if change.Type == ChangeTypeDropFunction &&
 		otherChange.Type == ChangeTypeDropTrigger &&
 		slices.Contains(otherChange.DependsOn, change.ObjectName) {
+		return true
+	}
+
+	if change.Type == ChangeTypeDropFunction &&
+		(otherChange.Type == ChangeTypeDropIndex || otherChange.Type == ChangeTypeModifyIndex) &&
+		slices.Contains(otherChange.RollbackDependsOn, change.ObjectName) {
 		return true
 	}
 

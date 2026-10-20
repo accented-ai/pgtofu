@@ -112,6 +112,37 @@ func TestForeignKeysFollowReferencedKeyChanges(t *testing.T) {
 	}
 }
 
+func TestReferencedTableDropWaitsForForeignKeyRemoval(t *testing.T) {
+	t.Parallel()
+
+	current := foreignKeySchema(t, `
+CREATE TABLE source_data.z_parents (id integer PRIMARY KEY);
+CREATE TABLE catalog.a_children (
+    id integer, parent_id integer,
+    CONSTRAINT child_parent FOREIGN KEY (parent_id) REFERENCES source_data.z_parents (id)
+);`)
+	desired := foreignKeySchema(
+		t,
+		`CREATE TABLE catalog.a_children (id integer, parent_id integer);`,
+	)
+
+	for _, maxOperations := range []int{1, 50} {
+		up, down := foreignKeyMigrationSQL(t, current, desired, maxOperations)
+		requireSQLBefore(
+			t,
+			up,
+			"DROP CONSTRAINT IF EXISTS child_parent",
+			"DROP TABLE IF EXISTS source_data.z_parents",
+		)
+		requireSQLBefore(
+			t,
+			down,
+			"CREATE TABLE source_data.z_parents",
+			"ADD CONSTRAINT child_parent FOREIGN KEY",
+		)
+	}
+}
+
 func TestMutualForeignKeysWaitForIndependentPrimaryKeys(t *testing.T) {
 	t.Parallel()
 

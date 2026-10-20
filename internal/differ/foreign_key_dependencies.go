@@ -43,7 +43,8 @@ func keyChangeDependsOnForeignRemoval(change, other *Change) bool {
 	case ChangeTypeDropConstraint,
 		ChangeTypeDropIndex,
 		ChangeTypeModifyConstraint,
-		ChangeTypeModifyIndex:
+		ChangeTypeModifyIndex,
+		ChangeTypeDropTable:
 		if other.Type != ChangeTypeDropConstraint && other.Type != ChangeTypeDropTable &&
 			other.Type != ChangeTypeModifyConstraint {
 			return false
@@ -96,6 +97,11 @@ func constraintForDependency(change *Change, side string) *schema.Constraint {
 func foreignKeyReferencesKey(foreign *schema.Constraint, keyChange *Change, side string) bool {
 	if foreign == nil || !foreign.IsForeignKey() {
 		return false
+	}
+
+	if keyChange.Type == ChangeTypeDropTable {
+		table, _ := keyChange.Details["table"].(*schema.Table)
+		return table != nil && table.QualifiedName() == foreign.QualifiedReferencedTable()
 	}
 
 	var (
