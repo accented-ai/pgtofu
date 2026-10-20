@@ -146,6 +146,7 @@ const (
 			c.identity_generation,
 			c.is_generated = 'ALWAYS',
 			c.generation_expression,
+			CASE a.attgenerated WHEN 's' THEN 'STORED' WHEN 'v' THEN 'VIRTUAL' END,
 			format_type(a.atttypid, a.atttypmod) AS full_type
 		FROM information_schema.columns c
 		LEFT JOIN pg_catalog.pg_attribute a

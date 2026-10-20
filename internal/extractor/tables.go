@@ -132,6 +132,7 @@ func (e *Extractor) extractColumns(ctx context.Context, table *schema.Table) err
 			scanner.String("identityGen"),
 			&col.IsGenerated,
 			scanner.String("generationExpr"),
+			scanner.String("generationStorage"),
 			scanner.String("fullType"),
 		); err != nil {
 			return util.WrapError("scan column", err)
@@ -141,6 +142,7 @@ func (e *Extractor) extractColumns(ctx context.Context, table *schema.Table) err
 		col.Comment = scanner.GetString("comment")
 		col.IdentityGeneration = scanner.GetString("identityGen")
 		col.GenerationExpression = scanner.GetString("generationExpr")
+		col.GenerationStorage = scanner.GetString("generationStorage")
 
 		if col.DataType == "USER-DEFINED" {
 			if fullType := scanner.GetString("fullType"); fullType != "" {

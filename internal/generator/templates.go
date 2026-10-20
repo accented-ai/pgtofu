@@ -116,11 +116,26 @@ func formatColumnDefinition(col *schema.Column) (string, error) {
 	buf.Write(QuoteIdentifier(col.Name))
 	buf.Write(dataType)
 
+	if col.IsGenerated {
+		if strings.TrimSpace(col.GenerationExpression) == "" {
+			return "", errors.New("generated column expression cannot be empty")
+		}
+
+		storage := col.GeneratedStorage()
+		if storage != "STORED" && storage != "VIRTUAL" {
+			return "", fmt.Errorf("invalid generated column storage: %s", storage)
+		}
+
+		buf.Write("GENERATED ALWAYS AS")
+		buf.Write("(" + col.GenerationExpression + ")")
+		buf.Write(storage)
+	}
+
 	if !col.IsNullable {
 		buf.Write("NOT NULL")
 	}
 
-	if defaultValue != "" {
+	if defaultValue != "" && !col.IsGenerated {
 		buf.Write("DEFAULT")
 		buf.Write(defaultValue)
 	}

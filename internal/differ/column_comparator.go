@@ -63,6 +63,7 @@ func (cc *ColumnComparator) detectAddedColumns(
 				ObjectType: "column",
 				ObjectName: tableKey,
 				Details:    map[string]any{"table": table.QualifiedName(), "column": col},
+				DependsOn:  generatedColumnDependencies(col, result.Desired.Functions),
 			})
 
 			cc.addColumnCommentChange(result, tableKey, table, col, "")
@@ -92,12 +93,17 @@ func (cc *ColumnComparator) detectDroppedColumns(
 			}
 
 			result.Changes = append(result.Changes, Change{
-				Type:        ChangeTypeDropColumn,
-				Severity:    severity,
-				Description: fmt.Sprintf("Drop column: %s.%s", table.QualifiedName(), col.Name),
-				ObjectType:  "column",
-				ObjectName:  tableKey,
-				Details:     map[string]any{"table": table.QualifiedName(), "column": col},
+				Type:     ChangeTypeDropColumn,
+				Severity: severity,
+				Description: fmt.Sprintf(
+					"Drop column: %s.%s",
+					table.QualifiedName(),
+					col.Name,
+				),
+				ObjectType:        "column",
+				ObjectName:        tableKey,
+				Details:           map[string]any{"table": table.QualifiedName(), "column": col},
+				RollbackDependsOn: generatedColumnDependencies(col, result.Current.Functions),
 			})
 		}
 	}

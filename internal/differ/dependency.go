@@ -309,7 +309,8 @@ func (d *Differ) implicitlyDependsOn( //nolint:cyclop,gocognit,gocyclo,maintidx
 		return true
 	}
 
-	if foreignKeyChangeDependsOn(change, otherChange) {
+	if foreignKeyChangeDependsOn(change, otherChange) ||
+		generatedColumnDependsOn(change, otherChange) {
 		return true
 	}
 
@@ -377,6 +378,12 @@ func (d *Differ) implicitlyDependsOn( //nolint:cyclop,gocognit,gocyclo,maintidx
 
 	if (change.Type == ChangeTypeDropTable || change.Type == ChangeTypeDropFunction) &&
 		otherChange.Type == ChangeTypeDropTable &&
+		slices.Contains(otherChange.RollbackDependsOn, change.ObjectName) {
+		return true
+	}
+
+	if change.Type == ChangeTypeDropFunction &&
+		otherChange.Type == ChangeTypeDropColumn &&
 		slices.Contains(otherChange.RollbackDependsOn, change.ObjectName) {
 		return true
 	}

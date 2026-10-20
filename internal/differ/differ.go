@@ -103,6 +103,10 @@ func (d *Differ) Compare(current, desired *schema.Database) (*DiffResult, error)
 		return nil, errors.New("desired schema is nil")
 	}
 
+	if err := validateColumnGeneration(current, desired); err != nil {
+		return nil, err
+	}
+
 	result := &DiffResult{
 		Current:  current,
 		Desired:  desired,

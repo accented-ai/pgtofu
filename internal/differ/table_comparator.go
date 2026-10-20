@@ -263,6 +263,9 @@ func getTableDependencies(table *schema.Table, functions []schema.Function) []st
 	var deps []string
 
 	tableName := table.QualifiedName()
+	for i := range table.Columns {
+		deps = append(deps, generatedColumnDependencies(&table.Columns[i], functions)...)
+	}
 
 	for i := range table.Constraints {
 		constraint := &table.Constraints[i]

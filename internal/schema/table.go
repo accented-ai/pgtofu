@@ -50,6 +50,15 @@ type Column struct {
 	IdentityGeneration   string `json:"identity_generation,omitempty"`
 	IsGenerated          bool   `json:"is_generated,omitempty"`
 	GenerationExpression string `json:"generation_expression,omitempty"`
+	GenerationStorage    string `json:"generation_storage,omitempty"`
+}
+
+func (c *Column) GeneratedStorage() string {
+	if c.GenerationStorage == "" {
+		return "STORED"
+	}
+
+	return strings.ToUpper(c.GenerationStorage)
 }
 
 const (

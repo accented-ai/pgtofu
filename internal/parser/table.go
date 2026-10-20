@@ -690,6 +690,12 @@ func (p *Parser) parseColumn( //nolint:cyclop,gocyclo
 
 	rest := strings.TrimSpace(def[typeEnd:])
 	constraintTokens := filterConstraintTokens(tokens[constraintStartIdx:])
+
+	generation, constraintTokens, err := parseColumnGeneration(def, constraintTokens)
+	if err != nil {
+		return schema.Column{}, nil, err
+	}
+
 	upperWords := constraintWords(constraintTokens)
 	defaultVal := extractDefault(rest)
 
@@ -723,15 +729,18 @@ func (p *Parser) parseColumn( //nolint:cyclop,gocyclo
 	}
 
 	column := schema.Column{
-		Name:       columnName,
-		DataType:   baseType,
-		IsNullable: isColumnNullable(upperWords) && !isSerialType,
-		Default:    defaultVal,
-		Position:   position,
-		Precision:  precision,
-		Scale:      scale,
-		MaxLength:  maxLength,
-		IsArray:    isArray,
+		Name:                 columnName,
+		DataType:             baseType,
+		IsNullable:           isColumnNullable(upperWords) && !isSerialType,
+		Default:              defaultVal,
+		Position:             position,
+		Precision:            precision,
+		Scale:                scale,
+		MaxLength:            maxLength,
+		IsArray:              isArray,
+		IsGenerated:          generation.IsGenerated,
+		GenerationExpression: generation.GenerationExpression,
+		GenerationStorage:    generation.GenerationStorage,
 	}
 
 	var inline []schema.Constraint
@@ -765,6 +774,39 @@ func (p *Parser) parseColumn( //nolint:cyclop,gocyclo
 	}
 
 	return column, inline, nil
+}
+
+func parseColumnGeneration(def string, tokens []Token) (schema.Column, []Token, error) {
+	var column schema.Column
+
+	index := findKeyword(tokens, "GENERATED", 0)
+	if index < 0 || index+3 >= len(tokens) ||
+		upperLiteral(tokens, index+1) != "ALWAYS" ||
+		upperLiteral(tokens, index+2) != "AS" || tokens[index+3].Type != TokenLParen {
+		return column, tokens, nil
+	}
+
+	expression, next, err := extractParenthesizedLiteral(def, tokens, index+3)
+	if err != nil {
+		return column, nil, err
+	}
+
+	column.IsGenerated = true
+	column.GenerationExpression = expression
+	column.GenerationStorage = "VIRTUAL"
+
+	if next < len(tokens) {
+		storage := upperLiteral(tokens, next)
+		if storage == "STORED" || storage == "VIRTUAL" {
+			column.GenerationStorage = storage
+			next++
+		}
+	}
+
+	remaining := append([]Token(nil), tokens[:index]...)
+	remaining = append(remaining, tokens[next:]...)
+
+	return column, remaining, nil
 }
 
 func filterConstraintTokens(tokens []Token) []Token {
