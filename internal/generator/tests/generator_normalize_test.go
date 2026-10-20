@@ -57,3 +57,38 @@ func TestNormalizeCheckConstraint_BtrimFunctionName(t *testing.T) {
 
 	assert.Equal(t, want, generator.NormalizeCheckConstraint(constraint))
 }
+
+func TestExpressionFormattingPreservesCastsAndLiteralContents(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct{ input, want string }{
+		{"(payload ->> 'count')::integer > 0", "(payload ->> 'count')::INTEGER > 0"},
+		{"'12'::integer", "'12'::INTEGER"},
+		{"'ready'::catalog.status", "'ready'::catalog.status"},
+		{"ARRAY['1'::integer, '2'::integer]", "ARRAY['1'::INTEGER, '2'::INTEGER]"},
+		{"'Keep ::integer and (12) verbatim'", "'Keep ::integer and (12) verbatim'"},
+		{"now()::date", "NOW()::DATE"},
+	} {
+		for _, normalize := range []func(string) string{
+			generator.NormalizeSQL,
+			generator.NormalizeCheckConstraint,
+			generator.NormalizeDefaultValue,
+		} {
+			assert.Equal(t, test.want, normalize(test.input))
+		}
+	}
+}
+
+func TestMultilineChecksRetainNumericCastQualifiers(t *testing.T) {
+	t.Parallel()
+
+	current := foreignKeySchema(t, "")
+	desired := foreignKeySchema(t, `CREATE TABLE catalog.prices (
+    amount double precision,
+    CONSTRAINT checked_unit_interval_with_explicit_numeric_bounds
+    CHECK (amount >= (0)::double precision AND amount <= (1)::double precision)
+);`)
+	up, _ := foreignKeyMigrationSQL(t, current, desired, 1)
+	assert.Contains(t, up, "::DOUBLE PRECISION")
+	assert.NotContains(t, up, "pgtofu_identifier_")
+}

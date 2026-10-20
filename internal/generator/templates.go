@@ -346,9 +346,13 @@ func protectCheckExpressionIdentifiers(
 
 	replacements := make([]viewTextReplacement, 0)
 	identifiers := make(map[string]string)
+	castTypes := make(map[int]string)
+	markBuiltinCastTypes(tokens, castTypes)
 
 	for index, token := range tokens {
+		_, isCastType := castTypes[index]
 		if token.Type != parser.TokenIdentifier ||
+			isCastType ||
 			isCheckExpressionFunction(tokens, index) ||
 			isCheckExpressionType(tokens, index) ||
 			isCheckExpressionArrayConstructor(tokens, index) {

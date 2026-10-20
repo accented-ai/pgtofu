@@ -685,10 +685,8 @@ func TestDDLBuilder_CheckConstraintNumericTypeCastNormalization(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, stmt.SQL, "::double precision",
 		"Should not contain lowercase type casts")
-	assert.NotContains(t, stmt.SQL, "(0)",
-		"Should not contain parenthesized numeric literals")
-	assert.NotContains(t, stmt.SQL, "(1)",
-		"Should not contain parenthesized numeric literals")
+	assert.Contains(t, stmt.SQL, "(0)::DOUBLE PRECISION")
+	assert.Contains(t, stmt.SQL, "(1)::DOUBLE PRECISION")
 	assert.Contains(t, stmt.SQL, ">=")
 	assert.Contains(t, stmt.SQL, "<=")
 }

@@ -14,7 +14,7 @@ func NormalizeSQL(sql string) string {
 
 	result := sql
 	result = normalizeBooleans(result)
-	result = normalizeTypeCasts(result)
+	result = uppercaseBuiltinCastTypes(result)
 	result = normalizeFunctionNames(result)
 	result = normalizeQuantifiedComparisonSpacing(result)
 
@@ -28,7 +28,7 @@ func NormalizeCheckConstraint(def string) string {
 
 	result := def
 	result = normalizeAnyArrayToIn(result)
-	result = normalizeTypeCasts(result)
+	result = uppercaseBuiltinCastTypes(result)
 	result = normalizeBooleans(result)
 	result = normalizeFunctionNames(result)
 	result = normalizeQuantifiedComparisonSpacing(result)
@@ -43,7 +43,7 @@ func NormalizeWhereClause(where string) string {
 
 	result := where
 	result = normalizeBooleans(result)
-	result = normalizeTypeCasts(result)
+	result = uppercaseBuiltinCastTypes(result)
 	result = normalizeQuantifiedComparisonSpacing(result)
 
 	return result
@@ -64,8 +64,7 @@ func NormalizeDefaultValue(defaultVal string) string {
 		return "FALSE"
 	}
 
-	result = normalizeTypeCasts(result)
-	result = uppercaseDefaultCasts(result)
+	result = uppercaseBuiltinCastTypes(result)
 	result = normalizeFunctionNames(result)
 
 	return result
@@ -142,63 +141,6 @@ func normalizeBooleans(s string) string {
 		segment = falsePattern.ReplaceAllString(segment, "FALSE")
 
 		return segment
-	})
-}
-
-func normalizeTypeCasts(s string) string {
-	result := s
-
-	stringCastPattern := regexp.MustCompile(
-		`(?i)('(?:[^']*|'')*')::\s*` +
-			`(?:` +
-			`timestamp\s+(?:with|without)\s+time\s+zone|` +
-			`time\s+(?:with|without)\s+time\s+zone|` +
-			`double\s+precision|character\s+varying|bit\s+varying|` +
-			`interval(?:\s+(?:year|month|day|hour|minute|second)` +
-			`(?:\s+to\s+(?:year|month|day|hour|minute|second))?)?|` +
-			`[a-z_][a-z0-9_]*(?:\s*\.\s*[a-z_][a-z0-9_]*)?` +
-			`)` +
-			`(?:\s*\(\s*\d+(?:\s*,\s*\d+)?\s*\))?` +
-			`(?:\s*\[\s*\])?`,
-	)
-	result = stringCastPattern.ReplaceAllString(result, "$1")
-
-	numericCastPattern := regexp.MustCompile(
-		`::(?:double precision|real|numeric|integer|bigint|smallint)\b(?:\[\])?`,
-	)
-	result = numericCastPattern.ReplaceAllStringFunc(result, func(match string) string {
-		if strings.HasSuffix(match, "[]") {
-			return match
-		}
-
-		return ""
-	})
-
-	numericParenPattern := regexp.MustCompile(`\((-?\d+(?:\.\d+)?)\)`)
-	result = numericParenPattern.ReplaceAllString(result, "$1")
-
-	return result
-}
-
-func uppercaseDefaultCasts(s string) string {
-	castPattern := regexp.MustCompile(
-		`(?i)::\s*(timestamp without time zone|timestamp with time zone|` +
-			`time without time zone|time with time zone|character varying|` +
-			`double precision|bit varying|[a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)*)` +
-			`\s*(\[\s*\])?`,
-	)
-
-	return mapOutsideStringLiterals(s, func(segment string) string {
-		return castPattern.ReplaceAllStringFunc(segment, func(match string) string {
-			groups := castPattern.FindStringSubmatch(match)
-
-			dataType := strings.TrimSpace(groups[1])
-			if groups[2] != "" {
-				dataType += "[]"
-			}
-
-			return "::" + NormalizeDataType(dataType)
-		})
 	})
 }
 
@@ -383,7 +325,7 @@ func normalizeArrayValues(values string) string {
 			if !inQuote && depth == 0 {
 				val := strings.TrimSpace(current.String())
 				if val != "" {
-					result = append(result, normalizeArrayValue(val))
+					result = append(result, val)
 				}
 
 				current.Reset()
@@ -398,7 +340,7 @@ func normalizeArrayValues(values string) string {
 
 	val := strings.TrimSpace(current.String())
 	if val != "" {
-		result = append(result, normalizeArrayValue(val))
+		result = append(result, val)
 	}
 
 	return strings.Join(result, ", ")
@@ -420,15 +362,6 @@ func handleQuoteChar(inQuote *bool, i *int, values string, current *strings.Buil
 	}
 
 	current.WriteByte(c)
-}
-
-func normalizeArrayValue(val string) string {
-	castPattern := regexp.MustCompile(`^('(?:[^']*|'')*')::[a-zA-Z_][a-zA-Z0-9_\s]*(?:\[\])?$`)
-	if matches := castPattern.FindStringSubmatch(val); matches != nil {
-		return matches[1]
-	}
-
-	return val
 }
 
 func FormatCheckConstraintMultiline(column string, values []string) string {
