@@ -413,23 +413,42 @@ func (cp *constraintParser) consumeParenthesized() (string, error) {
 }
 
 func (cp *constraintParser) consumeReferenceTable() (string, error) {
-	cp.skipComments()
+	first, err := cp.consumeToken()
+	if err != nil {
+		return "", err
+	}
 
-	if cp.pos >= len(cp.tokens) {
+	if !isReferenceIdentifier(first.Type) {
 		return "", NewParseError("expected referenced table")
 	}
 
-	start := cp.tokens[cp.pos].Start
+	start, end := first.Start, first.End
 
-	for cp.pos < len(cp.tokens) && cp.tokens[cp.pos].Type != TokenLParen {
+	cp.skipComments()
+
+	for cp.pos < len(cp.tokens) && cp.tokens[cp.pos].Type == TokenDot {
 		cp.pos++
+
+		next, err := cp.consumeToken()
+		if err != nil {
+			return "", err
+		}
+
+		if !isReferenceIdentifier(next.Type) {
+			return "", NewParseError("expected referenced table identifier")
+		}
+
+		end = next.End
+
+		cp.skipComments()
 	}
 
-	if cp.pos >= len(cp.tokens) {
-		return "", NewParseError("missing referenced column list")
-	}
+	return strings.TrimSpace(cp.def[start:end]), nil
+}
 
-	return strings.TrimSpace(cp.def[start:cp.tokens[cp.pos].Start]), nil
+func isReferenceIdentifier(tokenType TokenType) bool {
+	return tokenType == TokenIdentifier || tokenType == TokenQuotedIdentifier ||
+		tokenType == TokenKeyword
 }
 
 func (cp *constraintParser) remaining() string {
@@ -539,14 +558,32 @@ func (cp *constraintParser) parseForeignKey(name string) (schema.Constraint, err
 		return schema.Constraint{}, err
 	}
 
+	return cp.parseForeignKeyReference(name, normalizeIdentifierList(cp.parser, srcList))
+}
+
+func (cp *constraintParser) parseForeignKeyReference(
+	name string,
+	srcColumns []string,
+) (schema.Constraint, error) {
 	refTable, err := cp.consumeReferenceTable()
 	if err != nil {
 		return schema.Constraint{}, err
 	}
 
-	refCols, err := cp.consumeParenthesized()
-	if err != nil {
-		return schema.Constraint{}, err
+	var refColumns []string
+
+	cp.skipComments()
+
+	if cp.pos < len(cp.tokens) && cp.tokens[cp.pos].Type == TokenLParen {
+		refCols, parseErr := cp.consumeParenthesized()
+		if parseErr != nil {
+			return schema.Constraint{}, parseErr
+		}
+
+		refColumns = normalizeIdentifierList(cp.parser, refCols)
+		if len(refColumns) == 0 {
+			return schema.Constraint{}, NewParseError("missing referenced columns")
+		}
 	}
 
 	remaining := cp.remaining()
@@ -564,15 +601,14 @@ func (cp *constraintParser) parseForeignKey(name string) (schema.Constraint, err
 	isDeferrable := hasKeyword(remaining, "DEFERRABLE")
 	initiallyDeferred := hasKeyword(remaining, "INITIALLY DEFERRED")
 
-	srcColumns := normalizeIdentifierList(cp.parser, srcList)
-	refColumns := normalizeIdentifierList(cp.parser, refCols)
-
 	definition := fmt.Sprintf(
-		"FOREIGN KEY (%s) REFERENCES %s(%s)",
+		"FOREIGN KEY (%s) REFERENCES %s",
 		strings.Join(srcColumns, ", "),
 		refTable,
-		strings.Join(refColumns, ", "),
 	)
+	if len(refColumns) > 0 {
+		definition += "(" + strings.Join(refColumns, ", ") + ")"
+	}
 
 	return schema.Constraint{
 		Name:              name,
@@ -921,86 +957,10 @@ func (p *Parser) parseInlineForeignKey(colName, def string) (schema.Constraint, 
 		return schema.Constraint{}, NewParseError("invalid REFERENCES syntax")
 	}
 
-	tableIdx := nextNonCommentIndex(tokens, refIdx+1)
-	if tableIdx >= len(tokens) {
-		return schema.Constraint{}, NewParseError("missing referenced table")
-	}
+	cp := newConstraintParser(p, def, tokens)
+	cp.pos = refIdx + 1
 
-	literalStart := tokens[tableIdx].Start
-	literalEnd := literalStart
-	closeIdx := -1
-
-	for i := tableIdx; i < len(tokens); i++ {
-		token := tokens[i]
-		if token.Type == TokenComment {
-			continue
-		}
-
-		if token.Type == TokenLParen {
-			closeIdx = i
-			break
-		}
-
-		literalEnd = token.End
-	}
-
-	if closeIdx == -1 {
-		return schema.Constraint{}, NewParseError("missing referenced column list")
-	}
-
-	refTableLiteral := strings.TrimSpace(def[literalStart:literalEnd])
-	if refTableLiteral == "" {
-		return schema.Constraint{}, NewParseError("missing referenced table")
-	}
-
-	refColumnsLiteral, afterColsIdx, err := extractParenthesizedLiteral(def, tokens, closeIdx)
-	if err != nil {
-		return schema.Constraint{}, err
-	}
-
-	refColumns := normalizeIdentifierList(p, refColumnsLiteral)
-	if len(refColumns) == 0 {
-		return schema.Constraint{}, NewParseError("missing referenced columns")
-	}
-
-	remaining := ""
-
-	nextIdx := nextNonCommentIndex(tokens, afterColsIdx)
-	if nextIdx < len(tokens) {
-		remaining = strings.TrimSpace(def[tokens[nextIdx].Start:])
-	}
-
-	onDelete := extractAfterKeyword(remaining, "ON DELETE")
-	if onDelete == "" {
-		onDelete = schema.NoAction
-	}
-
-	onUpdate := extractAfterKeyword(remaining, "ON UPDATE")
-	if onUpdate == "" {
-		onUpdate = schema.NoAction
-	}
-
-	isDeferrable := hasKeyword(remaining, "DEFERRABLE")
-	initiallyDeferred := hasKeyword(remaining, "INITIALLY DEFERRED")
-
-	definition := fmt.Sprintf(
-		"FOREIGN KEY (%s) REFERENCES %s(%s)",
-		colName,
-		refTableLiteral,
-		strings.Join(refColumns, ", "),
-	)
-
-	return schema.Constraint{
-		Type:              schema.ConstraintForeignKey,
-		Columns:           []string{colName},
-		ReferencedTable:   refTableLiteral,
-		ReferencedColumns: refColumns,
-		OnDelete:          onDelete,
-		OnUpdate:          onUpdate,
-		IsDeferrable:      isDeferrable,
-		InitiallyDeferred: initiallyDeferred,
-		Definition:        definition,
-	}, nil
+	return cp.parseForeignKeyReference("", []string{colName})
 }
 
 func (p *Parser) parseInlineCheck(colName, def string) (schema.Constraint, error) {
@@ -1518,4 +1478,27 @@ func (p *Parser) parseDoBlock(stmt string, _ *schema.Database) error {
 	}
 
 	return nil
+}
+
+func resolveImplicitForeignKeyColumns(db *schema.Database) {
+	for i := range db.Tables {
+		for j := range db.Tables[i].Constraints {
+			constraint := &db.Tables[i].Constraints[j]
+			if !constraint.IsForeignKey() || len(constraint.ReferencedColumns) > 0 {
+				continue
+			}
+
+			parent := db.GetTable(constraint.ReferencedSchema, constraint.ReferencedTable)
+			if parent == nil {
+				continue
+			}
+
+			for _, key := range parent.Constraints {
+				if key.IsPrimaryKey() {
+					constraint.ReferencedColumns = append([]string(nil), key.Columns...)
+					break
+				}
+			}
+		}
+	}
 }

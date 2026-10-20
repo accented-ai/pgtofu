@@ -95,6 +95,20 @@ func addViewRollbackEdgesForAddedFunctions(
 
 func providesObjectOnRollback(change differ.Change) bool {
 	switch change.Type {
+	case differ.ChangeTypeDropConstraint, differ.ChangeTypeModifyConstraint:
+		constraint, _ := change.Details["constraint"].(*schema.Constraint)
+		if constraint == nil {
+			constraint, _ = change.Details["current"].(*schema.Constraint)
+		}
+
+		return constraint != nil && (constraint.IsPrimaryKey() || constraint.IsUnique())
+	case differ.ChangeTypeDropIndex, differ.ChangeTypeModifyIndex:
+		index, _ := change.Details["index"].(*schema.Index)
+		if index == nil {
+			index, _ = change.Details["current"].(*schema.Index)
+		}
+
+		return index != nil && index.IsUnique && !index.IsPartial() && !index.IsExpression()
 	case differ.ChangeTypeDropTable,
 		differ.ChangeTypeDropCustomType,
 		differ.ChangeTypeDropView,

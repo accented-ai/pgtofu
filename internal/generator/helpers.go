@@ -126,10 +126,11 @@ func getChangePriorityForTable(changeType differ.ChangeType) int {
 		return 6
 	case differ.ChangeTypeModifyColumnDefault:
 		return 7
-	case differ.ChangeTypeAddConstraint, differ.ChangeTypeDropConstraint:
+	case differ.ChangeTypeAddConstraint, differ.ChangeTypeDropConstraint,
+		differ.ChangeTypeModifyConstraint, differ.ChangeTypeAddIndex,
+		differ.ChangeTypeDropIndex, differ.ChangeTypeModifyIndex:
+		// Preserve dependency order between foreign keys and their supporting keys.
 		return 8
-	case differ.ChangeTypeAddIndex, differ.ChangeTypeDropIndex:
-		return 9
 	default:
 		return 100
 	}

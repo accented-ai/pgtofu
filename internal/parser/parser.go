@@ -224,6 +224,8 @@ func (p *Parser) parseSQLInternal(sql string, db *schema.Database) error {
 		p.recordParseError(stmt, p.parseStatement(stmt, db))
 	}
 
+	resolveImplicitForeignKeyColumns(db)
+
 	return nil
 }
 

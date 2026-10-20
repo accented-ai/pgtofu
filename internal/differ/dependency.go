@@ -14,6 +14,8 @@ import (
 )
 
 func (d *Differ) resolveDependencies(result *DiffResult) error {
+	addForeignKeyChangeDependencies(result)
+
 	graph := newDependencyGraph()
 
 	for i := range result.Changes {
@@ -300,6 +302,10 @@ func (d *Differ) implicitlyDependsOn( //nolint:cyclop,gocognit,gocyclo,maintidx
 	otherChange *Change,
 ) bool {
 	if policyChangeDependsOn(change, otherChange) {
+		return true
+	}
+
+	if foreignKeyChangeDependsOn(change, otherChange) {
 		return true
 	}
 
