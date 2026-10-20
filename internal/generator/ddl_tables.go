@@ -151,6 +151,42 @@ func (b *DDLBuilder) buildDropColumn(change differ.Change) (DDLStatement, error)
 	return b.wrapWithCompressionToggle(stmt, tableName)
 }
 
+func (b *DDLBuilder) buildAddColumnForDown(change differ.Change) (DDLStatement, error) {
+	statement, err := b.buildAddColumn(change)
+	if err != nil {
+		return DDLStatement{}, err
+	}
+
+	column, err := getDetailColumn(change.Details)
+	if err != nil {
+		return DDLStatement{}, newGeneratorError("buildAddColumnForDown", &change, err)
+	}
+
+	if column.Comment != "" {
+		table, err := getDetailString(change.Details, DetailKeyTable)
+		if err != nil {
+			return DDLStatement{}, newGeneratorError("buildAddColumnForDown", &change, err)
+		}
+
+		currentTable := b.getTable(table, b.result.Current)
+		if currentTable == nil {
+			return DDLStatement{}, newGeneratorError(
+				"buildAddColumnForDown", &change,
+				wrapObjectNotFoundError(ErrTableNotFound, "table", table),
+			)
+		}
+
+		statement.SQL += "\n\n" + buildCommentStatement(
+			"COLUMN",
+			QualifiedName(currentTable.Schema, currentTable.Name)+"."+QuoteIdentifier(column.Name),
+			column.Comment,
+			false,
+		)
+	}
+
+	return statement, nil
+}
+
 func (b *DDLBuilder) buildModifyColumnType(change differ.Change) (DDLStatement, error) {
 	stmt, err := b.buildColumnTypeChange(change, b.result.Desired, DetailKeyNewType, "Modify")
 	if err != nil {

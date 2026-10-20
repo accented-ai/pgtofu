@@ -195,6 +195,8 @@ func (r *DDLBuilderRegistry) BuildDown(
 			return ddlBuilder.buildDropTableForDown(change)
 		case differ.ChangeTypeDropTable:
 			return ddlBuilder.buildAddTableForDown(change)
+		case differ.ChangeTypeDropColumn:
+			return ddlBuilder.buildAddColumnForDown(change)
 		case differ.ChangeTypeDropTrigger:
 			return ddlBuilder.buildAddTriggerForDown(change)
 		case differ.ChangeTypeDropView:
