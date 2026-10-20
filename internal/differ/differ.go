@@ -295,12 +295,12 @@ func (d *Differ) compareEnumValues(
 func (d *Differ) compareSequences(result *DiffResult) {
 	currentSeqs := make(map[string]schema.Sequence)
 	for _, seq := range result.Current.Sequences {
-		currentSeqs[TableKey(seq.Schema, seq.Name)] = seq
+		currentSeqs[seq.QualifiedName()] = seq
 	}
 
 	desiredSeqs := make(map[string]schema.Sequence)
 	for _, seq := range result.Desired.Sequences {
-		desiredSeqs[TableKey(seq.Schema, seq.Name)] = seq
+		desiredSeqs[seq.QualifiedName()] = seq
 	}
 
 	for key, seq := range desiredSeqs {
@@ -336,7 +336,10 @@ func (d *Differ) compareSequences(result *DiffResult) {
 
 	for key, desired := range desiredSeqs {
 		if current, exists := currentSeqs[key]; exists {
-			if current.Increment != desired.Increment ||
+			if current.DataType != desired.DataType ||
+				current.StartValue != desired.StartValue ||
+				current.CacheSize != desired.CacheSize ||
+				current.Increment != desired.Increment ||
 				current.MinValue != desired.MinValue ||
 				current.MaxValue != desired.MaxValue ||
 				current.IsCyclic != desired.IsCyclic {

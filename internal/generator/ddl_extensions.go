@@ -236,8 +236,11 @@ func (b *DDLBuilder) buildRemoveCustomType(
 	}, nil
 }
 
-func (b *DDLBuilder) buildAddSequence(change differ.Change) (DDLStatement, error) {
-	seq := b.getSequence(change.ObjectName, b.result.Desired)
+func (b *DDLBuilder) buildAddSequence(
+	change differ.Change,
+	db *schema.Database,
+) (DDLStatement, error) {
+	seq := b.getSequence(change.ObjectName, db)
 	if seq == nil {
 		return DDLStatement{}, newGeneratorError(
 			"buildAddSequence",
@@ -258,8 +261,11 @@ func (b *DDLBuilder) buildAddSequence(change differ.Change) (DDLStatement, error
 	}, nil
 }
 
-func (b *DDLBuilder) buildDropSequence(change differ.Change) (DDLStatement, error) {
-	seq := b.getSequence(change.ObjectName, b.result.Current)
+func (b *DDLBuilder) buildDropSequence(
+	change differ.Change,
+	db *schema.Database,
+) (DDLStatement, error) {
+	seq := b.getSequence(change.ObjectName, db)
 	if seq == nil {
 		return DDLStatement{}, newGeneratorError(
 			"buildDropSequence",
@@ -275,6 +281,30 @@ func (b *DDLBuilder) buildDropSequence(change differ.Change) (DDLStatement, erro
 		SQL:         sql,
 		Description: "Drop sequence " + seq.Name,
 		IsUnsafe:    true,
+		RequiresTx:  true,
+	}, nil
+}
+
+func (b *DDLBuilder) buildModifySequence(
+	change differ.Change,
+	db *schema.Database,
+) (DDLStatement, error) {
+	seq := b.getSequence(change.ObjectName, db)
+	if seq == nil {
+		return DDLStatement{}, newGeneratorError(
+			"buildModifySequence",
+			&change,
+			wrapObjectNotFoundError(ErrSequenceNotFound, "sequence", change.ObjectName),
+		)
+	}
+
+	// START changes the configured restart point without resetting the live counter.
+	sql := fmt.Sprintf("ALTER SEQUENCE %s %s;",
+		QualifiedName(seq.Schema, seq.Name), formatSequenceOptions(seq))
+
+	return DDLStatement{
+		SQL:         sql,
+		Description: "Modify sequence " + seq.Name,
 		RequiresTx:  true,
 	}, nil
 }

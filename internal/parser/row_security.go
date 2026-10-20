@@ -13,7 +13,7 @@ import (
 )
 
 // The WASM parser retains a runtime for each concurrent call.
-var rowSecurityParseMu sync.Mutex //nolint:gochecknoglobals
+var statementParseMu sync.Mutex //nolint:gochecknoglobals
 
 func (p *Parser) parseRowSecurity(sql string, db *schema.Database) (bool, error) {
 	tokens, err := NewLexer(sql).Tokenize()
@@ -25,8 +25,8 @@ func (p *Parser) parseRowSecurity(sql string, db *schema.Database) (bool, error)
 		return false, nil
 	}
 
-	rowSecurityParseMu.Lock()
-	defer rowSecurityParseMu.Unlock()
+	statementParseMu.Lock()
+	defer statementParseMu.Unlock()
 
 	tree, err := wasmquery.Parse(sql)
 	if err != nil {

@@ -84,6 +84,7 @@ Rexpr
 rogpeppe
 segmentby
 seqrelid
+seqtypid
 sIndex
 spgist
 testdb

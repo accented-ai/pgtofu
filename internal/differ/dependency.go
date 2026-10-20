@@ -785,7 +785,7 @@ func getChangePriority(changeType ChangeType) int { //nolint:cyclop
 		return 2
 	case ChangeTypeAddCustomType:
 		return 3
-	case ChangeTypeAddSequence:
+	case ChangeTypeAddSequence, ChangeTypeModifySequence:
 		return 4
 	case ChangeTypeAddTable:
 		return 10

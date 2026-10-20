@@ -30,6 +30,7 @@ func NewDDLBuilderRegistry() *DDLBuilderRegistry {
 	r.Register(differ.ChangeTypeDropCustomType, &customTypeBuilder{})
 	r.Register(differ.ChangeTypeAddSequence, &sequenceBuilder{})
 	r.Register(differ.ChangeTypeDropSequence, &sequenceBuilder{})
+	r.Register(differ.ChangeTypeModifySequence, &sequenceBuilder{})
 	r.Register(differ.ChangeTypeAddTable, &tableBuilder{})
 	r.Register(differ.ChangeTypeDropTable, &tableBuilder{})
 	r.Register(differ.ChangeTypeAddColumn, &columnBuilder{})
@@ -141,6 +142,7 @@ func (r *DDLBuilderRegistry) BuildDown(
 	}
 
 	reverseMap := map[differ.ChangeType]differ.ChangeType{
+		differ.ChangeTypeModifySequence:            differ.ChangeTypeModifySequence,
 		differ.ChangeTypeModifyColumnType:          differ.ChangeTypeModifyColumnType,
 		differ.ChangeTypeModifyColumnNullability:   differ.ChangeTypeModifyColumnNullability,
 		differ.ChangeTypeModifyColumnDefault:       differ.ChangeTypeModifyColumnDefault,
@@ -183,6 +185,8 @@ func (r *DDLBuilderRegistry) BuildDown(
 
 	if inverse, ok := inverseMap[change.Type]; ok {
 		switch change.Type {
+		case differ.ChangeTypeAddSequence, differ.ChangeTypeDropSequence:
+			return builder.BuildDown(change, ddlBuilder) //nolint:wrapcheck
 		case differ.ChangeTypeAddCustomType:
 			return ddlBuilder.buildDropCustomTypeForDown(change)
 		case differ.ChangeTypeDropCustomType:

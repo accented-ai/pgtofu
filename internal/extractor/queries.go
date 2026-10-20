@@ -440,7 +440,7 @@ const (
 		SELECT
 			n.nspname,
 			c.relname,
-			'bigint',
+			s.seqtypid::regtype::text,
 			s.seqstart,
 			s.seqmin,
 			s.seqmax,

@@ -46,40 +46,25 @@ func buildSequenceSQL(seq *schema.Sequence) (string, error) {
 		return "", errors.New("sequence name cannot be empty")
 	}
 
-	var buf tokenBuffer
-	buf.Write("CREATE SEQUENCE")
-	buf.Write(QualifiedName(seq.Schema, seq.Name))
+	return fmt.Sprintf("CREATE SEQUENCE %s %s;",
+		QualifiedName(seq.Schema, seq.Name), formatSequenceOptions(seq)), nil
+}
 
-	if seq.DataType != "" && seq.DataType != "bigint" {
-		buf.Write("AS")
-		buf.Write(seq.DataType)
+func formatSequenceOptions(seq *schema.Sequence) string {
+	dataType := seq.DataType
+	if dataType == "" {
+		dataType = "bigint"
 	}
 
-	if seq.Increment != 1 {
-		buf.Write(fmt.Sprintf("INCREMENT BY %d", seq.Increment))
-	}
-
-	if seq.MinValue != 1 {
-		buf.Write(fmt.Sprintf("MINVALUE %d", seq.MinValue))
-	}
-
-	if seq.MaxValue != 0 {
-		buf.Write(fmt.Sprintf("MAXVALUE %d", seq.MaxValue))
-	}
-
-	if seq.StartValue != 1 {
-		buf.Write(fmt.Sprintf("START WITH %d", seq.StartValue))
-	}
-
-	if seq.CacheSize != 1 {
-		buf.Write(fmt.Sprintf("CACHE %d", seq.CacheSize))
-	}
-
+	cycle := "NO CYCLE"
 	if seq.IsCyclic {
-		buf.Write("CYCLE")
+		cycle = "CYCLE"
 	}
 
-	return ensureStatementTerminated(buf.String()), nil
+	return fmt.Sprintf(
+		"AS %s INCREMENT BY %d MINVALUE %d MAXVALUE %d START WITH %d CACHE %d %s",
+		dataType, seq.Increment, seq.MinValue, seq.MaxValue, seq.StartValue, seq.CacheSize, cycle,
+	)
 }
 
 func buildCreateTableSQL(table *schema.Table) (string, error) {

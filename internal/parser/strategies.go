@@ -187,44 +187,6 @@ func (p *TypeParser) Parse(root *Parser, stmt Statement, db *schema.Database) er
 	return nil
 }
 
-type SequenceParser struct {
-	namePattern *regexp.Regexp
-}
-
-func NewSequenceParser() *SequenceParser {
-	return &SequenceParser{
-		namePattern: regexp.MustCompile(
-			`(?i)CREATE\s+SEQUENCE\s+([a-zA-Z_][a-zA-Z0-9_.]*|"[^"]*"(?:\."[^"]*")?)`,
-		),
-	}
-}
-
-func (p *SequenceParser) StatementTypes() []StatementType {
-	return []StatementType{StmtCreateSequence}
-}
-
-func (p *SequenceParser) Parse(root *Parser, stmt Statement, db *schema.Database) error {
-	sql := stmt.NormalizedSQL()
-
-	matches := p.namePattern.FindStringSubmatch(sql)
-	if len(matches) < 2 {
-		return errors.New("cannot extract sequence name")
-	}
-
-	schemaName, sequenceName := root.splitSchemaTable(matches[1])
-
-	sequence := schema.Sequence{
-		Schema:    schemaName,
-		Name:      sequenceName,
-		DataType:  "bigint",
-		Increment: 1,
-	}
-
-	db.Sequences = append(db.Sequences, sequence)
-
-	return nil
-}
-
 type TableParser struct{}
 
 func NewTableParser() *TableParser {

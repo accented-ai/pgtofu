@@ -19,8 +19,8 @@ func (p *PolicyParser) StatementTypes() []StatementType {
 }
 
 func (p *PolicyParser) Parse(_ *Parser, stmt Statement, db *schema.Database) error {
-	rowSecurityParseMu.Lock()
-	defer rowSecurityParseMu.Unlock()
+	statementParseMu.Lock()
+	defer statementParseMu.Unlock()
 
 	tree, err := wasmquery.Parse(stmt.NormalizedSQL())
 	if err != nil {

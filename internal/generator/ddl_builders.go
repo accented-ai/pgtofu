@@ -88,22 +88,28 @@ func (b *sequenceBuilder) BuildUp(
 	change differ.Change,
 	ddlBuilder *DDLBuilder,
 ) (DDLStatement, error) {
-	if change.Type == differ.ChangeTypeAddSequence {
-		return ddlBuilder.buildAddSequence(change)
+	switch change.Type {
+	case differ.ChangeTypeAddSequence:
+		return ddlBuilder.buildAddSequence(change, ddlBuilder.result.Desired)
+	case differ.ChangeTypeModifySequence:
+		return ddlBuilder.buildModifySequence(change, ddlBuilder.result.Desired)
+	default:
+		return ddlBuilder.buildDropSequence(change, ddlBuilder.result.Current)
 	}
-
-	return ddlBuilder.buildDropSequence(change)
 }
 
 func (b *sequenceBuilder) BuildDown(
 	change differ.Change,
 	ddlBuilder *DDLBuilder,
 ) (DDLStatement, error) {
-	if change.Type == differ.ChangeTypeAddSequence {
-		return ddlBuilder.buildDropSequence(change)
+	switch change.Type {
+	case differ.ChangeTypeAddSequence:
+		return ddlBuilder.buildDropSequence(change, ddlBuilder.result.Desired)
+	case differ.ChangeTypeModifySequence:
+		return ddlBuilder.buildModifySequence(change, ddlBuilder.result.Current)
+	default:
+		return ddlBuilder.buildAddSequence(change, ddlBuilder.result.Current)
 	}
-
-	return ddlBuilder.buildAddSequence(change)
 }
 
 type tableBuilder struct{}
