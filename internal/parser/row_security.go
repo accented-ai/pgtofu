@@ -3,17 +3,13 @@ package parser
 import (
 	"errors"
 	"fmt"
-	"sync"
 
 	pgquery "github.com/pganalyze/pg_query_go/v6"
-	wasmquery "github.com/wasilibs/go-pgquery"
 
+	"github.com/accented-ai/pgtofu/internal/postgresparse"
 	"github.com/accented-ai/pgtofu/internal/schema"
 	"github.com/accented-ai/pgtofu/internal/util"
 )
-
-// The WASM parser retains a runtime for each concurrent call.
-var statementParseMu sync.Mutex //nolint:gochecknoglobals
 
 func (p *Parser) parseRowSecurity(sql string, db *schema.Database) (bool, error) {
 	tokens, err := NewLexer(sql).Tokenize()
@@ -25,10 +21,7 @@ func (p *Parser) parseRowSecurity(sql string, db *schema.Database) (bool, error)
 		return false, nil
 	}
 
-	statementParseMu.Lock()
-	defer statementParseMu.Unlock()
-
-	tree, err := wasmquery.Parse(sql)
+	tree, err := postgresparse.Parse(sql)
 	if err != nil {
 		return false, util.WrapError("parse ALTER TABLE", err)
 	}

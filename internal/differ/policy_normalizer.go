@@ -7,8 +7,9 @@ import (
 	"strings"
 
 	pgquery "github.com/pganalyze/pg_query_go/v6"
-	wasmquery "github.com/wasilibs/go-pgquery"
 	"google.golang.org/protobuf/reflect/protoreflect"
+
+	"github.com/accented-ai/pgtofu/internal/postgresparse"
 )
 
 func policyExpressionsEqual(current, desired string) bool {
@@ -27,10 +28,7 @@ func canonicalPolicyExpression(expression string) (string, bool) {
 		return "", true
 	}
 
-	viewASTNormalizeMu.Lock()
-	defer viewASTNormalizeMu.Unlock()
-
-	tree, err := wasmquery.Parse("SELECT " + expression)
+	tree, err := postgresparse.Parse("SELECT " + expression)
 	if err != nil || len(tree.GetStmts()) != 1 {
 		return "", false
 	}

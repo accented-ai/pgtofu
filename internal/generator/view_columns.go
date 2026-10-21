@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	pgquery "github.com/pganalyze/pg_query_go/v6"
-	wasmquery "github.com/wasilibs/go-pgquery"
 
+	"github.com/accented-ai/pgtofu/internal/postgresparse"
 	"github.com/accented-ai/pgtofu/internal/schema"
 )
 
@@ -81,10 +81,7 @@ func viewOutputColumnNames(definition string) ([]string, bool) {
 		return nil, false
 	}
 
-	viewQueryFormatMu.Lock()
-	defer viewQueryFormatMu.Unlock()
-
-	tree, err := wasmquery.Parse(definition)
+	tree, err := postgresparse.Parse(definition)
 	if err != nil || len(tree.GetStmts()) != 1 {
 		return nil, false
 	}

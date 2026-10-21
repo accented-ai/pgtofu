@@ -4,21 +4,15 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/MeKo-Christian/go-sqlfmt/pkg/sqlfmt/core"
 	"github.com/MeKo-Christian/go-sqlfmt/pkg/sqlfmt/dialects"
 	pgquery "github.com/pganalyze/pg_query_go/v6"
-	wasmquery "github.com/wasilibs/go-pgquery"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/accented-ai/pgtofu/internal/parser"
+	"github.com/accented-ai/pgtofu/internal/postgresparse"
 )
-
-// The WASM parser keeps one runtime per concurrent caller. View generation is
-// sequential in production, and serializing test callers prevents parallel
-// builders from retaining several large runtimes in the parser pool.
-var viewQueryFormatMu sync.Mutex //nolint:gochecknoglobals
 
 type viewQueryNames struct {
 	relationAliases map[string]int
@@ -37,17 +31,14 @@ func formatViewQuery(query string) (string, error) {
 		return "", errors.New("view query cannot be empty")
 	}
 
-	viewQueryFormatMu.Lock()
-	defer viewQueryFormatMu.Unlock()
-
-	tree, err := wasmquery.Parse(query)
+	tree, err := postgresparse.Parse(query)
 	if err != nil {
 		return "", fmt.Errorf("parse view query: %w", err)
 	}
 
 	normalizeViewJoinConditionOrder(tree)
 
-	canonical, err := wasmquery.Deparse(tree)
+	canonical, err := postgresparse.Deparse(tree)
 	if err != nil {
 		return "", fmt.Errorf("deparse view query: %w", err)
 	}
@@ -100,12 +91,12 @@ func formatViewQuery(query string) (string, error) {
 		return "", fmt.Errorf("format view query layout: %w", err)
 	}
 
-	roundTripTree, err := wasmquery.Parse(formatted)
+	roundTripTree, err := postgresparse.Parse(formatted)
 	if err != nil {
 		return "", fmt.Errorf("parse formatted view query: %w", err)
 	}
 
-	roundTripCanonical, err := wasmquery.Deparse(roundTripTree)
+	roundTripCanonical, err := postgresparse.Deparse(roundTripTree)
 	if err != nil {
 		return "", fmt.Errorf("deparse formatted view query: %w", err)
 	}

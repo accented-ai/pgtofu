@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	pgquery "github.com/pganalyze/pg_query_go/v6"
-	wasmquery "github.com/wasilibs/go-pgquery"
 
+	"github.com/accented-ai/pgtofu/internal/postgresparse"
 	"github.com/accented-ai/pgtofu/internal/schema"
 	"github.com/accented-ai/pgtofu/internal/util"
 )
@@ -19,10 +19,7 @@ func (p *PolicyParser) StatementTypes() []StatementType {
 }
 
 func (p *PolicyParser) Parse(_ *Parser, stmt Statement, db *schema.Database) error {
-	statementParseMu.Lock()
-	defer statementParseMu.Unlock()
-
-	tree, err := wasmquery.Parse(stmt.NormalizedSQL())
+	tree, err := postgresparse.Parse(stmt.NormalizedSQL())
 	if err != nil {
 		return util.WrapError("parse CREATE POLICY", err)
 	}
@@ -125,7 +122,7 @@ func deparsePolicyExpression(version int32, node *pgquery.Node) (string, error) 
 		}}},
 	}}}
 
-	sql, err := wasmquery.Deparse(tree)
+	sql, err := postgresparse.Deparse(tree)
 	if err != nil {
 		return "", util.WrapError("deparse policy expression", err)
 	}

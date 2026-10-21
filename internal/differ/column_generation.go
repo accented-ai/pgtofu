@@ -5,9 +5,9 @@ import (
 	"strings"
 
 	pgquery "github.com/pganalyze/pg_query_go/v6"
-	wasmquery "github.com/wasilibs/go-pgquery"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
+	"github.com/accented-ai/pgtofu/internal/postgresparse"
 	"github.com/accented-ai/pgtofu/internal/schema"
 )
 
@@ -67,10 +67,7 @@ func columnsHaveSameGeneration(current, desired *schema.Column) bool {
 }
 
 func canonicalGeneratedColumnExpression(expression string) (string, bool) {
-	viewASTNormalizeMu.Lock()
-	defer viewASTNormalizeMu.Unlock()
-
-	tree, err := wasmquery.Parse("SELECT " + expression)
+	tree, err := postgresparse.Parse("SELECT " + expression)
 	if err != nil || len(tree.GetStmts()) != 1 {
 		return "", false
 	}

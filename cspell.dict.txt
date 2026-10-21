@@ -74,6 +74,7 @@ plpgsql
 pmezard
 polrelid
 PostGIS
+postgresparse
 PostgREST
 proisstrict
 Quals

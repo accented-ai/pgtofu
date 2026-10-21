@@ -5,16 +5,12 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 
 	pgquery "github.com/pganalyze/pg_query_go/v6"
-	wasmquery "github.com/wasilibs/go-pgquery"
 	"google.golang.org/protobuf/reflect/protoreflect"
-)
 
-// The WASM PostgreSQL parser retains one runtime per concurrent caller. Schema
-// comparison is sequential in normal use, while tests compare views in parallel.
-var viewASTNormalizeMu sync.Mutex //nolint:gochecknoglobals
+	"github.com/accented-ai/pgtofu/internal/postgresparse"
+)
 
 func (vn *viewNormalizer) definitionsEqual(current, desired string) bool {
 	var (
@@ -35,10 +31,7 @@ func canonicalPostgresView(definition string, columns map[string][]string) (stri
 		return "", false
 	}
 
-	viewASTNormalizeMu.Lock()
-	defer viewASTNormalizeMu.Unlock()
-
-	tree, err := wasmquery.Parse(definition)
+	tree, err := postgresparse.Parse(definition)
 	if err != nil {
 		return "", false
 	}
@@ -55,10 +48,7 @@ func canonicalPostgresExpression(expression string) (string, bool) {
 		return "", false
 	}
 
-	viewASTNormalizeMu.Lock()
-	defer viewASTNormalizeMu.Unlock()
-
-	tree, err := wasmquery.Parse("SELECT " + expression)
+	tree, err := postgresparse.Parse("SELECT " + expression)
 	if err != nil || len(tree.GetStmts()) != 1 {
 		return "", false
 	}

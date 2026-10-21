@@ -962,6 +962,8 @@ func formatViewLongJSONAccess(query string) string {
 }
 
 func configureViewFormatterLayout(config *dialects.TokenizerConfig) {
+	// The formatter sorts each keyword list in place.
+	config.ReservedNewlineWords = append([]string(nil), config.ReservedNewlineWords...)
 	config.ReservedWords = append(
 		append([]string(nil), config.ReservedWords...),
 		"IS NOT DISTINCT FROM",

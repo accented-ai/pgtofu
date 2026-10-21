@@ -5,15 +5,13 @@ import (
 	"strings"
 
 	pgquery "github.com/pganalyze/pg_query_go/v6"
-	wasmquery "github.com/wasilibs/go-pgquery"
 	"google.golang.org/protobuf/reflect/protoreflect"
+
+	"github.com/accented-ai/pgtofu/internal/postgresparse"
 )
 
 func postgresRelationDependencies(definition string) ([]string, bool) {
-	viewASTNormalizeMu.Lock()
-	defer viewASTNormalizeMu.Unlock()
-
-	tree, err := wasmquery.Parse(strings.TrimSpace(definition))
+	tree, err := postgresparse.Parse(strings.TrimSpace(definition))
 	if err != nil {
 		return nil, false
 	}

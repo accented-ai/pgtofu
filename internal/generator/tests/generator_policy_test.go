@@ -5,11 +5,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	wasmquery "github.com/wasilibs/go-pgquery"
 
 	"github.com/accented-ai/pgtofu/internal/differ"
 	"github.com/accented-ai/pgtofu/internal/generator"
 	"github.com/accented-ai/pgtofu/internal/parser"
+	"github.com/accented-ai/pgtofu/internal/postgresparse"
 	"github.com/accented-ai/pgtofu/internal/schema"
 )
 
@@ -57,7 +57,7 @@ func TestGeneratePolicyDDL(t *testing.T) {
 			assert.Contains(t, up.SQL, `AS RESTRICTIVE FOR UPDATE TO "PUBLIC", PUBLIC`)
 			assert.Contains(t, up.SQL, `USING (tenant_id = '$pgtofu_policy$')`)
 			assert.Contains(t, up.SQL, `WITH CHECK (tenant_id = 'O''Reilly')`)
-			_, err = wasmquery.Parse(up.SQL)
+			_, err = postgresparse.Parse(up.SQL)
 			require.NoError(t, err)
 
 			if idempotent {
