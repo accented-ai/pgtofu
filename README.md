@@ -65,6 +65,10 @@ migrate -path ./migrations -database "$DATABASE_URL" up
 
 Full documentation at **[pgtofu.com](https://pgtofu.com)**
 
+Extracted column snapshots retain the caller-visible `default` and a `catalog_default` deparsed with only `pg_catalog` and `pg_temp` visible.
+Generated SQL and comparisons use the bound expression, including rollback under a different search path.
+Editing `default` invalidates the catalog expression because it records the original presentation.
+
 ## Contributing
 
 ```bash

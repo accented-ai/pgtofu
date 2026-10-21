@@ -1,3 +1,6 @@
+adbin
+adnum
+adrelid
 aggs
 amname
 attrelid

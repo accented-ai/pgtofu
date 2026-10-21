@@ -38,6 +38,11 @@ func (p *Pool) Close() {
 	p.pool.Close()
 }
 
+//nolint:ireturn // Matches pgx.BeginTxFunc's transaction contract.
+func (p *Pool) BeginTx(ctx context.Context, options pgx.TxOptions) (pgx.Tx, error) {
+	return p.pool.BeginTx(ctx, options) //nolint:wrapcheck
+}
+
 func (p *Pool) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 	return p.pool.Query(ctx, sql, args...) //nolint:wrapcheck
 }

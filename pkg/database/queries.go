@@ -8,11 +8,16 @@ import (
 	"github.com/accented-ai/pgtofu/internal/util"
 )
 
-type QueryHelper struct {
-	pool *Pool
+type Querier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
-func NewQueryHelper(pool *Pool) *QueryHelper {
+type QueryHelper struct {
+	pool Querier
+}
+
+func NewQueryHelper(pool Querier) *QueryHelper {
 	return &QueryHelper{pool: pool}
 }
 

@@ -11,6 +11,7 @@ import (
 
 	"github.com/accented-ai/pgtofu/internal/schema"
 	"github.com/accented-ai/pgtofu/internal/util"
+	"github.com/accented-ai/pgtofu/pkg/database"
 )
 
 func (e *Extractor) extractTables(ctx context.Context) ([]schema.Table, error) {
@@ -110,9 +111,54 @@ func (e *Extractor) enrichPartitions(ctx context.Context, table *schema.Table) e
 }
 
 func (e *Extractor) extractColumns(ctx context.Context, table *schema.Table) error {
+	err := pgx.BeginTxFunc(ctx, e.pool, pgx.TxOptions{
+		IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly,
+	}, func(tx pgx.Tx) error {
+		helper := database.NewQueryHelper(tx)
+		if err := extractColumnPresentation(ctx, helper, table); err != nil {
+			return err
+		}
+
+		if _, err := tx.Exec(ctx, "SET LOCAL search_path = pg_catalog, pg_temp"); err != nil {
+			return util.WrapError("set catalog search path", err)
+		}
+
+		return helper.FetchAll(ctx, `SELECT a.attname, pg_catalog.pg_get_expr(d.adbin, d.adrelid)
+			FROM pg_catalog.pg_attrdef d
+			JOIN pg_catalog.pg_attribute a ON a.attrelid = d.adrelid AND a.attnum = d.adnum
+			JOIN pg_catalog.pg_class c ON c.oid = d.adrelid
+			JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+			WHERE n.nspname = $1 AND c.relname = $2 AND a.attgenerated = ''`, func(rows pgx.Rows) error {
+			var name, expression string
+			if err := rows.Scan(&name, &expression); err != nil {
+				return util.WrapError("scan catalog default", err)
+			}
+
+			for i := range table.Columns {
+				if table.Columns[i].Name == name && table.Columns[i].Default != "" {
+					table.Columns[i].CatalogDefault = &schema.CatalogDefault{
+						Original: table.Columns[i].Default, Expression: expression,
+					}
+
+					return nil
+				}
+			}
+
+			return nil
+		}, table.Schema, table.Name)
+	})
+
+	return util.WrapError("extract column defaults", err)
+}
+
+func extractColumnPresentation(
+	ctx context.Context,
+	helper *database.QueryHelper,
+	table *schema.Table,
+) error {
 	var columns []schema.Column
 
-	err := e.queryHelper.FetchAll(ctx, queryColumns, func(rows pgx.Rows) error {
+	err := helper.FetchAll(ctx, queryColumns, func(rows pgx.Rows) error {
 		scanner := NewNullScanner()
 
 		var col schema.Column

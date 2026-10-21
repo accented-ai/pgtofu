@@ -81,7 +81,7 @@ func formatColumnDefinition(col *schema.Column) (string, error) {
 	}
 
 	dataType := NormalizeDataType(col.FullDataType())
-	defaultValue := NormalizeDefaultValue(col.Default)
+	defaultValue := NormalizeDefaultValue(col.DefaultSQL())
 
 	if dataType == "" {
 		return "", errors.New("column data type cannot be empty")

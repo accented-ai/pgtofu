@@ -207,7 +207,7 @@ func (cc *ColumnComparator) compareColumnDefault(
 	table *schema.Table,
 	current, desired *schema.Column,
 ) {
-	if AreDefaultsEqual(current.Default, desired.Default) {
+	if columnsHaveSameDefault(current, desired) {
 		return
 	}
 
@@ -224,8 +224,8 @@ func (cc *ColumnComparator) compareColumnDefault(
 		Details: map[string]any{
 			"table":       table.QualifiedName(),
 			"column_name": current.Name,
-			"old_default": current.Default,
-			"new_default": desired.Default,
+			"old_default": current.DefaultSQL(),
+			"new_default": desired.DefaultSQL(),
 		},
 	})
 }

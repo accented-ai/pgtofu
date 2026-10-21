@@ -37,9 +37,10 @@ type Column struct {
 	DataType string `json:"data_type"`
 	Position int    `json:"position"`
 
-	IsNullable bool   `json:"is_nullable"`
-	Default    string `json:"default,omitempty"`
-	Comment    string `json:"comment,omitempty"`
+	IsNullable     bool            `json:"is_nullable"`
+	Default        string          `json:"default,omitempty"`
+	Comment        string          `json:"comment,omitempty"`
+	CatalogDefault *CatalogDefault `json:"catalog_default,omitempty"`
 
 	MaxLength *int `json:"max_length,omitempty"`
 	Precision *int `json:"precision,omitempty"`
@@ -51,6 +52,27 @@ type Column struct {
 	IsGenerated          bool   `json:"is_generated,omitempty"`
 	GenerationExpression string `json:"generation_expression,omitempty"`
 	GenerationStorage    string `json:"generation_storage,omitempty"`
+}
+
+type CatalogDefault struct {
+	Original   string `json:"original"`
+	Expression string `json:"expression"`
+}
+
+func (c *Column) BoundDefault() string {
+	if c.Default != "" && c.CatalogDefault != nil && c.CatalogDefault.Original == c.Default {
+		return c.CatalogDefault.Expression
+	}
+
+	return ""
+}
+
+func (c *Column) DefaultSQL() string {
+	if bound := c.BoundDefault(); bound != "" {
+		return bound
+	}
+
+	return c.Default
 }
 
 func (c *Column) GeneratedStorage() string {
