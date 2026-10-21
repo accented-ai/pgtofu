@@ -133,6 +133,7 @@ func (d *Differ) Compare(current, desired *schema.Database) (*DiffResult, error)
 	d.processViewRecreation(result)
 	d.processContinuousAggregateRecreationForColumnChanges(result)
 	addViewFunctionDependencies(result)
+	d.prepareForeignKeyRecreations(result)
 
 	if err := d.resolveDependencies(result); err != nil {
 		return nil, util.WrapError("resolving dependencies", err)

@@ -101,6 +101,12 @@ func isRecreationPair(drop, add differ.Change) bool {
 		return add.Type == differ.ChangeTypeAddTrigger
 	case differ.ChangeTypeDropPolicy:
 		return add.Type == differ.ChangeTypeAddPolicy
+	case differ.ChangeTypeDropConstraint:
+		previous, _ := drop.Details["constraint"].(*schema.Constraint)
+		next, _ := add.Details["constraint"].(*schema.Constraint)
+
+		return add.Type == differ.ChangeTypeAddConstraint && previous != nil && next != nil &&
+			previous.Name == next.Name
 	default:
 		return false
 	}
@@ -202,6 +208,7 @@ func hasOpenRecreation(changes []differ.Change) bool {
 		key := change.ObjectType + "\x00" + change.ObjectName
 		switch change.Type {
 		case differ.ChangeTypeDropPolicy,
+			differ.ChangeTypeDropConstraint,
 			differ.ChangeTypeDropView,
 			differ.ChangeTypeDropMaterializedView,
 			differ.ChangeTypeDropTrigger:
@@ -212,6 +219,7 @@ func hasOpenRecreation(changes []differ.Change) bool {
 				open[key] = true
 			}
 		case differ.ChangeTypeAddPolicy,
+			differ.ChangeTypeAddConstraint,
 			differ.ChangeTypeAddView,
 			differ.ChangeTypeAddMaterializedView,
 			differ.ChangeTypeAddTrigger:

@@ -1,10 +1,94 @@
 package differ
 
 import (
+	"fmt"
 	"slices"
 
 	"github.com/accented-ai/pgtofu/internal/schema"
 )
+
+func (d *Differ) prepareForeignKeyRecreations(result *DiffResult) {
+	// Release the old referenced key before changing it, then acquire the new key.
+	for i := range result.Current.Tables {
+		current := &result.Current.Tables[i]
+
+		desired := result.Desired.GetTable(current.Schema, current.Name)
+		if desired == nil {
+			continue
+		}
+
+		comparator := d.tableComp.constraintComp
+		desiredConstraints := comparator.buildConstraintMap(desired.Constraints)
+
+		for j := range current.Constraints {
+			foreign := &current.Constraints[j]
+			if !foreign.IsForeignKey() || !foreignKeyNeedsRecreation(foreign, result) {
+				continue
+			}
+
+			next := desiredConstraints[comparator.constraintKey(foreign)]
+			if next == nil || !next.IsForeignKey() {
+				continue
+			}
+
+			if d.options.IgnoreConstraintNames {
+				retained := *next
+				retained.Name = foreign.Name
+				next = &retained
+			}
+
+			result.Changes = slices.DeleteFunc(result.Changes, func(change Change) bool {
+				constraint := constraintForDependency(&change, "current")
+
+				return change.Type == ChangeTypeModifyConstraint &&
+					change.Details["table"] == current.QualifiedName() &&
+					constraint != nil && constraint.Name == foreign.Name
+			})
+			result.Changes = append(result.Changes,
+				foreignKeyRecreation(ChangeTypeDropConstraint, current, foreign),
+				foreignKeyRecreation(ChangeTypeAddConstraint, desired, next),
+			)
+		}
+	}
+}
+
+func foreignKeyNeedsRecreation(foreign *schema.Constraint, result *DiffResult) bool {
+	for i := range result.Changes {
+		change := &result.Changes[i]
+		switch change.Type {
+		case ChangeTypeDropConstraint, ChangeTypeModifyConstraint,
+			ChangeTypeDropIndex, ChangeTypeModifyIndex:
+			if foreignKeyReferencesKey(foreign, change, "current") {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func foreignKeyRecreation(
+	changeType ChangeType,
+	table *schema.Table,
+	foreign *schema.Constraint,
+) Change {
+	return Change{
+		Type:     changeType,
+		Severity: SeverityPotentiallyBreaking,
+		Description: fmt.Sprintf(
+			"Recreate foreign key: %s on %s",
+			foreign.Name,
+			table.QualifiedName(),
+		),
+		ObjectType: "constraint",
+		ObjectName: table.QualifiedName() + "." + foreign.Name,
+		Details: map[string]any{
+			"table": table.QualifiedName(), "constraint": foreign,
+			"recreate": changeType == ChangeTypeDropConstraint,
+		},
+		DependsOn: getConstraintDependencies(foreign, nil),
+	}
+}
 
 func addForeignKeyChangeDependencies(result *DiffResult) {
 	for i := range result.Changes {
@@ -28,6 +112,14 @@ func addForeignKeyChangeDependencies(result *DiffResult) {
 }
 
 func foreignKeyChangeDependsOn(change, other *Change) bool {
+	if change.Type == ChangeTypeAddConstraint && other.Type == ChangeTypeDropConstraint &&
+		change.ObjectName == other.ObjectName {
+		recreate, _ := other.Details["recreate"].(bool)
+		if recreate {
+			return true
+		}
+	}
+
 	switch change.Type {
 	case ChangeTypeAddTable, ChangeTypeAddConstraint, ChangeTypeModifyConstraint:
 		if createsReferencedKey(other.Type) && foreignKeysReferenceKey(change, other, "desired") {
