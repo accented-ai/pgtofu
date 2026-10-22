@@ -317,7 +317,9 @@ const (
 		SELECT
 			n.nspname,
 			p.proname,
-			pg_catalog.pg_get_function_arguments(p.oid),
+			args.types,
+			args.names,
+			args.modes,
 			pg_catalog.pg_get_function_result(p.oid),
 			l.lanname,
 			CASE WHEN p.prosrc IS NOT NULL AND p.prosrc != '' THEN p.prosrc
@@ -343,6 +345,23 @@ const (
 		FROM pg_proc p
 		JOIN pg_namespace n ON p.pronamespace = n.oid
 		JOIN pg_language l ON p.prolang = l.oid
+		LEFT JOIN LATERAL (
+			SELECT
+				pg_catalog.array_agg(pg_catalog.format_type(a.type_oid, NULL) ORDER BY a.position) AS types,
+				pg_catalog.array_agg(CASE
+					WHEN COALESCE(p.proargnames[a.position], '') = '' THEN ''
+					ELSE pg_catalog.quote_ident(p.proargnames[a.position])
+				END ORDER BY a.position) AS names,
+				pg_catalog.array_agg(CASE COALESCE(p.proargmodes[a.position], 'i')
+					WHEN 'i' THEN 'IN'
+					WHEN 'o' THEN 'OUT'
+					WHEN 'b' THEN 'INOUT'
+					WHEN 'v' THEN 'VARIADIC'
+				END ORDER BY a.position) AS modes
+			FROM pg_catalog.unnest(COALESCE(p.proallargtypes, p.proargtypes::oid[]))
+				WITH ORDINALITY AS a(type_oid, position)
+			WHERE p.proargmodes IS NULL OR p.proargmodes[a.position] <> 't'
+		) args ON true
 		WHERE %s
 		AND p.prokind IN ('f', 'p')
 		AND NOT EXISTS (
