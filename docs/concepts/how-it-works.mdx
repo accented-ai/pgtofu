@@ -115,6 +115,14 @@ NUMERIC(10,2)  ->  NUMERIC(12,2)
 ### View Comparison
 
 View definitions are normalized before comparison to handle formatting differences (whitespace, case, aliases).
+Relation aliases are compared within their query scopes, including ordinary derived tables and `LATERAL` subqueries.
+PostgreSQL may rename an inner alias when it matches a derived table's outward alias; this alone does not generate a view or materialized-view migration.
+Correlated references, relation schemas, alias column lists, predicates, and `LATERAL` visibility remain significant.
+When both queries have resolvable alias scopes, differing canonical syntax trees are treated as a definition change instead of falling back to text comparison.
+
+Alias normalization stays conservative when a query contains function sources or ambiguous unqualified references that could denote whole rows.
+References with three or more name parts retain their original qualifiers because parsing alone cannot distinguish schema-qualified columns from composite-field access.
+Those cases can still require matching the desired aliases to PostgreSQL's stored definition.
 
 When statically identifiable output columns change names at the same ordinal,
 pgtofu emits explicit `ALTER VIEW ... RENAME COLUMN` statements before replacing

@@ -8,12 +8,16 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-func normalizePostgresViewAliases(message protoreflect.Message) {
-	// Derived and function sources have additional visibility rules. Keep those
-	// queries unchanged until their namespaces can be resolved conservatively.
-	if postgresViewAliasSourcesSupported(message) {
-		normalizePostgresAliasReferences(message, nil, 0)
+func normalizePostgresViewAliases(message protoreflect.Message) bool {
+	// Function sources and ambiguous whole-row references keep their original
+	// names until their namespaces can be resolved conservatively.
+	if !postgresViewAliasSourcesSupported(message) {
+		return false
 	}
+
+	normalizePostgresAliasReferences(message, nil, 0)
+
+	return true
 }
 
 func postgresViewAliasSourcesSupported(message protoreflect.Message) bool {
@@ -57,7 +61,7 @@ func postgresViewAliasSourcesSupported(message protoreflect.Message) bool {
 }
 
 func postgresAliasSourceSupported(source *pgquery.Node) bool {
-	if source.GetRangeVar() != nil {
+	if source.GetRangeVar() != nil || source.GetRangeSubselect() != nil {
 		return true
 	}
 
@@ -122,7 +126,7 @@ func normalizePostgresSelectAliases(
 	nextAlias := 0
 
 	for _, source := range statement.GetFromClause() {
-		maps.Copy(aliases, normalizePostgresFromAliases(source, aliases, depth, &nextAlias))
+		maps.Copy(aliases, normalizePostgresFromAliases(source, parent, aliases, depth, &nextAlias))
 	}
 
 	message := statement.ProtoReflect()
@@ -147,6 +151,7 @@ func normalizePostgresSelectAliases(
 
 func normalizePostgresFromAliases(
 	source *pgquery.Node,
+	parent map[string]string,
 	visible map[string]string,
 	depth int,
 	nextAlias *int,
@@ -160,15 +165,31 @@ func normalizePostgresFromAliases(
 		)
 	}
 
+	if derived := source.GetRangeSubselect(); derived != nil {
+		inherited := parent
+		if derived.GetLateral() {
+			inherited = visible
+		}
+
+		if query := derived.GetSubquery(); query != nil {
+			normalizePostgresAliasReferences(query.ProtoReflect(), inherited, depth+1)
+		}
+
+		return postgresRelationAliasBinding(derived.GetAlias(), "", depth, nextAlias)
+	}
+
 	join := source.GetJoinExpr()
-	bindings := normalizePostgresFromAliases(join.GetLarg(), visible, depth, nextAlias)
-	joinAliases := clonePostgresAliases(visible)
-	maps.Copy(joinAliases, bindings)
-	right := normalizePostgresFromAliases(join.GetRarg(), joinAliases, depth, nextAlias)
-	maps.Copy(joinAliases, right)
+	bindings := normalizePostgresFromAliases(join.GetLarg(), parent, visible, depth, nextAlias)
+	rightVisible := clonePostgresAliases(visible)
+	maps.Copy(rightVisible, bindings)
+	right := normalizePostgresFromAliases(join.GetRarg(), parent, rightVisible, depth, nextAlias)
 	maps.Copy(bindings, right)
 
 	if join.GetQuals() != nil {
+		// JOIN conditions see their operands and enclosing queries, not earlier
+		// comma-separated FROM items visible to a LATERAL right operand.
+		joinAliases := clonePostgresAliases(parent)
+		maps.Copy(joinAliases, bindings)
 		normalizePostgresAliasReferences(join.GetQuals().ProtoReflect(), joinAliases, depth+1)
 	}
 

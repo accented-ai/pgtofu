@@ -14,32 +14,39 @@ import (
 
 func (vn *viewNormalizer) definitionsEqual(current, desired string) bool {
 	var (
-		currentAST, currentOK = canonicalPostgresView(current, vn.currentColumns)
-		desiredAST, desiredOK = canonicalPostgresView(desired, vn.desiredColumns)
+		currentAST, currentOK, currentScoped = canonicalPostgresView(current, vn.currentColumns)
+		desiredAST, desiredOK, desiredScoped = canonicalPostgresView(desired, vn.desiredColumns)
 	)
 
-	if currentOK && desiredOK && currentAST == desiredAST {
-		return true
+	if currentOK && desiredOK {
+		if currentAST == desiredAST {
+			return true
+		}
+
+		// The text fallback can erase binding differences in qualified columns.
+		if currentScoped && desiredScoped {
+			return false
+		}
 	}
 
 	return vn.normalizeDefinition(current) == vn.normalizeDefinition(desired)
 }
 
-func canonicalPostgresView(definition string, columns map[string][]string) (string, bool) {
+func canonicalPostgresView(definition string, columns map[string][]string) (string, bool, bool) {
 	definition = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(definition), ";"))
 	if definition == "" {
-		return "", false
+		return "", false, false
 	}
 
 	tree, err := postgresparse.Parse(definition)
 	if err != nil {
-		return "", false
+		return "", false, false
 	}
 
 	expandPostgresRelationWildcards(tree.ProtoReflect(), columns)
-	normalizePostgresViewAliases(tree.ProtoReflect())
+	scopedAliases := normalizePostgresViewAliases(tree.ProtoReflect())
 
-	return canonicalPostgresMessage(tree.ProtoReflect()), true
+	return canonicalPostgresMessage(tree.ProtoReflect()), true, scopedAliases
 }
 
 func canonicalPostgresExpression(expression string) (string, bool) {
