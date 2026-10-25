@@ -1211,7 +1211,14 @@ func formatViewDefinition(v *schema.View, orReplace bool) (string, error) {
 		prefix = "CREATE OR REPLACE VIEW"
 	}
 
-	return fmt.Sprintf("%s %s AS\n%s", prefix, QualifiedName(v.Schema, v.Name), definition), nil
+	options := ""
+	if v.SecurityInvoker {
+		options = " WITH (security_invoker = true)"
+	}
+
+	return fmt.Sprintf(
+		"%s %s%s AS\n%s", prefix, QualifiedName(v.Schema, v.Name), options, definition,
+	), nil
 }
 
 func formatMaterializedViewDefinition(mv *schema.MaterializedView) (string, error) {

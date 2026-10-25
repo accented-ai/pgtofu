@@ -289,7 +289,12 @@ const (
 			),
 			pg_catalog.pg_get_userbyid(c.relowner),
 			v.check_option,
-			v.is_updatable = 'YES'
+			v.is_updatable = 'YES',
+			COALESCE((
+				SELECT option_value::boolean
+				FROM pg_catalog.pg_options_to_table(c.reloptions)
+				WHERE option_name = 'security_invoker'
+			), false)
 		FROM information_schema.views v
 		JOIN pg_catalog.pg_class c ON c.relname = v.table_name
 		JOIN pg_catalog.pg_namespace n ON n.nspname = v.table_schema AND c.relnamespace = n.oid

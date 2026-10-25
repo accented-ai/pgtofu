@@ -304,6 +304,12 @@ func assertPolicyConvergence(
 		}
 	}
 
+	for _, view := range db.Views {
+		if view.Schema == name {
+			actual.Views = append(actual.Views, view)
+		}
+	}
+
 	result, err := differ.New(nil).Compare(actual, desired)
 	require.NoError(t, err)
 	assert.Empty(t, result.Changes, "%#v", result.Changes)

@@ -27,6 +27,7 @@ func (e *Extractor) extractViews(ctx context.Context) ([]schema.View, error) {
 			scanner.String("owner"),
 			scanner.String("checkOption"),
 			&view.IsUpdatable,
+			&view.SecurityInvoker,
 		); err != nil {
 			return util.WrapError("scan view", err)
 		}

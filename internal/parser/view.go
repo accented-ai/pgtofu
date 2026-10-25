@@ -1,10 +1,15 @@
 package parser
 
 import (
+	"errors"
 	"regexp"
 	"strings"
 
+	pgquery "github.com/pganalyze/pg_query_go/v6"
+
+	"github.com/accented-ai/pgtofu/internal/postgresparse"
 	"github.com/accented-ai/pgtofu/internal/schema"
+	"github.com/accented-ai/pgtofu/internal/util"
 )
 
 type viewStatement struct {
@@ -22,10 +27,16 @@ func (p *Parser) parseCreateView(stmt string, db *schema.Database) error {
 		return err
 	}
 
+	invoker, err := viewSecurityInvoker(parsed.withClause)
+	if err != nil {
+		return err
+	}
+
 	view := schema.View{
-		Schema:     parsed.schemaName,
-		Name:       parsed.viewName,
-		Definition: parsed.definition,
+		Schema:          parsed.schemaName,
+		Name:            parsed.viewName,
+		Definition:      parsed.definition,
+		SecurityInvoker: invoker,
 	}
 
 	for i, existing := range db.Views {
@@ -38,6 +49,80 @@ func (p *Parser) parseCreateView(stmt string, db *schema.Database) error {
 	db.Views = append(db.Views, view)
 
 	return nil
+}
+
+func viewSecurityInvoker(clause string) (bool, error) {
+	if clause == "" {
+		return false, nil
+	}
+
+	tree, err := postgresparse.Parse("CREATE VIEW option_view WITH (" + clause + ") AS SELECT 1")
+	if err != nil {
+		return false, util.WrapError("parse view options", err)
+	}
+
+	var invoker, found bool
+
+	for _, node := range tree.GetStmts()[0].GetStmt().GetViewStmt().GetOptions() {
+		option := node.GetDefElem()
+		if option.GetDefname() != "security_invoker" {
+			continue
+		}
+
+		if option.GetDefnamespace() != "" {
+			return false, errors.New("security_invoker view option cannot have a namespace")
+		}
+
+		if found {
+			return false, errors.New("duplicate security_invoker view option")
+		}
+
+		found = true
+
+		invoker, err = viewBooleanOption(option.GetArg())
+		if err != nil {
+			return false, err
+		}
+	}
+
+	return invoker, nil
+}
+
+func viewBooleanOption(node *pgquery.Node) (bool, error) {
+	if node == nil {
+		return true, nil
+	}
+
+	if boolean := node.GetBoolean(); boolean != nil {
+		return boolean.GetBoolval(), nil
+	}
+
+	if integer := node.GetInteger(); integer != nil &&
+		(integer.GetIval() == 0 || integer.GetIval() == 1) {
+		return integer.GetIval() == 1, nil
+	}
+
+	value := strings.ToLower(node.GetString_().GetSval())
+	// PostgreSQL parses bare OFF as a type name in a reloption.
+	if name := node.GetTypeName(); name != nil && len(name.GetNames()) == 1 &&
+		len(name.GetArrayBounds()) == 0 && len(name.GetTypmods()) == 0 &&
+		!name.GetSetof() && !name.GetPctType() {
+		value = strings.ToLower(name.GetNames()[0].GetString_().GetSval())
+	}
+
+	if value != "" && value != "o" {
+		if value == "1" || value == "0" {
+			return value == "1", nil
+		}
+
+		for _, word := range []string{"true", "false", "yes", "no", "on", "off"} {
+			if strings.HasPrefix(word, value) {
+				return word == "true" || word == "yes" || word == "on", nil
+			}
+		}
+	}
+
+	return false, errors.New("security_invoker requires a Boolean value")
 }
 
 func (p *Parser) parseCreateMaterializedView(stmt string, db *schema.Database) error {

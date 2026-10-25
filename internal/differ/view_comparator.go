@@ -17,6 +17,10 @@ func NewViewComparator(opts *Options) *ViewComparator {
 }
 
 func (vc *ViewComparator) AreEqual(current, desired schema.View) bool {
+	if current.SecurityInvoker != desired.SecurityInvoker {
+		return false
+	}
+
 	if vc.options.IgnoreComments {
 		return vc.normalizer.definitionsEqual(current.Definition, desired.Definition) &&
 			normalizeCheckOption(current.CheckOption) == normalizeCheckOption(desired.CheckOption)
@@ -65,7 +69,7 @@ func (vc *ViewComparator) CreateModifyChange(key string, current, desired schema
 		desired.CheckOption,
 	)
 
-	if !defEqual || !checkOptEqual {
+	if !defEqual || !checkOptEqual || current.SecurityInvoker != desired.SecurityInvoker {
 		return Change{
 			Type:              ChangeTypeModifyView,
 			Severity:          SeverityPotentiallyBreaking,

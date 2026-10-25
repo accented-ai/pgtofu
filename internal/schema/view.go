@@ -1,13 +1,14 @@
 package schema
 
 type View struct {
-	Schema      string `json:"schema"`
-	Name        string `json:"name"`
-	Definition  string `json:"definition"`
-	Comment     string `json:"comment,omitempty"`
-	Owner       string `json:"owner,omitempty"`
-	CheckOption string `json:"check_option,omitempty"`
-	IsUpdatable bool   `json:"is_updatable,omitempty"`
+	Schema          string `json:"schema"`
+	Name            string `json:"name"`
+	Definition      string `json:"definition"`
+	Comment         string `json:"comment,omitempty"`
+	Owner           string `json:"owner,omitempty"`
+	CheckOption     string `json:"check_option,omitempty"`
+	IsUpdatable     bool   `json:"is_updatable,omitempty"`
+	SecurityInvoker bool   `json:"security_invoker,omitempty"`
 }
 
 type MaterializedView struct {

@@ -223,6 +223,19 @@ jobs:
     name: Go unit tests
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:18.0-alpine3.22@sha256:48c8ad3a7284b82be4482a52076d47d879fd6fb084a1cbfccbd551f9331b0e40
+        env:
+          POSTGRES_PASSWORD: pgtofu_fixture
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 1s
+          --health-timeout 5s
+          --health-retries 30
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -235,6 +248,11 @@ jobs:
 
       - name: Run tests
         run: go test -v -race -coverprofile=coverage.out ./...
+
+      - name: Check generated view invoker isolation
+        env:
+          PGTOFU_TEST_DATABASE_URL: postgres://postgres:pgtofu_fixture@localhost:5432/postgres?sslmode=disable
+        run: go test -v -race -count=1 -timeout=3m -run '^TestPostgresViewInvokerRoundTrip$' ./internal/generator/tests
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4

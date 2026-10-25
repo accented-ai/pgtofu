@@ -69,6 +69,10 @@ Extracted column snapshots retain the caller-visible `default` and a `catalog_de
 Generated SQL and comparisons use the bound expression, including rollback under a different search path.
 Editing `default` invalidates the catalog expression because it records the original presentation.
 
+Ordinary views retain `security_invoker` through extraction, migration, and rollback.
+View replacements and dependency-driven recreation preserve the selected invoker policy.
+An absent option and explicit `false` both use PostgreSQL's default owner-rights behavior.
+
 ## Contributing
 
 ```bash
