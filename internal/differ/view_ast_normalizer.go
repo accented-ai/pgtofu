@@ -12,6 +12,18 @@ import (
 	"github.com/accented-ai/pgtofu/internal/postgresparse"
 )
 
+type postgresViewNormalization uint8
+
+const (
+	legacyPostgresView postgresViewNormalization = iota
+	sourcePostgresView
+	catalogPostgresView
+)
+
+type postgresASTNormalizer struct {
+	mode postgresViewNormalization
+}
+
 func (vn *viewNormalizer) definitionsEqual(current, desired string) bool {
 	var (
 		currentAST, currentOK, currentScoped = canonicalPostgresView(current, vn.currentColumns)
@@ -33,6 +45,14 @@ func (vn *viewNormalizer) definitionsEqual(current, desired string) bool {
 }
 
 func canonicalPostgresView(definition string, columns map[string][]string) (string, bool, bool) {
+	return canonicalPostgresViewMode(definition, columns, legacyPostgresView)
+}
+
+func canonicalPostgresViewMode(
+	definition string,
+	columns map[string][]string,
+	mode postgresViewNormalization,
+) (string, bool, bool) {
 	definition = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(definition), ";"))
 	if definition == "" {
 		return "", false, false
@@ -46,7 +66,7 @@ func canonicalPostgresView(definition string, columns map[string][]string) (stri
 	expandPostgresRelationWildcards(tree.ProtoReflect(), columns)
 	scopedAliases := normalizePostgresViewAliases(tree.ProtoReflect())
 
-	return canonicalPostgresMessage(tree.ProtoReflect()), true, scopedAliases
+	return (postgresASTNormalizer{mode: mode}).message(tree.ProtoReflect()), true, scopedAliases
 }
 
 func canonicalPostgresExpression(expression string) (string, bool) {
@@ -73,27 +93,31 @@ func canonicalPostgresExpression(expression string) (string, bool) {
 	return canonicalPostgresNode(target.GetVal()), true
 }
 
-func canonicalPostgresMessage(message protoreflect.Message) string {
-	if node, ok := message.Interface().(*pgquery.Node); ok {
-		return canonicalPostgresNode(node)
-	}
-
-	return canonicalPostgresMessageFields(message)
+func canonicalPostgresNode(node *pgquery.Node) string {
+	return (postgresASTNormalizer{mode: legacyPostgresView}).node(node)
 }
 
-func canonicalPostgresMessageFields(message protoreflect.Message) string {
+func (n postgresASTNormalizer) message(message protoreflect.Message) string {
+	if node, ok := message.Interface().(*pgquery.Node); ok {
+		return n.node(node)
+	}
+
+	return n.messageFields(message)
+}
+
+func (n postgresASTNormalizer) messageFields(message protoreflect.Message) string {
 	fields := make([]string, 0, message.Descriptor().Fields().Len())
 
 	message.Range(func(field protoreflect.FieldDescriptor, value protoreflect.Value) bool {
 		name := string(field.Name())
 		if isPostgresLocationField(name) ||
 			isPostgresAnonymousTargetName(message, name) ||
-			isImplicitPostgresCaseDefault(message, field, value) ||
+			n.isImplicitCaseDefault(message, field, value) ||
 			isDefaultPostgresAscendingSort(message, field, value) {
 			return true
 		}
 
-		fields = append(fields, name+":"+canonicalPostgresField(field, value))
+		fields = append(fields, name+":"+n.field(field, value))
 
 		return true
 	})
@@ -109,27 +133,31 @@ func isPostgresAnonymousTargetName(message protoreflect.Message, field string) b
 		postgresImplicitOutputName(target.GetVal()) == "?column?"
 }
 
-func canonicalPostgresNode(node *pgquery.Node) string {
+func (n postgresASTNormalizer) node(node *pgquery.Node) string {
 	if node == nil {
 		return "null"
 	}
 
-	if cast := node.GetTypeCast(); cast != nil && isIgnorableViewTypeCastNode(cast) {
-		return canonicalPostgresNode(cast.GetArg())
+	if cast := node.GetTypeCast(); cast != nil && n.isIgnorableTypeCast(cast) {
+		return n.node(cast.GetArg())
 	}
 
 	if expression := node.GetAExpr(); expression != nil {
-		return canonicalPostgresAExpr(expression)
+		if n.mode != legacyPostgresView && len(expression.GetName()) > 1 {
+			return n.messageFields(expression.ProtoReflect())
+		}
+
+		return n.aExpr(expression)
 	}
 
 	if expression := node.GetBoolExpr(); expression != nil {
-		return canonicalPostgresBoolExpr(expression)
+		return n.boolExpr(expression)
 	}
 
-	return canonicalPostgresMessageFields(node.ProtoReflect())
+	return n.messageFields(node.ProtoReflect())
 }
 
-func canonicalPostgresField(
+func (n postgresASTNormalizer) field(
 	field protoreflect.FieldDescriptor,
 	value protoreflect.Value,
 ) string {
@@ -138,22 +166,22 @@ func canonicalPostgresField(
 		items := make([]string, 0, list.Len())
 
 		for index := range list.Len() {
-			items = append(items, canonicalPostgresValue(field, list.Get(index)))
+			items = append(items, n.value(field, list.Get(index)))
 		}
 
 		return "[" + strings.Join(items, ",") + "]"
 	}
 
-	return canonicalPostgresValue(field, value)
+	return n.value(field, value)
 }
 
-func canonicalPostgresValue(
+func (n postgresASTNormalizer) value(
 	field protoreflect.FieldDescriptor,
 	value protoreflect.Value,
 ) string {
 	switch field.Kind() {
 	case protoreflect.MessageKind, protoreflect.GroupKind:
-		return canonicalPostgresMessage(value.Message())
+		return n.message(value.Message())
 	case protoreflect.EnumKind:
 		enumValue := field.Enum().Values().ByNumber(value.Enum())
 		if enumValue == nil {
@@ -180,82 +208,89 @@ func canonicalPostgresValue(
 	}
 }
 
-func canonicalPostgresAExpr(expression *pgquery.A_Expr) string {
+func (n postgresASTNormalizer) aExpr(expression *pgquery.A_Expr) string {
 	operator := postgresOperatorName(expression.GetName())
 
 	switch expression.GetKind() {
 	case pgquery.A_Expr_Kind_AEXPR_IN:
-		return canonicalPostgresMembership(
+		return n.membership(
 			expression.GetLexpr(),
-			postgresArrayElements(expression.GetRexpr()),
+			n.arrayElements(expression.GetRexpr()),
 			operator == "<>",
 		)
 	case pgquery.A_Expr_Kind_AEXPR_OP_ANY:
-		elements := postgresArrayElements(expression.GetRexpr())
+		elements := n.arrayElements(expression.GetRexpr())
 		if operator == "=" && elements != nil {
-			return canonicalPostgresMembership(expression.GetLexpr(), elements, false)
+			return n.membership(expression.GetLexpr(), elements, false)
 		}
 
-		return canonicalPostgresQuantifiedComparison(expression, "any")
+		return n.quantifiedComparison(expression, "any")
 	case pgquery.A_Expr_Kind_AEXPR_OP_ALL:
-		elements := postgresArrayElements(expression.GetRexpr())
+		elements := n.arrayElements(expression.GetRexpr())
 		if operator == "<>" && elements != nil {
-			return canonicalPostgresMembership(expression.GetLexpr(), elements, true)
+			return n.membership(expression.GetLexpr(), elements, true)
 		}
 
-		return canonicalPostgresQuantifiedComparison(expression, "all")
+		return n.quantifiedComparison(expression, "all")
 	case pgquery.A_Expr_Kind_AEXPR_BETWEEN:
-		return canonicalPostgresBetween(expression, false, false)
+		return n.between(expression, false, false)
 	case pgquery.A_Expr_Kind_AEXPR_NOT_BETWEEN:
-		return canonicalPostgresBetween(expression, true, false)
+		return n.between(expression, true, false)
 	case pgquery.A_Expr_Kind_AEXPR_BETWEEN_SYM:
-		return canonicalPostgresBetween(expression, false, true)
+		return n.between(expression, false, true)
 	case pgquery.A_Expr_Kind_AEXPR_NOT_BETWEEN_SYM:
-		return canonicalPostgresBetween(expression, true, true)
+		return n.between(expression, true, true)
 	case pgquery.A_Expr_Kind_AEXPR_DISTINCT:
-		if expanded, ok := canonicalPostgresRowDistinct(expression, false); ok {
+		if expanded, ok := n.rowDistinct(expression, false); ok {
 			return expanded
 		}
 
-		return canonicalPostgresComparison(
+		return n.comparison(
 			"is distinct from",
 			expression.GetLexpr(),
 			expression.GetRexpr(),
 		)
 	case pgquery.A_Expr_Kind_AEXPR_NOT_DISTINCT:
-		if expanded, ok := canonicalPostgresRowDistinct(expression, true); ok {
+		if expanded, ok := n.rowDistinct(expression, true); ok {
 			return expanded
 		}
 
-		return canonicalPostgresComparison(
+		return n.comparison(
 			"is not distinct from",
 			expression.GetLexpr(),
 			expression.GetRexpr(),
 		)
 	case pgquery.A_Expr_Kind_AEXPR_SIMILAR:
-		return canonicalPostgresSimilar(expression, operator)
+		if n.mode != legacyPostgresView && !n.isSimilarEscapeCall(expression.GetRexpr()) {
+			return n.messageFields(expression.ProtoReflect())
+		}
+
+		return n.similar(expression, operator)
 	case pgquery.A_Expr_Kind_AEXPR_OP,
 		pgquery.A_Expr_Kind_AEXPR_LIKE,
 		pgquery.A_Expr_Kind_AEXPR_ILIKE:
-		if isPostgresSimilarEscapeCall(expression.GetRexpr()) &&
+		if n.isSimilarEscapeCall(expression.GetRexpr()) &&
 			(operator == "~" || operator == "!~") {
-			return canonicalPostgresSimilar(expression, operator)
+			return n.similar(expression, operator)
 		}
 
-		return canonicalPostgresComparison(
+		return n.comparison(
 			normalizePostgresOperator(operator),
 			expression.GetLexpr(),
 			expression.GetRexpr(),
 		)
 	default:
-		return canonicalPostgresMessageFields(expression.ProtoReflect())
+		return n.messageFields(expression.ProtoReflect())
 	}
 }
 
-func canonicalPostgresRowDistinct(expression *pgquery.A_Expr, negated bool) (string, bool) {
-	left := postgresRowElements(expression.GetLexpr())
+func (n postgresASTNormalizer) rowDistinct(
+	expression *pgquery.A_Expr,
+	negated bool,
+) (string, bool) {
+	left := n.rowElements(expression.GetLexpr())
 
-	right := postgresRowElements(expression.GetRexpr())
+	right := n.rowElements(expression.GetRexpr())
 	if len(left) == 0 || len(left) != len(right) {
 		return "", false
 	}
@@ -272,15 +307,15 @@ func canonicalPostgresRowDistinct(expression *pgquery.A_Expr, negated bool) (str
 	for index := range left {
 		comparisons = append(
 			comparisons,
-			canonicalPostgresComparison(operator, left[index], right[index]),
+			n.comparison(operator, left[index], right[index]),
 		)
 	}
 
 	return canonicalPostgresBoolean(booleanOperator, comparisons...), true
 }
 
-func postgresRowElements(node *pgquery.Node) []*pgquery.Node {
-	node = unwrapIgnorableViewTypeCast(node)
+func (n postgresASTNormalizer) rowElements(node *pgquery.Node) []*pgquery.Node {
+	node = n.unwrapTypeCast(node)
 	if node == nil || node.GetRowExpr() == nil {
 		return nil
 	}
@@ -288,12 +323,12 @@ func postgresRowElements(node *pgquery.Node) []*pgquery.Node {
 	return node.GetRowExpr().GetArgs()
 }
 
-func canonicalPostgresBoolExpr(expression *pgquery.BoolExpr) string {
+func (n postgresASTNormalizer) boolExpr(expression *pgquery.BoolExpr) string {
 	if expression.GetBoolop() == pgquery.BoolExprType_NOT_EXPR && len(expression.GetArgs()) == 1 {
 		argument := expression.GetArgs()[0]
 		if distinct := argument.GetAExpr(); distinct != nil &&
 			distinct.GetKind() == pgquery.A_Expr_Kind_AEXPR_DISTINCT {
-			return canonicalPostgresComparison(
+			return n.comparison(
 				"is not distinct from",
 				distinct.GetLexpr(),
 				distinct.GetRexpr(),
@@ -303,7 +338,7 @@ func canonicalPostgresBoolExpr(expression *pgquery.BoolExpr) string {
 
 	arguments := make([]string, 0, len(expression.GetArgs()))
 	for _, argument := range expression.GetArgs() {
-		arguments = append(arguments, canonicalPostgresNode(argument))
+		arguments = append(arguments, n.node(argument))
 	}
 
 	return canonicalPostgresBoolean(
@@ -312,7 +347,7 @@ func canonicalPostgresBoolExpr(expression *pgquery.BoolExpr) string {
 	)
 }
 
-func canonicalPostgresMembership(
+func (n postgresASTNormalizer) membership(
 	left *pgquery.Node,
 	elements []*pgquery.Node,
 	negated bool,
@@ -323,12 +358,12 @@ func canonicalPostgresMembership(
 			operator = "!="
 		}
 
-		return canonicalPostgresComparison(operator, left, elements[0])
+		return n.comparison(operator, left, elements[0])
 	}
 
 	values := make([]string, 0, len(elements))
 	for _, element := range elements {
-		values = append(values, canonicalPostgresNode(element))
+		values = append(values, n.node(element))
 	}
 
 	operator := "in"
@@ -337,32 +372,35 @@ func canonicalPostgresMembership(
 	}
 
 	return "membership(" + strconv.Quote(operator) + "," +
-		canonicalPostgresNode(left) + ",[" + strings.Join(values, ",") + "])"
+		n.node(left) + ",[" + strings.Join(values, ",") + "])"
 }
 
-func canonicalPostgresQuantifiedComparison(
+func (n postgresASTNormalizer) quantifiedComparison(
 	expression *pgquery.A_Expr,
 	quantifier string,
 ) string {
 	return "quantified(" +
 		strconv.Quote(normalizePostgresOperator(postgresOperatorName(expression.GetName()))) + "," +
 		strconv.Quote(quantifier) + "," +
-		canonicalPostgresNode(expression.GetLexpr()) + "," +
-		canonicalPostgresNode(expression.GetRexpr()) + ")"
+		n.node(expression.GetLexpr()) + "," +
+		n.node(expression.GetRexpr()) + ")"
 }
 
-func canonicalPostgresBetween(expression *pgquery.A_Expr, negated, symmetric bool) string {
-	bounds := postgresArrayElements(expression.GetRexpr())
+func (n postgresASTNormalizer) between(
+	expression *pgquery.A_Expr,
+	negated, symmetric bool,
+) string {
+	bounds := n.arrayElements(expression.GetRexpr())
 	if len(bounds) != 2 {
-		return canonicalPostgresMessageFields(expression.ProtoReflect())
+		return n.messageFields(expression.ProtoReflect())
 	}
 
-	forward := canonicalPostgresBoundPair(expression.GetLexpr(), bounds[0], bounds[1], negated)
+	forward := n.boundPair(expression.GetLexpr(), bounds[0], bounds[1], negated)
 	if !symmetric {
 		return forward
 	}
 
-	reverse := canonicalPostgresBoundPair(expression.GetLexpr(), bounds[1], bounds[0], negated)
+	reverse := n.boundPair(expression.GetLexpr(), bounds[1], bounds[0], negated)
 
 	outerOperator := "or"
 	if negated {
@@ -372,19 +410,22 @@ func canonicalPostgresBetween(expression *pgquery.A_Expr, negated, symmetric boo
 	return canonicalPostgresBoolean(outerOperator, forward, reverse)
 }
 
-func canonicalPostgresBoundPair(value, lower, upper *pgquery.Node, negated bool) string {
+func (n postgresASTNormalizer) boundPair(
+	value, lower, upper *pgquery.Node,
+	negated bool,
+) string {
 	if negated {
 		return canonicalPostgresBoolean(
 			"or",
-			canonicalPostgresComparison("<", value, lower),
-			canonicalPostgresComparison(">", value, upper),
+			n.comparison("<", value, lower),
+			n.comparison(">", value, upper),
 		)
 	}
 
 	return canonicalPostgresBoolean(
 		"and",
-		canonicalPostgresComparison(">=", value, lower),
-		canonicalPostgresComparison("<=", value, upper),
+		n.comparison(">=", value, lower),
+		n.comparison("<=", value, upper),
 	)
 }
 
@@ -392,9 +433,9 @@ func canonicalPostgresBoolean(operator string, arguments ...string) string {
 	return "boolean(" + strconv.Quote(operator) + ",[" + strings.Join(arguments, ",") + "])"
 }
 
-func canonicalPostgresComparison(operator string, left, right *pgquery.Node) string {
-	leftValue := canonicalPostgresNode(left)
-	rightValue := canonicalPostgresNode(right)
+func (n postgresASTNormalizer) comparison(operator string, left, right *pgquery.Node) string {
+	leftValue := n.node(left)
+	rightValue := n.node(right)
 
 	if reversedOperator, ok := reversedPostgresComparisonOperator(operator); ok &&
 		isQualifiedPostgresColumnReference(left) &&
@@ -437,24 +478,24 @@ func reversedPostgresComparisonOperator(operator string) (string, bool) {
 	}
 }
 
-func canonicalPostgresSimilar(expression *pgquery.A_Expr, operator string) string {
+func (n postgresASTNormalizer) similar(expression *pgquery.A_Expr, operator string) string {
 	call := expression.GetRexpr().GetFuncCall()
 
 	arguments := make([]string, 0)
 	if call != nil {
 		arguments = make([]string, 0, len(call.GetArgs()))
 		for _, argument := range call.GetArgs() {
-			arguments = append(arguments, canonicalPostgresNode(argument))
+			arguments = append(arguments, n.node(argument))
 		}
 	}
 
 	return "similar(" + strconv.FormatBool(operator == "!~") + "," +
-		canonicalPostgresNode(expression.GetLexpr()) + ",[" +
+		n.node(expression.GetLexpr()) + ",[" +
 		strings.Join(arguments, ",") + "])"
 }
 
-func postgresArrayElements(node *pgquery.Node) []*pgquery.Node {
-	node = unwrapIgnorableViewTypeCast(node)
+func (n postgresASTNormalizer) arrayElements(node *pgquery.Node) []*pgquery.Node {
+	node = n.unwrapTypeCast(node)
 	if node == nil {
 		return nil
 	}
@@ -470,10 +511,10 @@ func postgresArrayElements(node *pgquery.Node) []*pgquery.Node {
 	return nil
 }
 
-func unwrapIgnorableViewTypeCast(node *pgquery.Node) *pgquery.Node {
+func (n postgresASTNormalizer) unwrapTypeCast(node *pgquery.Node) *pgquery.Node {
 	for node != nil {
 		cast := node.GetTypeCast()
-		if cast == nil || !isIgnorableViewTypeCastNode(cast) {
+		if cast == nil || !n.isIgnorableTypeCast(cast) {
 			return node
 		}
 
@@ -483,9 +524,13 @@ func unwrapIgnorableViewTypeCast(node *pgquery.Node) *pgquery.Node {
 	return nil
 }
 
-func isIgnorableViewTypeCastNode(cast *pgquery.TypeCast) bool {
+func (n postgresASTNormalizer) isIgnorableTypeCast(cast *pgquery.TypeCast) bool {
 	if cast == nil {
 		return false
+	}
+
+	if n.mode != legacyPostgresView {
+		return n.isCatalogLiteralCast(cast)
 	}
 
 	if isIgnorableViewTypeCast(cast.GetTypeName()) {
@@ -495,10 +540,61 @@ func isIgnorableViewTypeCastNode(cast *pgquery.TypeCast) bool {
 	return strings.EqualFold(
 		postgresNodeListLastString(cast.GetTypeName().GetNames()),
 		"unknown",
-	) && isPostgresNullNode(cast.GetArg())
+	) && n.isNull(cast.GetArg())
 }
 
-func isImplicitPostgresCaseDefault(
+func (n postgresASTNormalizer) isCatalogLiteralCast(cast *pgquery.TypeCast) bool {
+	typeName := cast.GetTypeName()
+	if !isPlainPostgresType(typeName) {
+		return false
+	}
+
+	constant := cast.GetArg().GetAConst()
+	if constant == nil {
+		return false
+	}
+
+	return n.isBuiltinName(typeName.GetNames(), "text") && constant.GetSval() != nil ||
+		n.isBuiltinName(typeName.GetNames(), "unknown") && constant.GetIsnull()
+}
+
+func isPlainPostgresType(typeName *pgquery.TypeName) bool {
+	return typeName != nil && len(typeName.GetTypmods()) == 0 &&
+		len(typeName.GetArrayBounds()) == 0 && typeName.GetTypemod() < 0 &&
+		!typeName.GetSetof() && !typeName.GetPctType() && typeName.GetTypeOid() == 0
+}
+
+func (n postgresASTNormalizer) isCatalogNullDefault(node *pgquery.Node) bool {
+	cast := node.GetTypeCast()
+	if n.mode != catalogPostgresView || cast == nil || !isPlainPostgresType(cast.GetTypeName()) ||
+		cast.GetArg().GetAConst() == nil || !cast.GetArg().GetAConst().GetIsnull() {
+		return false
+	}
+
+	name := postgresNodeListLastString(cast.GetTypeName().GetNames())
+	if !n.isBuiltinName(cast.GetTypeName().GetNames(), name) {
+		return false
+	}
+
+	switch name {
+	case "numeric", "text", "int8", "int4", "int2", "float4", "float8", "varchar", "bpchar",
+		"timestamp", "timestamptz", "interval", "bool", "json", "jsonb":
+		return true
+	default:
+		return false
+	}
+}
+
+func (n postgresASTNormalizer) isBuiltinName(names []*pgquery.Node, name string) bool {
+	if len(names) == 1 {
+		return n.mode == catalogPostgresView && postgresNodeListLastString(names) == name
+	}
+
+	return len(names) == 2 && names[0].GetString_().GetSval() == "pg_catalog" &&
+		postgresNodeListLastString(names) == name
+}
+
+func (n postgresASTNormalizer) isImplicitCaseDefault(
 	message protoreflect.Message,
 	field protoreflect.FieldDescriptor,
 	value protoreflect.Value,
@@ -513,7 +609,8 @@ func isImplicitPostgresCaseDefault(
 
 	node, ok := value.Message().Interface().(*pgquery.Node)
 
-	return ok && isPostgresNullNode(node)
+	// A catalog CASE default has the resolved result type; result-arm casts stay intact.
+	return ok && (n.isNull(node) || n.isCatalogNullDefault(node))
 }
 
 func isDefaultPostgresAscendingSort(
@@ -535,8 +632,8 @@ func isDefaultPostgresAscendingSort(
 		direction == pgquery.SortByDir_SORTBY_ASC
 }
 
-func isPostgresNullNode(node *pgquery.Node) bool {
-	node = unwrapIgnorableViewTypeCast(node)
+func (n postgresASTNormalizer) isNull(node *pgquery.Node) bool {
+	node = n.unwrapTypeCast(node)
 	if node == nil {
 		return false
 	}
@@ -562,9 +659,19 @@ func isIgnorableViewTypeCast(typeName *pgquery.TypeName) bool {
 	}
 }
 
-func isPostgresSimilarEscapeCall(node *pgquery.Node) bool {
+func (n postgresASTNormalizer) isSimilarEscapeCall(node *pgquery.Node) bool {
 	if node == nil || node.GetFuncCall() == nil {
 		return false
+	}
+
+	if n.mode != legacyPostgresView {
+		call := node.GetFuncCall()
+
+		return n.isBuiltinName(call.GetFuncname(), "similar_to_escape") &&
+			len(call.GetArgs()) >= 1 && len(call.GetArgs()) <= 2 &&
+			len(call.GetAggOrder()) == 0 && call.GetAggFilter() == nil && call.GetOver() == nil &&
+			!call.GetAggWithinGroup() && !call.GetAggStar() && !call.GetAggDistinct() &&
+			!call.GetFuncVariadic()
 	}
 
 	return strings.EqualFold(

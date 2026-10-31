@@ -129,9 +129,11 @@ func (d *Differ) processMaterializedViewChanges(
 
 	for key, desiredView := range desiredViews {
 		if currentView, exists := currentViews[key]; exists {
-			defEqual := d.viewComp.normalizer.definitionsEqual(
+			defEqual := d.viewComp.normalizer.catalogDefinitionsEqual(
 				currentView.Definition,
 				desiredView.Definition,
+				currentView.BoundDefinition(),
+				desiredView.BoundDefinition(),
 			)
 			currentComment := normalizeComment(currentView.Comment)
 			desiredComment := normalizeComment(desiredView.Comment)
