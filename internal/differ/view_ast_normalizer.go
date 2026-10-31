@@ -21,7 +21,8 @@ const (
 )
 
 type postgresASTNormalizer struct {
-	mode postgresViewNormalization
+	mode         postgresViewNormalization
+	catalogCasts map[*pgquery.TypeCast]*pgquery.TypeCast
 }
 
 func (vn *viewNormalizer) definitionsEqual(current, desired string) bool {
@@ -53,6 +54,14 @@ func canonicalPostgresViewMode(
 	columns map[string][]string,
 	mode postgresViewNormalization,
 ) (string, bool, bool) {
+	return canonicalPostgresViewWithCatalog(definition, "", columns, mode)
+}
+
+func canonicalPostgresViewWithCatalog(
+	definition, bound string,
+	columns map[string][]string,
+	mode postgresViewNormalization,
+) (string, bool, bool) {
 	definition = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(definition), ";"))
 	if definition == "" {
 		return "", false, false
@@ -63,10 +72,22 @@ func canonicalPostgresViewMode(
 		return "", false, false
 	}
 
+	normalizer := postgresASTNormalizer{mode: mode}
+
+	if bound != "" {
+		catalog, parseErr := postgresparse.Parse(bound)
+
+		casts := make(map[*pgquery.TypeCast]*pgquery.TypeCast)
+		if parseErr == nil &&
+			collectCatalogViewCasts(tree.ProtoReflect(), catalog.ProtoReflect(), casts) {
+			normalizer.catalogCasts = casts
+		}
+	}
+
 	expandPostgresRelationWildcards(tree.ProtoReflect(), columns)
 	scopedAliases := normalizePostgresViewAliases(tree.ProtoReflect())
 
-	return (postgresASTNormalizer{mode: mode}).message(tree.ProtoReflect()), true, scopedAliases
+	return normalizer.message(tree.ProtoReflect()), true, scopedAliases
 }
 
 func canonicalPostgresExpression(expression string) (string, bool) {
@@ -544,6 +565,10 @@ func (n postgresASTNormalizer) isIgnorableTypeCast(cast *pgquery.TypeCast) bool 
 }
 
 func (n postgresASTNormalizer) isCatalogLiteralCast(cast *pgquery.TypeCast) bool {
+	if catalog := n.catalogCasts[cast]; catalog != nil {
+		cast, n.mode = catalog, catalogPostgresView
+	}
+
 	typeName := cast.GetTypeName()
 	if !isPlainPostgresType(typeName) {
 		return false
@@ -566,6 +591,10 @@ func isPlainPostgresType(typeName *pgquery.TypeName) bool {
 
 func (n postgresASTNormalizer) isCatalogNullDefault(node *pgquery.Node) bool {
 	cast := node.GetTypeCast()
+	if catalog := n.catalogCasts[cast]; catalog != nil {
+		cast, n.mode = catalog, catalogPostgresView
+	}
+
 	if n.mode != catalogPostgresView || cast == nil || !isPlainPostgresType(cast.GetTypeName()) ||
 		cast.GetArg().GetAConst() == nil || !cast.GetArg().GetAConst().GetIsnull() {
 		return false

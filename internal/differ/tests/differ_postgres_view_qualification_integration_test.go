@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -140,6 +141,102 @@ func TestPostgresViewQualificationRoundTrip(t *testing.T) {
 	require.NoError(t, shadowPool.QueryRow(ctx, "SHOW search_path").Scan(&path))
 	assert.Equal(t, "view_qualification, public", path)
 	assertChangedViewBindings(t, shadowed)
+}
+
+//nolint:paralleltest // Uses dedicated mutable views and a public source table.
+func TestPostgresViewLiteralDeparsingRoundTrip(t *testing.T) {
+	databaseURL := os.Getenv("PGTOFU_TEST_DATABASE_URL")
+	if testing.Short() || databaseURL == "" {
+		t.Skip("requires PGTOFU_TEST_DATABASE_URL")
+	}
+
+	location, err := url.Parse(databaseURL)
+	require.NoError(t, err)
+
+	parameters := location.Query()
+	parameters.Set("search_path", "public")
+	location.RawQuery = parameters.Encode()
+
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+
+	conn, err := pgx.Connect(ctx, location.String())
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cleanupCancel()
+
+		_, cleanupErr := conn.Exec(cleanupCtx, `DROP SCHEMA IF EXISTS view_literals CASCADE;
+			DROP TABLE IF EXISTS public.view_literal_records;`)
+		assert.NoError(t, cleanupErr)
+		assert.NoError(t, conn.Close(cleanupCtx))
+	})
+
+	_, err = conn.Exec(ctx, `CREATE SCHEMA view_literals;
+		CREATE TABLE public.view_literal_records (id integer, payload bytea, label text);`)
+	require.NoError(t, err)
+	parameters.Set("pool_max_conns", "1")
+	location.RawQuery = parameters.Encode()
+	pool, err := database.NewPoolFromURL(ctx, location.String())
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	schemaExtractor, err := extractor.New(ctx, pool, extractor.Options{})
+	require.NoError(t, err)
+	desired, err := schemaExtractor.Extract(ctx)
+	require.NoError(t, err)
+
+	const encoded = `SELECT r.id FROM view_literal_records r
+		JOIN view_literal_records linked ON linked.id = r.id
+		WHERE linked.label = ENCODE(r.payload, 'hex')`
+
+	const selected = `SELECT r.id FROM view_literal_records r
+		LEFT JOIN view_literal_records linked ON linked.label = CASE
+			WHEN r.id = 1 THEN r.label WHEN r.id = 2 THEN linked.label END`
+
+	const source = `CREATE VIEW view_literals.encoded AS ` + encoded + `;
+		CREATE MATERIALIZED VIEW view_literals.encoded_snapshot AS ` + encoded + `;
+		CREATE VIEW view_literals.selected AS ` + selected + `;
+		CREATE MATERIALIZED VIEW view_literals.selected_snapshot AS ` + selected + `;`
+
+	directory := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(directory, "views"), 0o700))
+	require.NoError(
+		t,
+		os.WriteFile(filepath.Join(directory, "views", "visible.sql"), []byte(source), 0o600),
+	)
+
+	schemaParser := parser.New()
+	parsed, err := schemaParser.ParseDirectory(directory)
+	require.NoError(t, err)
+	require.Empty(t, parsed.Errors)
+	desired.Views = parsed.Database.Views
+	desired.MaterializedViews = parsed.Database.MaterializedViews
+	require.Len(t, desired.Views, 2)
+	require.Len(t, desired.MaterializedViews, 2)
+
+	_, err = conn.Exec(ctx, source)
+	require.NoError(t, err)
+
+	current, err := schemaExtractor.Extract(ctx)
+	require.NoError(t, err)
+	require.Len(t, current.Views, 2)
+	require.Len(t, current.MaterializedViews, 2)
+
+	for _, view := range current.Views {
+		switch view.Name {
+		case "encoded":
+			require.Contains(t, view.Definition, "'hex'::text")
+		case "selected":
+			require.Contains(t, view.Definition, "ELSE NULL::text")
+		}
+	}
+
+	result, err := differ.New(nil).Compare(current, desired)
+	require.NoError(t, err)
+	assert.Empty(t, result.Changes, changeDescriptions(result.Changes))
+	result, err = differ.New(nil).Compare(desired, current)
+	require.NoError(t, err)
+	assert.Empty(t, result.Changes, changeDescriptions(result.Changes))
 }
 
 func assertChangedViewBindings(t *testing.T, current *schema.Database) {

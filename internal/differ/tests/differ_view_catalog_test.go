@@ -9,18 +9,20 @@ import (
 	"github.com/accented-ai/pgtofu/internal/schema"
 )
 
+type catalogViewCase struct {
+	name         string
+	current      string
+	original     string
+	bound        string
+	desired      string
+	desiredBound string
+	equal        bool
+}
+
 func TestViewCatalogBindings(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name         string
-		current      string
-		original     string
-		bound        string
-		desired      string
-		desiredBound string
-		equal        bool
-	}{
+	tests := []catalogViewCase{
 		{
 			name:         "identical presentation with different search-path bindings",
 			current:      "SELECT r.id FROM records r",
@@ -253,6 +255,101 @@ func TestViewCatalogBindings(t *testing.T) {
 			desired:  "SELECT r.id FROM public.records r",
 		},
 	}
+
+	assertViewCatalogCases(t, tests)
+}
+
+func TestViewCatalogCastEvidence(t *testing.T) {
+	t.Parallel()
+
+	tests := []catalogViewCase{
+		{
+			name:    "catalog builtin function argument text deparsing",
+			current: "SELECT encode(r.payload, 'hex'::text) AS value FROM records r",
+			bound:   "SELECT encode(r.payload, 'hex'::text) AS value FROM public.records r",
+			desired: "SELECT ENCODE(r.payload, 'hex') AS value FROM records r",
+			equal:   true,
+		},
+		{
+			name:    "catalog literal evidence keeps qualified builtin presentation",
+			current: "SELECT pg_catalog.encode(r.payload, 'hex'::pg_catalog.text) AS value FROM records r",
+			bound:   "SELECT encode(r.payload, 'hex'::text) AS value FROM public.records r",
+			desired: "SELECT pg_catalog.encode(r.payload, 'hex') AS value FROM records r",
+			equal:   true,
+		},
+		{
+			name:    "catalog literal evidence accepts qualified desired type",
+			current: "SELECT encode(r.payload, 'hex'::text) AS value FROM records r",
+			bound:   "SELECT encode(r.payload, 'hex'::text) AS value FROM public.records r",
+			desired: "SELECT encode(r.payload, 'hex'::pg_catalog.text) AS value FROM records r",
+			equal:   true,
+		},
+		{
+			name:    "catalog literal evidence cannot move between identical constants",
+			current: "SELECT 'ready'::text AS first, 'ready'::text AS second",
+			bound:   "SELECT 'ready'::public.text AS first, 'ready'::text AS second",
+			desired: "SELECT 'ready' AS first, 'ready'::text AS second",
+		},
+		{
+			name:    "catalog literal evidence requires the same literal",
+			current: "SELECT 'ready'::text AS value",
+			bound:   "SELECT 'changed'::text AS value",
+			desired: "SELECT 'ready' AS value",
+		},
+		{
+			name:    "catalog literal evidence requires the same expression",
+			current: "SELECT 'ready'::text AS value",
+			bound:   "SELECT lower('ready'::text) AS value",
+			desired: "SELECT 'ready' AS value",
+		},
+		{
+			name:    "catalog literal evidence cannot move between reordered nodes",
+			current: "SELECT 'ready'::text AS first, 'other'::text AS second",
+			bound:   "SELECT 'other'::text AS first, 'ready'::text AS second",
+			desired: "SELECT 'ready' AS first, 'other' AS second",
+		},
+		{
+			name:    "catalog CASE evidence preserves a resolved domain",
+			current: "SELECT CASE WHEN true THEN 'ready' ELSE NULL::text END AS value",
+			bound:   "SELECT CASE WHEN true THEN 'ready' ELSE NULL::public.text END AS value",
+			desired: "SELECT CASE WHEN true THEN 'ready' END AS value",
+		},
+		{
+			name:    "catalog CASE evidence requires matching result arms",
+			current: "SELECT CASE WHEN true THEN 'ready' ELSE NULL::text END AS value",
+			bound:   "SELECT CASE WHEN true THEN 'changed' ELSE NULL::text END AS value",
+			desired: "SELECT CASE WHEN true THEN 'ready' END AS value",
+		},
+		{
+			name: "catalog builtin joined CASE default deparsing",
+			current: `SELECT r.id FROM records r LEFT JOIN records linked ON linked.value =
+				CASE WHEN r.id = 1 THEN r.value WHEN r.id = 2 THEN linked.value ELSE NULL::text END`,
+			bound: `SELECT r.id FROM public.records r LEFT JOIN public.records linked ON linked.value =
+				CASE WHEN r.id = 1 THEN r.value WHEN r.id = 2 THEN linked.value ELSE NULL::text END`,
+			desired: `SELECT r.id FROM records r LEFT JOIN records linked ON linked.value =
+				CASE WHEN r.id = 1 THEN r.value WHEN r.id = 2 THEN linked.value END`,
+			equal: true,
+		},
+		{
+			name:    "catalog CASE evidence accepts builtin type aliases",
+			current: "SELECT CASE WHEN r.id > 0 THEN r.id ELSE NULL::integer END AS value FROM records r",
+			bound:   "SELECT CASE WHEN r.id > 0 THEN r.id ELSE NULL::pg_catalog.int4 END AS value FROM public.records r",
+			desired: "SELECT CASE WHEN r.id > 0 THEN r.id END AS value FROM records r",
+			equal:   true,
+		},
+		{
+			name:    "catalog CASE evidence rejects a different result type",
+			current: "SELECT CASE WHEN r.id > 0 THEN r.id ELSE NULL::integer END AS value FROM records r",
+			bound:   "SELECT CASE WHEN r.id > 0 THEN r.id ELSE NULL::pg_catalog.int8 END AS value FROM public.records r",
+			desired: "SELECT CASE WHEN r.id > 0 THEN r.id END AS value FROM records r",
+		},
+	}
+
+	assertViewCatalogCases(t, tests)
+}
+
+func assertViewCatalogCases(t *testing.T, tests []catalogViewCase) {
+	t.Helper()
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
