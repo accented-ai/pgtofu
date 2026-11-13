@@ -1110,11 +1110,10 @@ func normalizeInClauseSpacing(expr string) string {
 }
 
 func normalizeBetweenExpressions(expr string) string {
-	if strings.Contains(expr, " between ") {
-		expr = expandBetween(expr)
-		expr = removeComparisonParens(expr)
-		expr = stripTopLevelAndParens(expr)
-	}
+	// Deparse both forms so canonical function syntax stays consistent after expansion.
+	expr = expandBetween(expr)
+	expr = removeComparisonParens(expr)
+	expr = stripTopLevelAndParens(expr)
 
 	expr = normalizeOperators(expr)
 	expr = strings.Join(strings.Fields(expr), " ")
@@ -1138,14 +1137,6 @@ func stripTopLevelAndParens(expr string) string {
 	}
 
 	return expr
-}
-
-func expandBetween(expr string) string {
-	betweenPattern := regexp.MustCompile(
-		`(\w+)\s+between\s+(\S+)\s+and\s+(\S+)`,
-	)
-
-	return betweenPattern.ReplaceAllString(expr, "(($1 >= $2) and ($1 <= $3))")
 }
 
 func normalizeOperators(expr string) string {
